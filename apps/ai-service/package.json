@@ -1,0 +1,14 @@
+{
+  "name": "@ambienta/ai-service",
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5",
+    "ts-node": "^10.9.2"
+  }
+}
