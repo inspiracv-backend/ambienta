@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  @apply bg-white text-slate-900;
+}
+
+/* Foco visible siempre — heurística H5 / DoD accesibilidad */
+:focus-visible {
+  @apply outline outline-2 outline-offset-2 outline-brand-500;
+}
