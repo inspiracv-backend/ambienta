@@ -15,6 +15,7 @@ export const mockLegalNorms: LegalNorm[] = [
     fuente: 'BCN',
     fuenteUrl: 'https://www.bcn.cl/leychile/navegar?idNorma=1090894',
     responsableId: 'user-especialista',
+    sincronizacion: { estado: 'sincronizado', fecha: new Date().toISOString() },
     articulos: [
       { id: 'art-1a', normId: 'norm-1', numero: 'Art. 3', descripcion: 'Metas de recolección y valorización', respuesta: 'SI', formaCumplimiento: 'Reporte trimestral a gestor autorizado', responsableId: 'user-especialista', incluidoEnCalculo: true },
       { id: 'art-1b', normId: 'norm-1', numero: 'Art. 10', descripcion: 'Registro de productores', respuesta: 'NO', responsableId: 'user-especialista', incluidoEnCalculo: true },
@@ -58,9 +59,23 @@ export const mockLegalNorms: LegalNorm[] = [
     fuente: 'BCN',
     fuenteUrl: 'https://www.bcn.cl/leychile/navegar?idNorma=209235',
     responsableId: 'user-especialista',
+    sincronizacion: { estado: 'desactualizado', fecha: '2026-05-10T00:00:00.000Z' },
     articulos: [
       { id: 'art-4a', normId: 'norm-4', numero: 'Art. 15', descripcion: 'Declaración de generación de residuos peligrosos', respuesta: 'SI', formaCumplimiento: 'Declarado en SINADER mensualmente', responsableId: 'user-especialista', incluidoEnCalculo: true },
       { id: 'art-4b', normId: 'norm-4', numero: 'Art. 27', descripcion: 'Almacenamiento temporal autorizado', respuesta: 'NA', incluidoEnCalculo: false },
+    ],
+  },
+  {
+    id: 'norm-5',
+    tenantId: null,
+    plantIds: [],
+    tipoDocumento: 'Ley',
+    nombre: 'Ley 19.300 — Bases Generales del Medio Ambiente',
+    fuente: 'BCN',
+    fuenteUrl: 'https://www.bcn.cl/leychile/navegar?idNorma=30667',
+    sincronizacion: { estado: 'sincronizado', fecha: new Date().toISOString() },
+    articulos: [
+      { id: 'art-5a', normId: 'norm-5', numero: 'Art. 10', descripcion: 'Proyectos que deben someterse al SEIA', respuesta: 'N_E', incluidoEnCalculo: true },
     ],
   },
 ];

@@ -24,3 +24,5 @@ export * from './AuditDetailView';
 export * from './NonConformitiesListTable';
 export * from './NonConformityDetailView';
 export * from './RegisterFindingForm';
+export * from './CatalogNormsTable';
+export * from './AssignNormsToPlant';

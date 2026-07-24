@@ -37,7 +37,7 @@ const NAV_ITEMS = [
   { label: 'Calendario / Gantt', href: '/calendario', icon: CalendarDays, enabled: true },
   { label: 'Auditorías', href: '/auditorias', icon: ShieldAlert, enabled: true },
   { label: 'No Conformidades', href: '/no-conformidades', icon: ShieldAlert, enabled: true },
-  { label: 'Catálogo Normativo', href: '#', icon: BookMarked, enabled: false },
+  { label: 'Catálogo Normativo', href: '/catalogo-normativo', icon: BookMarked, enabled: true },
   { label: 'Gestores', href: '#', icon: Building2, enabled: false, gestorOnly: true },
   { label: 'Reportes', href: '#', icon: FileBarChart, enabled: false },
   { label: 'Notificaciones', href: '#', icon: Bell, enabled: false },

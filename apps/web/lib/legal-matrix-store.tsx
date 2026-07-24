@@ -9,6 +9,7 @@ interface LegalMatrixContextValue {
   updateArticulo: (normId: string, articuloId: string, updates: Partial<Articulo>) => void;
   setIncluidoEnCalculo: (normId: string, articuloId: string, incluido: boolean) => void;
   addNorm: (input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) => void;
+  setNormPlants: (normId: string, plantIds: string[]) => void;
 }
 
 const LegalMatrixContext = createContext<LegalMatrixContextValue | null>(null);
@@ -49,8 +50,12 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     setNorms((prev) => [...prev, newNorm]);
   }
 
+  function setNormPlants(normId: string, plantIds: string[]) {
+    setNorms((prev) => prev.map((norm) => (norm.id === normId ? { ...norm, plantIds } : norm)));
+  }
+
   return (
-    <LegalMatrixContext.Provider value={{ norms, updateArticulo, setIncluidoEnCalculo, addNorm }}>
+    <LegalMatrixContext.Provider value={{ norms, updateArticulo, setIncluidoEnCalculo, addNorm, setNormPlants }}>
       {children}
     </LegalMatrixContext.Provider>
   );
