@@ -19,3 +19,8 @@ export * from './CalendarMonthView';
 export * from './GanttView';
 export * from './KanbanBoard';
 export * from './PlanAccionDetailView';
+export * from './AuditsListTable';
+export * from './AuditDetailView';
+export * from './NonConformitiesListTable';
+export * from './NonConformityDetailView';
+export * from './RegisterFindingForm';
