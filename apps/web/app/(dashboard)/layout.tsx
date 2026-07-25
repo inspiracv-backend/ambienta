@@ -5,6 +5,7 @@ import { PlanAccionProvider } from '@/lib/plan-accion-store';
 import { AuditsProvider } from '@/lib/audits-store';
 import { LegalMatrixProvider } from '@/lib/legal-matrix-store';
 import { GestoresProvider } from '@/lib/gestores-store';
+import { NotificationsProvider } from '@/lib/notifications-store';
 
 /**
  * Obligations y PlanAccion se comparten entre /obligaciones y /calendario
@@ -13,7 +14,8 @@ import { GestoresProvider } from '@/lib/gestores-store';
  * No Conformidades también genera Planes de Acción (RF-41). LegalMatrix se
  * comparte entre /matriz-legal y /catalogo-normativo (misma entidad
  * LegalNorm, Sección H). Gestores vive aquí porque S-30 reutiliza Obligation
- * (Sección I).
+ * (Sección I). Notifications vive aquí porque el contador de no leídas se
+ * muestra en AppHeader (Sección J).
  */
 export default function DashboardRouteLayout({ children }: { children: ReactNode }) {
   return (
@@ -22,7 +24,9 @@ export default function DashboardRouteLayout({ children }: { children: ReactNode
         <AuditsProvider>
           <PlanAccionProvider>
             <GestoresProvider>
-              <DashboardLayout>{children}</DashboardLayout>
+              <NotificationsProvider>
+                <DashboardLayout>{children}</DashboardLayout>
+              </NotificationsProvider>
             </GestoresProvider>
           </PlanAccionProvider>
         </AuditsProvider>

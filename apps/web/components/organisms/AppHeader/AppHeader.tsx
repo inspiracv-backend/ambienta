@@ -1,9 +1,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { LogOut, Menu } from 'lucide-react';
+import Link from 'next/link';
+import { Bell, LogOut, Menu } from 'lucide-react';
 import { Avatar, Button } from '@/components/atoms';
 import { useSession } from '@/lib/session';
+import { useNotifications } from '@/lib/notifications-store';
 import { ROLE_LABEL } from '@/lib/roles';
 import { mockTenants } from '@/mocks/tenants';
 
@@ -18,8 +20,10 @@ interface AppHeaderProps {
 export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
   const router = useRouter();
   const { user, logout } = useSession();
+  const { notifications } = useNotifications();
 
   const tenant = mockTenants.find((t) => t.id === user?.tenantId);
+  const noLeidas = user ? notifications.filter((n) => n.userId === user.id && !n.leida).length : 0;
 
   function handleLogout() {
     logout();
@@ -49,6 +53,18 @@ export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
 
       {user && (
         <div className="flex items-center gap-3">
+          <Link
+            href="/notificaciones"
+            aria-label={noLeidas > 0 ? `Notificaciones, ${noLeidas} sin leer` : 'Notificaciones'}
+            className="relative text-slate-500 hover:text-slate-800"
+          >
+            <Bell className="h-5 w-5" aria-hidden />
+            {noLeidas > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-semaforo-no-cumple px-1 text-[10px] font-medium text-white">
+                {noLeidas}
+              </span>
+            )}
+          </Link>
           <Avatar nombre={user.nombre} avatarUrl={user.avatarUrl} size="sm" />
           <span className="hidden text-sm text-slate-700 sm:inline">{user.nombre}</span>
           <Button variant="ghost" size="md" onClick={handleLogout} aria-label="Cerrar sesión">

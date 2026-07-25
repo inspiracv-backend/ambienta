@@ -40,7 +40,7 @@ const NAV_ITEMS = [
   { label: 'Catálogo Normativo', href: '/catalogo-normativo', icon: BookMarked, enabled: true },
   { label: 'Gestores', href: '/gestores', icon: Building2, enabled: true, gestorOnly: true },
   { label: 'Reportes', href: '#', icon: FileBarChart, enabled: false },
-  { label: 'Notificaciones', href: '#', icon: Bell, enabled: false },
+  { label: 'Notificaciones', href: '/notificaciones', icon: Bell, enabled: true },
   { label: 'Usuarios y Roles', href: '#', icon: Users, enabled: false },
   { label: 'Chatbot', href: '#', icon: Bot, enabled: false },
   { label: 'Configuración / Perfil', href: '#', icon: Settings, enabled: false },
