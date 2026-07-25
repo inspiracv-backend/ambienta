@@ -26,3 +26,7 @@ export * from './NonConformityDetailView';
 export * from './RegisterFindingForm';
 export * from './CatalogNormsTable';
 export * from './AssignNormsToPlant';
+export * from './SubTenantsListTable';
+export * from './SubTenantDetailView';
+export * from './ContractsListView';
+export * from './SubTenantDeclarationsView';

@@ -107,8 +107,24 @@ export const mockObligations: Obligation[] = [
     estado: 'por_vencer',
     proximoVencimiento: addDays(12),
     responsableId: 'user-gestor',
+    subTenantId: 'sub-1',
     tasks: [
       { id: 'task-7a', obligationId: 'obl-7', titulo: 'Consolidar declaraciones de clientes', vencimiento: addDays(12), responsableId: 'user-gestor', estado: 'por_vencer' },
+    ],
+  },
+  {
+    id: 'obl-8',
+    tenantId: 'tenant-2',
+    plantId: 'sede-santiago',
+    sistema: 'RETC',
+    nombre: 'RETC — Declaración anual Frigorífico del Maule',
+    periodo: '2025-ANUAL',
+    estado: 'vigente',
+    proximoVencimiento: addDays(150),
+    responsableId: 'user-gestor',
+    subTenantId: 'sub-2',
+    tasks: [
+      { id: 'task-8a', obligationId: 'obl-8', titulo: 'Recopilar antecedentes de emisiones', vencimiento: addDays(140), responsableId: 'user-gestor', estado: 'vigente' },
     ],
   },
 ];

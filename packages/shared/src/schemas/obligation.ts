@@ -40,5 +40,7 @@ export const ObligationSchema = z.object({
   proximoVencimiento: z.string(),
   responsableId: z.string(),
   tasks: z.array(ObligationTaskSchema),
+  /** Declaración de un cliente final de un tenant Gestor (RF-57, Sección I) — ausente para tenants no-Gestor. */
+  subTenantId: z.string().optional(),
 });
 export type Obligation = z.infer<typeof ObligationSchema>;
