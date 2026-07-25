@@ -37,3 +37,5 @@ export * from './ChatbotPanel';
 export * from './TenantsManagementTable';
 export * from './TenantConfigView';
 export * from './SupportTicketsView';
+export * from './ReportGenerator';
+export * from './AuditFolderExport';

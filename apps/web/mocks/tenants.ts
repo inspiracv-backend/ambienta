@@ -22,6 +22,7 @@ export const mockTenants: Tenant[] = [
       'auditorias',
       'no-conformidades',
       'catalogo-normativo',
+      'reportes',
       'notificaciones',
       'chatbot',
     ],

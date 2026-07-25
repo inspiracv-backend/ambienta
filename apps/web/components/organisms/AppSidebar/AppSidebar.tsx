@@ -39,7 +39,7 @@ const NAV_ITEMS = [
   { label: 'No Conformidades', href: '/no-conformidades', icon: ShieldAlert, enabled: true },
   { label: 'Catálogo Normativo', href: '/catalogo-normativo', icon: BookMarked, enabled: true },
   { label: 'Gestores', href: '/gestores', icon: Building2, enabled: true, gestorOnly: true },
-  { label: 'Reportes', href: '#', icon: FileBarChart, enabled: false },
+  { label: 'Reportes', href: '/reportes', icon: FileBarChart, enabled: true },
   { label: 'Notificaciones', href: '/notificaciones', icon: Bell, enabled: true },
   { label: 'Usuarios y Roles', href: '#', icon: Users, enabled: false },
   { label: 'Chatbot', href: '/chatbot', icon: Bot, enabled: true },

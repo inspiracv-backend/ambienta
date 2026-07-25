@@ -1,6 +1,48 @@
 # Sección M — Reportes y Exportación (S-39, S-40)
 
-> TODO — no implementada en esta iteración. Completar este análisis antes de implementar.
+Fuente: "Prompts de Diseño — Ambienta v1.5" (Notion) + "Análisis Funcional v1.5" (Notion), ambos actualizados 2026-07-23.
 
-Referencia rápida (Prompts de Diseño v1.5): S-39 Reportes (selector tipo/rango/exportar); S-40 Exportación de Carpeta de Auditoría.
-RF relacionados: RF-50.
+## Elementos visuales identificados (Prompts de Diseño v1.5)
+
+- **S-39 Reportes** (Actor: Admin Empresa): selector de tipo de reporte (Cumplimiento, No Conformidades, Matriz Legal, etc.), rango de fechas y botón de exportar (PDF / Excel).
+- **S-40 Exportación de Carpeta de Auditoría** (Actor: Admin Empresa): flujo de generación de carpeta de auditoría con estado de progreso y link de descarga temporal.
+
+## Requisitos funcionales correspondientes (Notion v1.5)
+
+- RF-47: Dashboard consolidado (ya cubierto en Sección C) — los reportes reutilizan las mismas métricas.
+- RF-49: Vista de artículos/tareas en incumplimiento con acceso directo a evidencias, historial y planes de acción (el reporte de Cumplimiento resume esto).
+- **RF-50**: Generación de reportes y exportación de información (PDF / Excel).
+- RF-51: Botón de configuración del % de cumplimiento (ya implementado en S-11, Sección D) — el reporte de Matriz Legal usa el mismo cálculo (`computeNormCompliance`).
+- RNF-26: Datos y logs exportables fácilmente para auditorías externas.
+
+## Gaps o inconsistencias detectadas
+
+- **Generación real de PDF** requiere una librería (jsPDF o similar) no instalada en el proyecto y sin ADR que la apruebe (`docs/arquitectura`, ADR-002 sigue "Propuesto"). Implementar esta iteración con exportación real a **CSV/texto plano** (se abre directamente en Excel — cumple la parte "Excel" de RF-50 sin agregar dependencias nuevas) y dejar comentado en el código el punto de integración real para PDF vía `apps/api` o una librería aprobada.
+- **S-40 "estado de progreso"**: no existe hoy un proceso asíncrono real de empaquetado de carpetas (requeriría backend o una librería de zip cliente como JSZip, no instalada). Se simula visualmente el progreso (pasos: "Recopilando evidencias" → "Generando documento" → "Listo") mientras se arma, en paralelo, un archivo de texto **real** con el contenido consolidado de la auditoría (datos + no conformidades relacionadas) que sí se descarga de verdad al finalizar. Se documenta explícitamente como simplificación: el "progreso" es una animación, pero el archivo final no es un mock — contiene datos reales tomados de `AuditsProvider`.
+- El "link de descarga temporal" de S-40 se resuelve como una descarga directa vía `Blob`/`URL.createObjectURL` (no hay backend que aloje un archivo con expiración) — se documenta como simplificación aceptada, coherente con el resto de la plataforma (sin backend real en esta iteración).
+- El reporte de "No Conformidades" depende de datos de la Sección G (`NonConformity`), ya implementada — sin gap pendiente.
+- El reporte de "Matriz Legal" depende de la Sección D (`LegalNorm`/`Articulo`), ya implementada — sin gap pendiente.
+- No se modela una entidad `Report`/historial de reportes generados — el Esquema de Pantallas v1.5 no pide un historial persistente, solo generar y exportar en el momento (RF-50). Si en el futuro se pide un historial de reportes generados, se deja como extensión futura.
+
+## Componentes Atomic Design necesarios
+
+- Átomos: reutiliza `Button`, `StatusBadge`.
+- Moléculas: reutiliza `FormField`, `FilterBar`.
+- Organismos:
+  - `ReportGenerator` (S-39): selector de tipo de reporte + rango de fechas + botón "Generar y exportar" → calcula datos reales desde los stores existentes (`useObligations`, `useLegalMatrix`, `useAudits`) y descarga un archivo `.csv`/`.txt` real.
+  - `AuditFolderExport` (S-40): selector de auditoría + botón "Generar carpeta" → barra de progreso simulada (pasos) + descarga real de un `.txt` consolidado (datos de la auditoría + no conformidades asociadas).
+- Templates: ninguno nuevo.
+
+## Datos de ejemplo necesarios (mock data)
+
+- No se requieren mocks nuevos: los reportes se calculan en el momento a partir de `mockObligations`, `mockLegalNorms` y `mockAudits`/`mockNonConformities` ya existentes (mismo patrón de "no duplicar datos" usado en `lib/dashboard-metrics.ts`).
+
+## Checklist de heurísticas de Nielsen aplicables
+
+- [x] H1 Visibilidad del estado — barra/pasos de progreso visibles durante la generación de la carpeta de auditoría (S-40); confirmación visible tras exportar (S-39).
+- [x] H4 Consistencia — mismos `FormField`/`FilterBar`/`Button` que el resto de la plataforma.
+- [x] H5 Prevención de errores — no se permite exportar sin seleccionar tipo de reporte/auditoría; rango de fechas valida que "hasta" no sea anterior a "desde".
+- [x] H6 Reconocer antes que recordar — nombres de archivo descriptivos generados automáticamente (ej. `reporte-cumplimiento-2026-07-25.csv`).
+- [x] H8 Diseño minimalista — un solo formulario por pantalla, sin campos que no correspondan al tipo de reporte elegido.
+- [x] H9 Recuperación de errores — mensaje claro si el rango de fechas no tiene datos ("No hay registros en el rango seleccionado").
+- [x] H10 Ayuda y documentación — nota visible aclarando que el PDF real queda pendiente de una librería aprobada (transparencia sobre el alcance de esta iteración, evita prometer algo que no se entrega).
