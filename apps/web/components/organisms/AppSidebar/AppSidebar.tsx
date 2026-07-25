@@ -47,8 +47,8 @@ const NAV_ITEMS = [
 ] as const;
 
 const SUPERADMIN_ITEMS = [
-  { label: 'Gestión de Tenants', href: '#', icon: ServerCog, enabled: false },
-  { label: 'Soporte', href: '#', icon: LifeBuoy, enabled: false },
+  { label: 'Gestión de Tenants', href: '/gestion-tenants', icon: ServerCog, enabled: true },
+  { label: 'Soporte', href: '/soporte', icon: LifeBuoy, enabled: true },
   { label: 'Planes de prueba', href: '#', icon: FlaskConical, enabled: false },
 ] as const;
 
@@ -83,7 +83,12 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         <>
           <hr className="my-2 border-slate-200" />
           {SUPERADMIN_ITEMS.map((item) => (
-            <SidebarLink key={item.label} item={item} active={false} onNavigate={onNavigate} />
+            <SidebarLink
+              key={item.label}
+              item={item}
+              active={item.href !== '#' && (pathname === item.href || pathname.startsWith(`${item.href}/`))}
+              onNavigate={onNavigate}
+            />
           ))}
         </>
       )}

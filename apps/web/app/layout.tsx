@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { SessionProvider } from '@/lib/session';
+import { SupportTicketsProvider } from '@/lib/support-tickets-store';
 
 export const metadata: Metadata = {
   title: 'Ambienta — Cumplimiento ambiental',
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <SupportTicketsProvider>{children}</SupportTicketsProvider>
+        </SessionProvider>
       </body>
     </html>
   );

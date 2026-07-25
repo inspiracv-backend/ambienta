@@ -5,6 +5,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { Button, Input } from '@/components/atoms';
 import { FormField, FileDropzone } from '@/components/molecules';
 import { useSession } from '@/lib/session';
+import { useSupportTickets } from '@/lib/support-tickets-store';
 
 const TIPOS_SOLICITUD = [
   { value: 'declaracion', label: 'Consulta sobre una declaración' },
@@ -26,10 +27,13 @@ const EMPTY_STATE: FormState = { tipo: '', asunto: '', descripcion: '', nombreCo
  * S-03 Crear Ticket/Solicitud. Accesible sin cuenta (link público) o tras
  * login RUT+clave — si ya hay sesión de Cliente Invitado, se omiten los
  * campos de nombre/correo de contacto (H6: no pedir de nuevo lo que ya se sabe).
+ * Persiste en SupportTicketsProvider (elevado a app/layout.tsx) para que el
+ * ticket aparezca en Soporte/Tickets internos (Sección L, S-38).
  * Integración real: POST a apps/api cuando exista spec aprobada para tickets de soporte.
  */
 export function TicketForm() {
   const { user } = useSession();
+  const { createTicket } = useSupportTickets();
   const isAuthenticated = !!user;
   const formId = useId();
 
@@ -58,8 +62,16 @@ export function TicketForm() {
 
     setIsSubmitting(true);
     setTimeout(() => {
+      const ticket = createTicket({
+        tenantId: user?.tenantId ?? null,
+        tipoSolicitud: values.tipo,
+        asunto: values.asunto.trim(),
+        descripcion: values.descripcion.trim(),
+        contactoNombre: isAuthenticated ? user!.nombre : values.nombreContacto.trim(),
+        contactoEmail: isAuthenticated ? user!.email : values.correoContacto.trim(),
+      });
       setIsSubmitting(false);
-      setTicketNumber(`TCK-${Math.floor(1000 + Math.random() * 9000)}`);
+      setTicketNumber(ticket.numero);
     }, 500);
   }
 

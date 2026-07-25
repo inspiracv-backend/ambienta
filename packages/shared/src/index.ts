@@ -7,3 +7,4 @@ export * from './schemas/plan-accion';
 export * from './schemas/gestor';
 export * from './schemas/notification';
 export * from './schemas/chatbot';
+export * from './schemas/support-ticket';

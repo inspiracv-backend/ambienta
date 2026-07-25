@@ -6,6 +6,7 @@ import { AuditsProvider } from '@/lib/audits-store';
 import { LegalMatrixProvider } from '@/lib/legal-matrix-store';
 import { GestoresProvider } from '@/lib/gestores-store';
 import { NotificationsProvider } from '@/lib/notifications-store';
+import { TenantsProvider } from '@/lib/tenants-store';
 
 /**
  * Obligations y PlanAccion se comparten entre /obligaciones y /calendario
@@ -15,7 +16,8 @@ import { NotificationsProvider } from '@/lib/notifications-store';
  * comparte entre /matriz-legal y /catalogo-normativo (misma entidad
  * LegalNorm, Sección H). Gestores vive aquí porque S-30 reutiliza Obligation
  * (Sección I). Notifications vive aquí porque el contador de no leídas se
- * muestra en AppHeader (Sección J).
+ * muestra en AppHeader (Sección J). Tenants vive aquí para la Gestión de
+ * Tenants del Superadmin (Sección L).
  */
 export default function DashboardRouteLayout({ children }: { children: ReactNode }) {
   return (
@@ -25,7 +27,9 @@ export default function DashboardRouteLayout({ children }: { children: ReactNode
           <PlanAccionProvider>
             <GestoresProvider>
               <NotificationsProvider>
-                <DashboardLayout>{children}</DashboardLayout>
+                <TenantsProvider>
+                  <DashboardLayout>{children}</DashboardLayout>
+                </TenantsProvider>
               </NotificationsProvider>
             </GestoresProvider>
           </PlanAccionProvider>

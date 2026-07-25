@@ -34,3 +34,6 @@ export * from './NotificationCenter';
 export * from './NotificationPreferencesForm';
 export * from './ExcelTemplatesList';
 export * from './ChatbotPanel';
+export * from './TenantsManagementTable';
+export * from './TenantConfigView';
+export * from './SupportTicketsView';
