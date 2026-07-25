@@ -33,3 +33,4 @@ export * from './SubTenantDeclarationsView';
 export * from './NotificationCenter';
 export * from './NotificationPreferencesForm';
 export * from './ExcelTemplatesList';
+export * from './ChatbotPanel';

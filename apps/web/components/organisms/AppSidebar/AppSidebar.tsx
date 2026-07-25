@@ -42,7 +42,7 @@ const NAV_ITEMS = [
   { label: 'Reportes', href: '#', icon: FileBarChart, enabled: false },
   { label: 'Notificaciones', href: '/notificaciones', icon: Bell, enabled: true },
   { label: 'Usuarios y Roles', href: '#', icon: Users, enabled: false },
-  { label: 'Chatbot', href: '#', icon: Bot, enabled: false },
+  { label: 'Chatbot', href: '/chatbot', icon: Bot, enabled: true },
   { label: 'Configuración / Perfil', href: '#', icon: Settings, enabled: false },
 ] as const;
 
