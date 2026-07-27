@@ -1,12 +1,20 @@
 import type { User } from '@ambienta/shared';
 
+function addDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
 /**
  * Los 5 roles del Análisis Funcional v1.7, repartidos entre los 2 tenants de
  * mocks/tenants.ts. `user-especialista` conserva su id histórico (referenciado
  * como responsableId en varios mocks) pero su rol pasó a `usuario_interno`
  * tras la eliminación del rol Especialista (Decisión cerrada #12, v1.7).
  * `departamentoId` (RF-11) es obligatorio para `usuario_interno` y null para
- * el resto de roles — ver mocks/departamentos.ts.
+ * el resto de roles — ver mocks/departamentos.ts. Todos parten `activo` con
+ * `ultimaActividad` reciente porque son usuarios que ya vienen operando en
+ * las secciones anteriores (Sección N, S-41, solo agrega la gestión real).
  */
 export const mockUsers: User[] = [
   {
@@ -17,6 +25,8 @@ export const mockUsers: User[] = [
     role: 'superadmin',
     plantIds: [],
     departamentoId: null,
+    estado: 'activo',
+    ultimaActividad: addDays(0),
   },
   {
     id: 'user-admin-empresa',
@@ -26,6 +36,8 @@ export const mockUsers: User[] = [
     role: 'admin_empresa',
     plantIds: ['planta-rancagua', 'planta-talca', 'planta-concepcion'],
     departamentoId: null,
+    estado: 'activo',
+    ultimaActividad: addDays(-1),
   },
   {
     id: 'user-interno',
@@ -35,6 +47,8 @@ export const mockUsers: User[] = [
     role: 'usuario_interno',
     plantIds: ['planta-rancagua', 'planta-talca'],
     departamentoId: 'depto-operaciones',
+    estado: 'activo',
+    ultimaActividad: addDays(-2),
   },
   {
     id: 'user-especialista',
@@ -44,6 +58,8 @@ export const mockUsers: User[] = [
     role: 'usuario_interno',
     plantIds: ['planta-concepcion'],
     departamentoId: 'depto-medioambiente',
+    estado: 'activo',
+    ultimaActividad: addDays(-5),
   },
   {
     id: 'user-gestor',
@@ -53,6 +69,8 @@ export const mockUsers: User[] = [
     role: 'gestor',
     plantIds: ['sede-santiago'],
     departamentoId: null,
+    estado: 'activo',
+    ultimaActividad: addDays(-3),
   },
   {
     id: 'user-cliente-invitado',
@@ -62,5 +80,7 @@ export const mockUsers: User[] = [
     role: 'cliente_invitado',
     plantIds: [],
     departamentoId: null,
+    estado: 'activo',
+    ultimaActividad: addDays(-14),
   },
 ];

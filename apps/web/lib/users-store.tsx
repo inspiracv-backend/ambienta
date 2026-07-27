@@ -1,0 +1,91 @@
+'use client';
+
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import type { Role, User, UserEstado } from '@ambienta/shared';
+import { mockUsers } from '@/mocks/users';
+
+interface UsersContextValue {
+  users: User[];
+  inviteUser: (input: {
+    tenantId: string;
+    nombre: string;
+    email: string;
+    role: Role;
+    plantIds: string[];
+    departamentoId: string | null;
+  }) => User;
+  updateRole: (userId: string, role: Role) => void;
+  updatePlants: (userId: string, plantIds: string[]) => void;
+  updateDepartamento: (userId: string, departamentoId: string | null) => void;
+  updateNombre: (userId: string, nombre: string) => void;
+  setEstado: (userId: string, estado: UserEstado) => void;
+}
+
+const UsersContext = createContext<UsersContextValue | null>(null);
+
+/**
+ * Gestión de Usuarios y Roles (RF-08, S-41, Sección N) — estado en memoria,
+ * mismo patrón que los demás stores. No hay envío real de email de
+ * invitación (depende de Resend, ver gap en Sección J): "invitar" crea el
+ * registro directo con `estado: 'invitado'`.
+ */
+export function UsersProvider({ children }: { children: ReactNode }) {
+  const [users, setUsers] = useState<User[]>(mockUsers);
+
+  function inviteUser(input: {
+    tenantId: string;
+    nombre: string;
+    email: string;
+    role: Role;
+    plantIds: string[];
+    departamentoId: string | null;
+  }): User {
+    const nuevo: User = {
+      id: `user-${Date.now()}`,
+      tenantId: input.tenantId,
+      nombre: input.nombre,
+      email: input.email,
+      role: input.role,
+      plantIds: input.plantIds,
+      departamentoId: input.departamentoId,
+      estado: 'invitado',
+      ultimaActividad: null,
+    };
+    setUsers((prev) => [...prev, nuevo]);
+    return nuevo;
+  }
+
+  function updateRole(userId: string, role: Role) {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)));
+  }
+
+  function updatePlants(userId: string, plantIds: string[]) {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plantIds } : u)));
+  }
+
+  function updateDepartamento(userId: string, departamentoId: string | null) {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, departamentoId } : u)));
+  }
+
+  function updateNombre(userId: string, nombre: string) {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, nombre } : u)));
+  }
+
+  function setEstado(userId: string, estado: UserEstado) {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, estado } : u)));
+  }
+
+  return (
+    <UsersContext.Provider
+      value={{ users, inviteUser, updateRole, updatePlants, updateDepartamento, updateNombre, setEstado }}
+    >
+      {children}
+    </UsersContext.Provider>
+  );
+}
+
+export function useUsers() {
+  const ctx = useContext(UsersContext);
+  if (!ctx) throw new Error('useUsers debe usarse dentro de <UsersProvider>');
+  return ctx;
+}

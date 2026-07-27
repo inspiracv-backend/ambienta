@@ -43,9 +43,9 @@ const NAV_ITEMS = [
   { label: 'Gestores', href: '/gestores', icon: Building2, enabled: true, gestorOnly: true },
   { label: 'Reportes', href: '/reportes', icon: FileBarChart, enabled: true },
   { label: 'Notificaciones', href: '/notificaciones', icon: Bell, enabled: true },
-  { label: 'Usuarios y Roles', href: '#', icon: Users, enabled: false },
+  { label: 'Usuarios y Roles', href: '/usuarios', icon: Users, enabled: true, adminEmpresaOnly: true },
   { label: 'Chatbot', href: '/chatbot', icon: Bot, enabled: true },
-  { label: 'Configuración / Perfil', href: '#', icon: Settings, enabled: false },
+  { label: 'Configuración / Perfil', href: '/perfil', icon: Settings, enabled: true },
 ] as const;
 
 const SUPERADMIN_ITEMS = [
@@ -71,6 +71,10 @@ function useNavItems() {
   return { items, isSuperadmin: user?.role === 'superadmin' };
 }
 
+function isActiveHref(href: string, pathname: string) {
+  return href !== '#' && (pathname === href || pathname.startsWith(`${href}/`));
+}
+
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { items, isSuperadmin } = useNavItems();
@@ -78,24 +82,14 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <>
       {items.map((item) => (
-        <SidebarLink
-          key={item.label}
-          item={item}
-          active={item.href !== '#' && (pathname === item.href || pathname.startsWith(`${item.href}/`))}
-          onNavigate={onNavigate}
-        />
+        <SidebarLink key={item.label} item={item} active={isActiveHref(item.href, pathname)} onNavigate={onNavigate} />
       ))}
 
       {isSuperadmin && (
         <>
           <hr className="my-2 border-slate-200" />
           {SUPERADMIN_ITEMS.map((item) => (
-            <SidebarLink
-              key={item.label}
-              item={item}
-              active={item.href !== '#' && (pathname === item.href || pathname.startsWith(`${item.href}/`))}
-              onNavigate={onNavigate}
-            />
+            <SidebarLink key={item.label} item={item} active={isActiveHref(item.href, pathname)} onNavigate={onNavigate} />
           ))}
         </>
       )}

@@ -2,12 +2,15 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User } from '@ambienta/shared';
-import { mockUsers } from '@/mocks/users';
+import { useUsers } from '@/lib/users-store';
 
 /**
  * Sesión simulada para esta iteración (sin backend real todavía).
- * Integración real: reemplazar por JWT + Microsoft/Google OAuth vía
- * apps/api cuando exista la spec de OpenSpec aprobada para auth.
+ * `user` se deriva en vivo de `UsersProvider` (no de una copia propia) para
+ * que editar el nombre/rol/estado de un usuario (S-41/S-42, Sección N) se
+ * refleje de inmediato en `AppHeader` y en el resto de la app sin duplicar
+ * el dato. Integración real: reemplazar por JWT + Microsoft/Google OAuth
+ * vía apps/api cuando exista la spec de OpenSpec aprobada para auth.
  */
 interface SessionContextValue {
   user: User | null;
@@ -19,23 +22,29 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 const STORAGE_KEY = 'ambienta.mockUserId';
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const { users } = useUsers();
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     const storedId = window.localStorage.getItem(STORAGE_KEY);
-    if (storedId) {
-      setUser(mockUsers.find((u) => u.id === storedId) ?? null);
-    }
+    if (storedId) setUserId(storedId);
   }, []);
 
-  function login(userId: string) {
-    const found = mockUsers.find((u) => u.id === userId) ?? null;
-    setUser(found);
-    if (found) window.localStorage.setItem(STORAGE_KEY, found.id);
+  const user = users.find((u) => u.id === userId) ?? null;
+
+  function login(userIdToLogin: string) {
+    const found = users.find((u) => u.id === userIdToLogin) ?? null;
+    if (found) {
+      setUserId(found.id);
+      window.localStorage.setItem(STORAGE_KEY, found.id);
+    } else {
+      setUserId(null);
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
   }
 
   function logout() {
-    setUser(null);
+    setUserId(null);
     window.localStorage.removeItem(STORAGE_KEY);
   }
 

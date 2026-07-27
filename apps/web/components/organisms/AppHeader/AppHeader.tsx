@@ -65,8 +65,10 @@ export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
               </span>
             )}
           </Link>
-          <Avatar nombre={user.nombre} avatarUrl={user.avatarUrl} size="sm" />
-          <span className="hidden text-sm text-slate-700 sm:inline">{user.nombre}</span>
+          <Link href="/perfil" className="flex items-center gap-2 hover:opacity-80" aria-label="Ir a mi perfil">
+            <Avatar nombre={user.nombre} avatarUrl={user.avatarUrl} size="sm" />
+            <span className="hidden text-sm text-slate-700 sm:inline">{user.nombre}</span>
+          </Link>
           <Button variant="ghost" size="md" onClick={handleLogout} aria-label="Cerrar sesión">
             <LogOut className="h-4 w-4" aria-hidden />
           </Button>

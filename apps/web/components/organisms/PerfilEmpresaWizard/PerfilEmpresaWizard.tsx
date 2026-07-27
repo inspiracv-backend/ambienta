@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { Check, Building2, MapPin, Users2, ClipboardCheck } from 'lucide-react';
 import { Button, Input } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
@@ -218,7 +219,11 @@ export function PerfilEmpresaWizard({
               </table>
             </div>
             <p className="text-xs text-slate-400">
-              Asignar/reasignar departamento e invitar nuevos trabajadores se gestiona desde Usuarios y Roles (próximamente).
+              Asignar/reasignar departamento e invitar nuevos trabajadores se gestiona desde{' '}
+              <Link href="/usuarios" className="font-medium text-brand-600 hover:underline">
+                Usuarios y Roles
+              </Link>
+              .
             </p>
           </div>
         )}
