@@ -15,7 +15,7 @@ Fuente: "Prompts de Diseño — Ambienta v1.5" (Notion) + "Análisis Funcional v
 - RF-03: todo usuario asociado obligatoriamente a una Empresa (tenant).
 - RF-04: auth con Microsoft (prioridad) y Google; JWT obligatorio en todos los flujos autenticados.
 - RF-05: rol "Cliente" semi-público con permisos limitados.
-- RF-06: RBAC por tipo de usuario (Superadmin, Admin Empresa, Usuario Interno, Cliente, Especialista, Gestor).
+- RF-08 (v1.7, ex RF-06 v1.5): RBAC por tipo de usuario (Superadmin, Admin Empresa, Usuario Interno, Cliente, Gestor). **El rol Especialista fue eliminado en v1.7** (Decisión cerrada #12) — se cubre con Usuario Interno + RBAC.
 
 ## Gaps o inconsistencias detectadas
 
@@ -35,6 +35,15 @@ Fuente: "Prompts de Diseño — Ambienta v1.5" (Notion) + "Análisis Funcional v
 - `mocks/users.ts`: al menos 1 usuario por cada uno de los 6 roles, repartidos en 2 tenants, con credenciales mock (no reales) para simular el login.
 - `mocks/tenants.ts`: 2 tenants para poder mostrar el selector de tenant cuando un usuario mock pertenece a ambos.
 - Casos límite: intento de login con credenciales inválidas (mensaje de error humano), envío de ticket exitoso vs con adjunto que excede el máximo (3 archivos).
+
+## Actualización v1.7 (27-jul-2026) — Rediseño de S-02
+
+El Análisis Funcional v1.7 (Decisión cerrada #11) redefine el acceso de Cliente Invitado:
+- El "link especial" de RF-02 **es** la pantalla S-02 — al usarla, el sistema asigna automáticamente RUT + clave dinámica (RF-02, RF-07), sin que el invitado escriba nada. Implementado: `GuestAccessCard` ahora ofrece "Generar mi acceso" como camino primario, que muestra el RUT/clave generados (mock, con dígito verificador módulo 11 válido vía `lib/rut.ts`) antes de continuar a Crear Ticket.
+- El login manual RUT+clave (RF-01) se conserva como camino **secundario** ("¿Ya tienes RUT y clave? Ingresa aquí"), para un invitado que vuelve con credenciales de una visita anterior.
+- **Gap documentado**: RF-03 ("si el Cliente Invitado desea registrarse de forma permanente, el Admin Empresa debe realizar el registro") depende de la gestión de usuarios de la Sección N (Usuarios, Roles y Perfil), aún no construida — queda pendiente hasta esa sección.
+- **Gap documentado**: RF-06 ("un usuario que entra con Google o Microsoft puede posteriormente setear una clave local") corresponde a S-42 Perfil de Usuario (Sección N), aún no construida.
+- El rol "Especialista" (RF-06 v1.5) fue eliminado en v1.7 (Decisión #12) — ver actualización en el RF-08 arriba.
 
 ## Checklist de heurísticas de Nielsen aplicables
 

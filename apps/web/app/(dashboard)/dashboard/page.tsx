@@ -41,7 +41,7 @@ export default function DashboardPage() {
   const tenant = mockTenants.find((t) => t.id === user.tenantId);
   const isVistaSimplificada = user.role === 'admin_empresa';
 
-  // Usuario Interno/Especialista ven solo sus plantas asignadas (vista densa);
+  // Usuario Interno ve solo sus plantas asignadas (vista densa);
   // Admin Empresa/Superadmin ven el tenant completo (vista simplificada, H7).
   const scopedPlants =
     !isVistaSimplificada && user.plantIds.length > 0
@@ -91,8 +91,8 @@ export default function DashboardPage() {
       </section>
 
       {/* S-07: la tabla comparativa multi-planta es la vista ejecutiva de Admin Empresa/Superadmin
-          (H7) — Usuario Interno/Especialista ya ven su detalle operativo en la lista de arriba,
-          acotada a las plantas que tienen asignadas. */}
+          (H7) — Usuario Interno ya ve su detalle operativo en la lista de arriba,
+          acotada a las plantas que tiene asignadas. */}
       {isVistaSimplificada && scopedPlants.length > 1 && (
         <section aria-labelledby="multi-planta-heading">
           <h2 id="multi-planta-heading" className="mb-3 text-sm font-semibold text-slate-700">

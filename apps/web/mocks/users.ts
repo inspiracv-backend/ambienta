@@ -1,6 +1,11 @@
 import type { User } from '@ambienta/shared';
 
-/** Los 6 roles del Análisis Funcional v1.5, repartidos entre los 2 tenants de mocks/tenants.ts. */
+/**
+ * Los 5 roles del Análisis Funcional v1.7, repartidos entre los 2 tenants de
+ * mocks/tenants.ts. `user-especialista` conserva su id histórico (referenciado
+ * como responsableId en varios mocks) pero su rol pasó a `usuario_interno`
+ * tras la eliminación del rol Especialista (Decisión cerrada #12, v1.7).
+ */
 export const mockUsers: User[] = [
   {
     id: 'user-superadmin',
@@ -31,7 +36,7 @@ export const mockUsers: User[] = [
     tenantId: 'tenant-1',
     nombre: 'Diego Muñoz',
     email: 'diego.munoz@consultora-ambiental.cl',
-    role: 'especialista',
+    role: 'usuario_interno',
     plantIds: ['planta-concepcion'],
   },
   {
