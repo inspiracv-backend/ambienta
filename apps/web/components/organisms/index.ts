@@ -39,3 +39,5 @@ export * from './TenantConfigView';
 export * from './SupportTicketsView';
 export * from './ReportGenerator';
 export * from './AuditFolderExport';
+export * from './PerfilEmpresaGate';
+export * from './PerfilEmpresaWizard';

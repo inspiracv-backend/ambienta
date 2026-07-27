@@ -23,6 +23,8 @@ export const UserSchema = z.object({
   email: z.string().email(),
   role: RoleSchema,
   plantIds: z.array(z.string()),
+  /** RF-11 (v1.7): todo Usuario Interno pertenece obligatoriamente a un Departamento del Perfil Empresa. Null para los demás roles. */
+  departamentoId: z.string().nullable(),
   avatarUrl: z.string().optional(),
 });
 export type User = z.infer<typeof UserSchema>;

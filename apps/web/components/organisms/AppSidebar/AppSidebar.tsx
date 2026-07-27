@@ -10,6 +10,7 @@ import {
   CalendarDays,
   ShieldAlert,
   BookMarked,
+  Building,
   Building2,
   FileBarChart,
   Bell,
@@ -32,6 +33,7 @@ import { useSession } from '@/lib/session';
  */
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, enabled: true },
+  { label: 'Perfil Empresa', href: '/perfil-empresa', icon: Building, enabled: true, adminEmpresaOnly: true },
   { label: 'Matriz Legal', href: '/matriz-legal', icon: ScrollText, enabled: true },
   { label: 'Obligaciones', href: '/obligaciones', icon: ClipboardList, enabled: true },
   { label: 'Calendario / Gantt', href: '/calendario', icon: CalendarDays, enabled: true },
@@ -60,7 +62,12 @@ interface AppSidebarProps {
 function useNavItems() {
   const { user } = useSession();
   const isGestorTenant = user?.role === 'gestor';
-  const items = NAV_ITEMS.filter((item) => !('gestorOnly' in item && item.gestorOnly) || isGestorTenant);
+  const isAdminEmpresa = user?.role === 'admin_empresa';
+  const items = NAV_ITEMS.filter((item) => {
+    if ('gestorOnly' in item && item.gestorOnly && !isGestorTenant) return false;
+    if ('adminEmpresaOnly' in item && item.adminEmpresaOnly && !isAdminEmpresa) return false;
+    return true;
+  });
   return { items, isSuperadmin: user?.role === 'superadmin' };
 }
 

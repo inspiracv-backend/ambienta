@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { DashboardLayout } from '@/components/templates';
+import { PerfilEmpresaGate } from '@/components/organisms';
 import { ObligationsProvider } from '@/lib/obligations-store';
 import { PlanAccionProvider } from '@/lib/plan-accion-store';
 import { AuditsProvider } from '@/lib/audits-store';
@@ -7,17 +8,21 @@ import { LegalMatrixProvider } from '@/lib/legal-matrix-store';
 import { GestoresProvider } from '@/lib/gestores-store';
 import { NotificationsProvider } from '@/lib/notifications-store';
 import { TenantsProvider } from '@/lib/tenants-store';
+import { DepartamentosProvider } from '@/lib/departamentos-store';
 
 /**
  * Obligations y PlanAccion se comparten entre /obligaciones y /calendario
- * (mismo "ticket único", RF-17) y entre /matriz-legal y /calendario
- * (Generar Plan de Acción, RF-19). Audits vive al mismo nivel porque
- * No Conformidades también genera Planes de Acción (RF-41). LegalMatrix se
+ * (mismo "ticket único", RF-26 a RF-28) y entre /matriz-legal y /calendario
+ * (Generar Plan de Acción, RF-30). Audits vive al mismo nivel porque
+ * No Conformidades también genera Planes de Acción (RF-53). LegalMatrix se
  * comparte entre /matriz-legal y /catalogo-normativo (misma entidad
  * LegalNorm, Sección H). Gestores vive aquí porque S-30 reutiliza Obligation
  * (Sección I). Notifications vive aquí porque el contador de no leídas se
- * muestra en AppHeader (Sección J). Tenants vive aquí para la Gestión de
- * Tenants del Superadmin (Sección L).
+ * muestra en AppHeader (Sección J). Tenants y Departamentos viven aquí para
+ * la Gestión de Tenants del Superadmin (Sección L) y para el Perfil Empresa
+ * del Admin Empresa (RF-10 a RF-12, v1.7) — PerfilEmpresaGate necesita
+ * ambos para decidir si redirige a /perfil-empresa antes de mostrar
+ * cualquier otra pantalla.
  */
 export default function DashboardRouteLayout({ children }: { children: ReactNode }) {
   return (
@@ -28,7 +33,11 @@ export default function DashboardRouteLayout({ children }: { children: ReactNode
             <GestoresProvider>
               <NotificationsProvider>
                 <TenantsProvider>
-                  <DashboardLayout>{children}</DashboardLayout>
+                  <DepartamentosProvider>
+                    <PerfilEmpresaGate>
+                      <DashboardLayout>{children}</DashboardLayout>
+                    </PerfilEmpresaGate>
+                  </DepartamentosProvider>
                 </TenantsProvider>
               </NotificationsProvider>
             </GestoresProvider>

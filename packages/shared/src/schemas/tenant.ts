@@ -32,7 +32,12 @@ export const TenantSchema = z.object({
   rut: z.string(),
   sector: z.string(),
   esGestor: z.boolean().default(false),
-  /** Campos de administración de plataforma (RF-59) — nunca contenido de negocio del tenant (CLAUDE.md: Superadmin no edita contenido de tenants). */
+  /** Datos básicos del Perfil Empresa (RF-10, v1.7) — los edita el Admin Empresa, no el Superadmin. */
+  giro: z.string().optional(),
+  direccion: z.string().optional(),
+  /** RF-10: Perfil Empresa (datos, plantas, departamentos, trabajadores) es un flujo obligatorio antes de operar Matriz Legal/Obligaciones. */
+  perfilEmpresaCompleto: z.boolean(),
+  /** Campos de administración de plataforma (RF-81 v1.7, ex RF-59 v1.5) — nunca contenido de negocio del tenant (CLAUDE.md: Superadmin no edita contenido de tenants). */
   estado: z.enum(['activo', 'suspendido']),
   limiteUsuarios: z.number(),
   modulosActivos: z.array(ModuloPlataformaSchema),

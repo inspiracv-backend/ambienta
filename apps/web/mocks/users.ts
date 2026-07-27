@@ -5,6 +5,8 @@ import type { User } from '@ambienta/shared';
  * mocks/tenants.ts. `user-especialista` conserva su id histórico (referenciado
  * como responsableId en varios mocks) pero su rol pasó a `usuario_interno`
  * tras la eliminación del rol Especialista (Decisión cerrada #12, v1.7).
+ * `departamentoId` (RF-11) es obligatorio para `usuario_interno` y null para
+ * el resto de roles — ver mocks/departamentos.ts.
  */
 export const mockUsers: User[] = [
   {
@@ -14,6 +16,7 @@ export const mockUsers: User[] = [
     email: 'javiera.soto@ambienta.cl',
     role: 'superadmin',
     plantIds: [],
+    departamentoId: null,
   },
   {
     id: 'user-admin-empresa',
@@ -22,6 +25,7 @@ export const mockUsers: User[] = [
     email: 'marcelo.fuentes@recicladorasur.cl',
     role: 'admin_empresa',
     plantIds: ['planta-rancagua', 'planta-talca', 'planta-concepcion'],
+    departamentoId: null,
   },
   {
     id: 'user-interno',
@@ -30,6 +34,7 @@ export const mockUsers: User[] = [
     email: 'camila.rojas@recicladorasur.cl',
     role: 'usuario_interno',
     plantIds: ['planta-rancagua', 'planta-talca'],
+    departamentoId: 'depto-operaciones',
   },
   {
     id: 'user-especialista',
@@ -38,6 +43,7 @@ export const mockUsers: User[] = [
     email: 'diego.munoz@consultora-ambiental.cl',
     role: 'usuario_interno',
     plantIds: ['planta-concepcion'],
+    departamentoId: 'depto-medioambiente',
   },
   {
     id: 'user-gestor',
@@ -46,6 +52,7 @@ export const mockUsers: User[] = [
     email: 'antonia.vidal@veolia.cl',
     role: 'gestor',
     plantIds: ['sede-santiago'],
+    departamentoId: null,
   },
   {
     id: 'user-cliente-invitado',
@@ -54,5 +61,6 @@ export const mockUsers: User[] = [
     email: 'roberto.pizarro@gmail.com',
     role: 'cliente_invitado',
     plantIds: [],
+    departamentoId: null,
   },
 ];
