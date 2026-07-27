@@ -36,6 +36,10 @@ Fuente: "Prompts de Diseño — Ambienta v1.5" (Notion) + "Análisis Funcional v
 - `mocks/tenants.ts`: 2 tenants para poder mostrar el selector de tenant cuando un usuario mock pertenece a ambos.
 - Casos límite: intento de login con credenciales inválidas (mensaje de error humano), envío de ticket exitoso vs con adjunto que excede el máximo (3 archivos).
 
+## Actualización 27-jul-2026 — Bloqueo de rutas de negocio para Cliente Invitado (RF-05)
+
+Se detectó que, aunque RF-05 define al rol Cliente/Invitado como "semi-público con permisos limitados (tickets)", nada en el frontend le impedía navegar manualmente a `/dashboard`, `/matriz-legal`, etc. — el `(dashboard)` route group no tenía ningún control de acceso propio. Se corrigió agregando `ClienteInvitadoGate` (organismo cross-cutting, mismo criterio que `PerfilEmpresaGate`): si `user.role === 'cliente_invitado'`, redirige a `/crear-ticket` antes de renderizar cualquier pantalla de negocio, sin importar la ruta solicitada. Verificado en navegador contra `/dashboard` y `/matriz-legal`; confirmado que Admin Empresa y demás roles no se ven afectados. El RBAC real (que bloquearía esto también a nivel de API) sigue sin existir — este gate es solo la capa de UX del frontend.
+
 ## Actualización v1.7 (27-jul-2026) — Rediseño de S-02
 
 El Análisis Funcional v1.7 (Decisión cerrada #11) redefine el acceso de Cliente Invitado:

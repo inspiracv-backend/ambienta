@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { DashboardLayout } from '@/components/templates';
-import { PerfilEmpresaGate } from '@/components/organisms';
+import { PerfilEmpresaGate, ClienteInvitadoGate } from '@/components/organisms';
 import { ObligationsProvider } from '@/lib/obligations-store';
 import { PlanAccionProvider } from '@/lib/plan-accion-store';
 import { AuditsProvider } from '@/lib/audits-store';
@@ -22,7 +22,10 @@ import { DepartamentosProvider } from '@/lib/departamentos-store';
  * la Gestión de Tenants del Superadmin (Sección L) y para el Perfil Empresa
  * del Admin Empresa (RF-10 a RF-12, v1.7) — PerfilEmpresaGate necesita
  * ambos para decidir si redirige a /perfil-empresa antes de mostrar
- * cualquier otra pantalla.
+ * cualquier otra pantalla. ClienteInvitadoGate envuelve todo lo demás
+ * porque el Cliente Invitado (RF-05, acceso limitado a tickets) no debe
+ * llegar a ninguna pantalla de negocio del tenant, independientemente del
+ * estado de Perfil Empresa.
  */
 export default function DashboardRouteLayout({ children }: { children: ReactNode }) {
   return (
@@ -34,9 +37,11 @@ export default function DashboardRouteLayout({ children }: { children: ReactNode
               <NotificationsProvider>
                 <TenantsProvider>
                   <DepartamentosProvider>
-                    <PerfilEmpresaGate>
-                      <DashboardLayout>{children}</DashboardLayout>
-                    </PerfilEmpresaGate>
+                    <ClienteInvitadoGate>
+                      <PerfilEmpresaGate>
+                        <DashboardLayout>{children}</DashboardLayout>
+                      </PerfilEmpresaGate>
+                    </ClienteInvitadoGate>
                   </DepartamentosProvider>
                 </TenantsProvider>
               </NotificationsProvider>

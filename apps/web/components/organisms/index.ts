@@ -41,3 +41,4 @@ export * from './ReportGenerator';
 export * from './AuditFolderExport';
 export * from './PerfilEmpresaGate';
 export * from './PerfilEmpresaWizard';
+export * from './ClienteInvitadoGate';
