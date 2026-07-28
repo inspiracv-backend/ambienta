@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { Departamento } from '@ambienta/shared';
 import { mockDepartamentos } from '@/mocks/departamentos';
+import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 
 interface DepartamentosContextValue {
   departamentos: Departamento[];
@@ -14,9 +15,20 @@ const DepartamentosContext = createContext<DepartamentosContextValue | null>(nul
 /** Departamentos del Perfil Empresa (RF-11, RF-12, v1.7) — estado en memoria, mismo patrón que los demás stores. */
 export function DepartamentosProvider({ children }: { children: ReactNode }) {
   const [departamentos, setDepartamentos] = useState<Departamento[]>(mockDepartamentos);
+  const registrar = useRegistrarAuditoria();
 
   function addDepartamento(tenantId: string, nombre: string) {
-    setDepartamentos((prev) => [...prev, { id: `depto-${Date.now()}`, tenantId, nombre }]);
+    const id = `depto-${Date.now()}`;
+    setDepartamentos((prev) => [...prev, { id, tenantId, nombre }]);
+
+    registrar({
+      entidadTipo: 'departamento',
+      entidadId: id,
+      entidadLabel: nombre,
+      tenantId,
+      accion: 'creado',
+      resumen: `Creó el departamento ${nombre}`,
+    });
   }
 
   return (

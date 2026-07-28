@@ -51,3 +51,5 @@ export * from './ToastViewport';
 export * from './PlatformDashboard';
 export * from './GestorSummary';
 export * from './MisTareasSummary';
+export * from './HistorialTimeline';
+export * from './AuditLogView';

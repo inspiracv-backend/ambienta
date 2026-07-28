@@ -28,6 +28,15 @@ const UsersContext = createContext<UsersContextValue | null>(null);
  * mismo patrón que los demás stores. No hay envío real de email de
  * invitación (depende de Resend, ver gap en Sección J): "invitar" crea el
  * registro directo con `estado: 'invitado'`.
+ *
+ * ⚠️ **Única excepción al registro de auditoría en el store.** Los demás
+ * stores llaman a `useRegistrarAuditoria()` internamente, para que ninguna
+ * ruta de mutación pueda olvidarse. Aquí no se puede: este provider está por
+ * encima de `SessionProvider` (la sesión deriva su usuario de aquí), así que
+ * no tiene acceso al actor sin crear un ciclo de dependencias. El registro lo
+ * hacen sus pantallas — `UsersManagementTable` y `UserProfileView` — usando
+ * el helper `registrarCambioDeUsuario` de `lib/user-audit.ts`, que centraliza
+ * el formato para que no se desincronicen entre sí.
  */
 export function UsersProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<User[]>(mockUsers);

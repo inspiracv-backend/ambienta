@@ -8,6 +8,9 @@ import { Avatar, Button, Input, StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
 import { UserFormModal } from '@/components/organisms/UserFormModal';
 import { useUsers } from '@/lib/users-store';
+import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useToast } from '@/lib/toast-store';
+import { eventoCambioDeEstado } from '@/lib/user-audit';
 import { ROLE_LABEL } from '@/lib/roles';
 import { userSemaforo, USER_ESTADO_LABEL } from '@/lib/user-status';
 import type { UsersManagementTableProps } from './UsersManagementTable.types';
@@ -24,6 +27,28 @@ function formatFecha(iso: string | null) {
  */
 export function UsersManagementTable({ users, plants, departamentos, tenantId, esGestorTenant, currentUserId }: UsersManagementTableProps) {
   const { setEstado } = useUsers();
+  const registrar = useRegistrarAuditoria();
+  const { mostrarToast } = useToast();
+
+  /**
+   * Activar/desactivar pasa por aquí y no por el store porque `UsersProvider`
+   * está por encima de `SessionProvider` y no puede firmar eventos con el
+   * actor (ver `lib/users-store.tsx`).
+   */
+  function cambiarEstado(user: (typeof users)[number], estadoNuevo: 'activo' | 'desactivado') {
+    const estadoAnterior = user.estado;
+    setEstado(user.id, estadoNuevo);
+    registrar(eventoCambioDeEstado(user, estadoAnterior, estadoNuevo));
+    mostrarToast({
+      tipo: estadoNuevo === 'desactivado' ? 'info' : 'exito',
+      mensaje: estadoNuevo === 'desactivado' ? `${user.nombre} fue desactivado` : `${user.nombre} fue reactivado`,
+      descripcion: 'El cambio quedó registrado en el historial.',
+      onUndo: () => {
+        setEstado(user.id, estadoAnterior);
+        registrar(eventoCambioDeEstado(user, estadoNuevo, estadoAnterior));
+      },
+    });
+  }
   const [busqueda, setBusqueda] = useState('');
   const [rolFiltro, setRolFiltro] = useState('todos');
   const [estadoFiltro, setEstadoFiltro] = useState('todos');
@@ -145,7 +170,7 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
                             variant={u.estado === 'desactivado' ? 'secondary' : 'danger'}
                             size="md"
                             onClick={() =>
-                              u.estado === 'desactivado' ? setEstado(u.id, 'activo') : setPendingDeactivate(u)
+                              u.estado === 'desactivado' ? cambiarEstado(u, 'activo') : setPendingDeactivate(u)
                             }
                           >
                             {u.estado === 'desactivado' ? 'Activar' : 'Desactivar'}
@@ -205,7 +230,7 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
               <Button
                 variant="danger"
                 onClick={() => {
-                  if (pendingDeactivate) setEstado(pendingDeactivate.id, 'desactivado');
+                  if (pendingDeactivate) cambiarEstado(pendingDeactivate, 'desactivado');
                   setPendingDeactivate(null);
                 }}
               >

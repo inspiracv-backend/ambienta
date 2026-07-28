@@ -6,6 +6,14 @@ import { X } from 'lucide-react';
 import { Button, Input } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { useUsers } from '@/lib/users-store';
+import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useToast } from '@/lib/toast-store';
+import {
+  eventoCambioDeDepartamento,
+  eventoCambioDePlantas,
+  eventoCambioDeRol,
+  eventoUsuarioInvitado,
+} from '@/lib/user-audit';
 import { ROLE_LABEL, ROLE_DESCRIPTION } from '@/lib/roles';
 import type { AssignableRole, UserFormModalProps } from './UserFormModal.types';
 
@@ -20,6 +28,8 @@ const ROLES_ASIGNABLES: AssignableRole[] = ['admin_empresa', 'usuario_interno', 
 export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTenant, plants, departamentos }: UserFormModalProps) {
   const formId = useId();
   const { inviteUser, updateRole, updatePlants, updateDepartamento } = useUsers();
+  const registrar = useRegistrarAuditoria();
+  const { mostrarToast } = useToast();
   const esEdicion = !!user;
 
   const [nombre, setNombre] = useState(user?.nombre ?? '');
@@ -58,11 +68,38 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
     const depto = role === 'usuario_interno' ? departamentoId : null;
 
     if (esEdicion && user) {
-      updateRole(user.id, role);
-      updatePlants(user.id, plantIds);
-      updateDepartamento(user.id, depto);
+      // Se registra un evento por dimensión cambiada, no uno genérico
+      // "actualizó el usuario": cambiar el rol y cambiar la planta son hechos
+      // distintos para quien audita, y el rol además es una decisión de
+      // seguridad. Solo se anota lo que efectivamente cambió.
+      if (user.role !== role) {
+        updateRole(user.id, role);
+        registrar(eventoCambioDeRol(user, user.role, role));
+      }
+      if (JSON.stringify(user.plantIds) !== JSON.stringify(plantIds)) {
+        updatePlants(user.id, plantIds);
+        registrar(eventoCambioDePlantas(user, user.plantIds, plantIds, plants));
+      }
+      if (user.departamentoId !== depto) {
+        updateDepartamento(user.id, depto);
+        registrar(eventoCambioDeDepartamento(user, user.departamentoId, depto, departamentos));
+      }
+      mostrarToast({ tipo: 'exito', mensaje: `${user.nombre} actualizado`, descripcion: 'Los cambios quedaron en su historial.' });
     } else {
-      inviteUser({ tenantId, nombre: nombre.trim(), email: email.trim(), role, plantIds, departamentoId: depto });
+      const nuevo = inviteUser({
+        tenantId,
+        nombre: nombre.trim(),
+        email: email.trim(),
+        role,
+        plantIds,
+        departamentoId: depto,
+      });
+      registrar(eventoUsuarioInvitado(nuevo));
+      mostrarToast({
+        tipo: 'exito',
+        mensaje: `Invitación creada para ${nuevo.nombre}`,
+        descripcion: 'Aparecerá como "Invitado" hasta que ingrese por primera vez.',
+      });
     }
     onOpenChange(false);
   }

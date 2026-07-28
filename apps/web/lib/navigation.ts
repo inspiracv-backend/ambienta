@@ -16,6 +16,7 @@ import {
   ServerCog,
   LifeBuoy,
   FlaskConical,
+  History,
 } from 'lucide-react';
 
 /**
@@ -81,6 +82,10 @@ export const TENANT_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Notificaciones', href: '/notificaciones', icon: Bell, roles: TENANT_ROLES, enabled: true },
   { label: 'Usuarios y Roles', href: '/usuarios', icon: Users, roles: ADMIN_ROLES, enabled: true },
   { label: 'Chatbot', href: '/chatbot', icon: Bot, roles: TENANT_ROLES, enabled: true },
+  // Historial/audit log (RF-32, RNF-25): lo ven todos los roles de tenant.
+  // La matriz no lo lista como módulo aparte porque es transversal — es el
+  // registro de lo que cada uno hizo en los módulos que sí le corresponden.
+  { label: 'Historial', href: '/historial', icon: History, roles: TENANT_ROLES, enabled: true },
   { label: 'Configuración / Perfil', href: '/perfil', icon: Settings, roles: TENANT_ROLES, enabled: true },
 ];
 
@@ -96,6 +101,7 @@ export const PLATFORM_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Gestión de Tenants', href: '/gestion-tenants', icon: ServerCog, roles: ['superadmin'], enabled: true },
   { label: 'Soporte', href: '/soporte', icon: LifeBuoy, roles: ['superadmin'], enabled: true },
   { label: 'Chatbot', href: '/chatbot', icon: Bot, roles: ['superadmin'], enabled: true },
+  { label: 'Historial', href: '/historial', icon: History, roles: ['superadmin'], enabled: true },
   { label: 'Configuración / Perfil', href: '/perfil', icon: Settings, roles: ['superadmin'], enabled: true },
   { label: 'Planes de prueba', href: '#', icon: FlaskConical, roles: ['superadmin'], enabled: false },
 ];

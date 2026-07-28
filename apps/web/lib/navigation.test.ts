@@ -28,6 +28,7 @@ describe('navItemsParaRol — Superadmin (A0)', () => {
       '/gestion-tenants',
       '/soporte',
       '/chatbot',
+      '/historial',
       '/perfil',
       '#',
     ]);
@@ -86,6 +87,10 @@ describe('navItemsParaRol — roles de tenant', () => {
     expect(suyos).toContain('/calendario');
     expect(suyos).toContain('/no-conformidades');
     expect(suyos).toContain('/perfil');
+    // Y ve el historial: RNF-25 no restringe quién puede consultarlo dentro
+    // de su propia empresa, y poder revisar lo que uno mismo hizo es parte de
+    // que el registro sea creíble.
+    expect(suyos).toContain('/historial');
   });
 
   it('ningún rol de tenant accede a la administración de la plataforma', () => {

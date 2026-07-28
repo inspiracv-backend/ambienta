@@ -9,3 +9,4 @@ export * from './schemas/notification';
 export * from './schemas/chatbot';
 export * from './schemas/support-ticket';
 export * from './schemas/departamento';
+export * from './schemas/audit-log';

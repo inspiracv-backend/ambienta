@@ -125,6 +125,17 @@ El Superadmin **no** ve los módulos de un tenant en su menú — CLAUDE.md: *"A
 
 > Esto es **UX, no seguridad**. Ocultar un ítem del menú no impide nada por sí solo: la barrera real es el RBAC en la API, que todavía no existe (propuesta OpenSpec pendiente de aprobación).
 
+#### Historial / audit log
+
+Todo cambio de estado en el sistema queda registrado (RF-32, RNF-08, RNF-25): **quién**, **cuándo**, **qué cambió**, **por qué** y **quién aprobó**.
+
+- Cada entidad muestra su línea de tiempo en su pantalla de detalle (`HistorialTimeline`).
+- **Historial** en el menú da la vista consolidada, filtrable por tipo, persona y rango de fechas, y exportable a CSV para auditorías externas (RNF-26).
+- El registro se hace en los **stores**, no en las pantallas, para que ninguna ruta de mutación pueda olvidarse. La única excepción es el flujo de usuarios: `UsersProvider` está por encima de `SessionProvider` y no tiene actor, así que sus eventos se emiten desde sus pantallas usando los helpers de [`lib/user-audit.ts`](apps/web/lib/user-audit.ts).
+- El alcance lo fija el rol y no un filtro: los roles de tenant ven solo su empresa; el Superadmin, solo la actividad de plataforma.
+
+> ⚠️ **La inmutabilidad que exige RNF-08 es una garantía del backend, no del frontend.** Hoy el log vive en memoria: se pierde al recargar y puede alterarse desde las devtools. La implementación real debe ser una tabla append-only sin permisos de `UPDATE`/`DELETE` para el rol de aplicación, con RLS por `tenant_id`.
+
 ### Producción — servidor
 
 ```bash
