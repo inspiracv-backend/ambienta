@@ -7,6 +7,7 @@ import { Avatar, Button } from '@/components/atoms';
 import { useSession } from '@/lib/session';
 import { useNotifications } from '@/lib/notifications-store';
 import { ROLE_LABEL } from '@/lib/roles';
+import { navItemsParaRol } from '@/lib/navigation';
 import { mockTenants } from '@/mocks/tenants';
 
 interface AppHeaderProps {
@@ -24,6 +25,16 @@ export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
 
   const tenant = mockTenants.find((t) => t.id === user?.tenantId);
   const noLeidas = user ? notifications.filter((n) => n.userId === user.id && !n.leida).length : 0;
+
+  // La campana se deriva del propio menú del rol para no duplicar el criterio:
+  // /notificaciones es una ruta de tenant, así que al Superadmin lo rebotaría
+  // `TenantScopeGate`. Mostrarle el enlace sería ofrecerle una acción que
+  // falla al hacer clic. La matriz de permisos le da "recibe alertas de
+  // agentes", pero ese centro de notificaciones de plataforma no existe
+  // todavía — gap documentado, no un olvido.
+  const tieneNotificaciones = user
+    ? navItemsParaRol(user.role).some((item) => item.href === '/notificaciones')
+    : false;
 
   function handleLogout() {
     logout();
@@ -53,18 +64,20 @@ export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
 
       {user && (
         <div className="flex items-center gap-3">
-          <Link
-            href="/notificaciones"
-            aria-label={noLeidas > 0 ? `Notificaciones, ${noLeidas} sin leer` : 'Notificaciones'}
-            className="relative text-slate-500 hover:text-slate-800"
-          >
-            <Bell className="h-5 w-5" aria-hidden />
-            {noLeidas > 0 && (
-              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-semaforo-no-cumple px-1 text-[10px] font-medium text-white">
-                {noLeidas}
-              </span>
-            )}
-          </Link>
+          {tieneNotificaciones && (
+            <Link
+              href="/notificaciones"
+              aria-label={noLeidas > 0 ? `Notificaciones, ${noLeidas} sin leer` : 'Notificaciones'}
+              className="relative text-slate-500 hover:text-slate-800"
+            >
+              <Bell className="h-5 w-5" aria-hidden />
+              {noLeidas > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-semaforo-no-cumple px-1 text-[10px] font-medium text-white">
+                  {noLeidas}
+                </span>
+              )}
+            </Link>
+          )}
           <Link href="/perfil" className="flex items-center gap-2 hover:opacity-80" aria-label="Ir a mi perfil">
             <Avatar nombre={user.nombre} avatarUrl={user.avatarUrl} size="sm" />
             <span className="hidden text-sm text-slate-700 sm:inline">{user.nombre}</span>

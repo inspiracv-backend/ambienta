@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { DashboardLayout } from '@/components/templates';
-import { PerfilEmpresaGate, ClienteInvitadoGate } from '@/components/organisms';
+import { PerfilEmpresaGate, ClienteInvitadoGate, TenantScopeGate } from '@/components/organisms';
 import { ObligationsProvider } from '@/lib/obligations-store';
 import { PlanAccionProvider } from '@/lib/plan-accion-store';
 import { AuditsProvider } from '@/lib/audits-store';
@@ -26,6 +26,13 @@ import { DepartamentosProvider } from '@/lib/departamentos-store';
  * porque el Cliente Invitado (RF-05, acceso limitado a tickets) no debe
  * llegar a ninguna pantalla de negocio del tenant, independientemente del
  * estado de Perfil Empresa.
+ *
+ * Orden de los gates (de fuera hacia dentro): primero se saca al Cliente
+ * Invitado del área de negocio, después TenantScopeGate separa el ámbito de
+ * plataforma del ámbito de tenant (el Superadmin no entra a los módulos de un
+ * tenant, ni los roles de tenant a la administración de la plataforma), y solo
+ * entonces PerfilEmpresaGate exige el perfil al Admin Empresa — que ya se sabe
+ * que está en el ámbito correcto.
  */
 export default function DashboardRouteLayout({ children }: { children: ReactNode }) {
   return (
@@ -38,9 +45,11 @@ export default function DashboardRouteLayout({ children }: { children: ReactNode
                 <TenantsProvider>
                   <DepartamentosProvider>
                     <ClienteInvitadoGate>
-                      <PerfilEmpresaGate>
-                        <DashboardLayout>{children}</DashboardLayout>
-                      </PerfilEmpresaGate>
+                      <TenantScopeGate>
+                        <PerfilEmpresaGate>
+                          <DashboardLayout>{children}</DashboardLayout>
+                        </PerfilEmpresaGate>
+                      </TenantScopeGate>
                     </ClienteInvitadoGate>
                   </DepartamentosProvider>
                 </TenantsProvider>

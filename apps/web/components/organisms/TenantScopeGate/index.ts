@@ -1,0 +1,1 @@
+export { TenantScopeGate } from './TenantScopeGate';

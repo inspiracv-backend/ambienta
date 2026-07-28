@@ -110,6 +110,21 @@ No hay autenticación real todavía: los botones SSO de la pantalla de login sie
 
 El panel **no existe en los builds de producción**: `next.config.js` sustituye el módulo por un componente vacío vía `NormalModuleReplacementPlugin`, así que ni la herramienta ni los datos de los usuarios mock llegan al bundle. Se elimina junto con `components/organisms/DevRoleSwitcher/` cuando exista auth real.
 
+#### Qué ve cada rol
+
+La navegación sale de [`apps/web/lib/navigation.ts`](apps/web/lib/navigation.ts), derivada de la matriz de permisos por módulo del Análisis de Actores (§4). Hay **dos ámbitos que no se mezclan**:
+
+| Ámbito | Roles | Módulos |
+|---|---|---|
+| **Plataforma** | Superadmin | Gestión de Tenants, Soporte, Chatbot privilegiado, Perfil |
+| **Tenant** | Admin Empresa, Usuario Interno, Gestor | Dashboard, Matriz Legal, Obligaciones, Calendario, Auditorías, No Conformidades, Catálogo Normativo, Reportes, Notificaciones, Chatbot, Perfil |
+
+Dentro del ámbito tenant: **Perfil Empresa** y **Usuarios y Roles** son de Admin Empresa y Gestor; **Gestores** solo del Gestor (A4 = A1 + ese módulo). El **Cliente Invitado** no entra al área de negocio: solo sus tickets (RF-05).
+
+El Superadmin **no** ve los módulos de un tenant en su menú — CLAUDE.md: *"Admin Global NO puede editar contenido de tenants"*. Su acceso de lectura para soporte y auditoría se hace entrando al tenant desde Gestión de Tenants. `TenantScopeGate` aplica lo mismo al acceso por URL directa, en ambas direcciones.
+
+> Esto es **UX, no seguridad**. Ocultar un ítem del menú no impide nada por sí solo: la barrera real es el RBAC en la API, que todavía no existe (propuesta OpenSpec pendiente de aprobación).
+
 ### Producción — servidor
 
 ```bash

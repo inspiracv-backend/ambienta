@@ -3,96 +3,39 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as Dialog from '@radix-ui/react-dialog';
-import {
-  LayoutDashboard,
-  ScrollText,
-  ClipboardList,
-  CalendarDays,
-  ShieldAlert,
-  BookMarked,
-  Building,
-  Building2,
-  FileBarChart,
-  Bell,
-  Users,
-  Bot,
-  Settings,
-  ServerCog,
-  LifeBuoy,
-  FlaskConical,
-  X,
-} from 'lucide-react';
+import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSession } from '@/lib/session';
-
-/**
- * Navegación global sugerida (Esquema de Pantallas v1.5). Solo "Dashboard"
- * tiene ruta implementada en esta iteración — el resto se muestra
- * deshabilitado con nota "Próximamente" (H1: no ofrecer una acción que
- * fallaría silenciosamente).
- */
-const NAV_ITEMS = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, enabled: true },
-  { label: 'Perfil Empresa', href: '/perfil-empresa', icon: Building, enabled: true, adminEmpresaOnly: true },
-  { label: 'Matriz Legal', href: '/matriz-legal', icon: ScrollText, enabled: true },
-  { label: 'Obligaciones', href: '/obligaciones', icon: ClipboardList, enabled: true },
-  { label: 'Calendario / Gantt', href: '/calendario', icon: CalendarDays, enabled: true },
-  { label: 'Auditorías', href: '/auditorias', icon: ShieldAlert, enabled: true },
-  { label: 'No Conformidades', href: '/no-conformidades', icon: ShieldAlert, enabled: true },
-  { label: 'Catálogo Normativo', href: '/catalogo-normativo', icon: BookMarked, enabled: true },
-  { label: 'Gestores', href: '/gestores', icon: Building2, enabled: true, gestorOnly: true },
-  { label: 'Reportes', href: '/reportes', icon: FileBarChart, enabled: true },
-  { label: 'Notificaciones', href: '/notificaciones', icon: Bell, enabled: true },
-  { label: 'Usuarios y Roles', href: '/usuarios', icon: Users, enabled: true, adminEmpresaOnly: true },
-  { label: 'Chatbot', href: '/chatbot', icon: Bot, enabled: true },
-  { label: 'Configuración / Perfil', href: '/perfil', icon: Settings, enabled: true },
-] as const;
-
-const SUPERADMIN_ITEMS = [
-  { label: 'Gestión de Tenants', href: '/gestion-tenants', icon: ServerCog, enabled: true },
-  { label: 'Soporte', href: '/soporte', icon: LifeBuoy, enabled: true },
-  { label: 'Planes de prueba', href: '#', icon: FlaskConical, enabled: false },
-] as const;
+import { navItemsParaRol, type NavItem } from '@/lib/navigation';
 
 interface AppSidebarProps {
   mobileOpen: boolean;
   onMobileOpenChange: (open: boolean) => void;
 }
 
-function useNavItems() {
-  const { user } = useSession();
-  const isGestorTenant = user?.role === 'gestor';
-  const isAdminEmpresa = user?.role === 'admin_empresa';
-  const items = NAV_ITEMS.filter((item) => {
-    if ('gestorOnly' in item && item.gestorOnly && !isGestorTenant) return false;
-    if ('adminEmpresaOnly' in item && item.adminEmpresaOnly && !isAdminEmpresa) return false;
-    return true;
-  });
-  return { items, isSuperadmin: user?.role === 'superadmin' };
-}
-
 function isActiveHref(href: string, pathname: string) {
   return href !== '#' && (pathname === href || pathname.startsWith(`${href}/`));
 }
 
+/**
+ * Los ítems y su visibilidad por rol viven en `lib/navigation.ts`, derivados
+ * de la matriz de permisos del Análisis de Actores — este componente solo los
+ * dibuja. Antes el menú listaba los 12 módulos del tenant para todos y al
+ * Superadmin le agregaba los suyos al final, así que veía pantallas de un
+ * tenant al que no pertenece (y que le salían vacías, porque su `tenantId`
+ * es null).
+ */
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { items, isSuperadmin } = useNavItems();
+  const { user } = useSession();
+
+  if (!user) return null;
 
   return (
     <>
-      {items.map((item) => (
+      {navItemsParaRol(user.role).map((item) => (
         <SidebarLink key={item.label} item={item} active={isActiveHref(item.href, pathname)} onNavigate={onNavigate} />
       ))}
-
-      {isSuperadmin && (
-        <>
-          <hr className="my-2 border-slate-200" />
-          {SUPERADMIN_ITEMS.map((item) => (
-            <SidebarLink key={item.label} item={item} active={isActiveHref(item.href, pathname)} onNavigate={onNavigate} />
-          ))}
-        </>
-      )}
     </>
   );
 }
@@ -134,7 +77,7 @@ function SidebarLink({
   active,
   onNavigate,
 }: {
-  item: { label: string; href: string; icon: typeof LayoutDashboard; enabled: boolean };
+  item: NavItem;
   active: boolean;
   onNavigate?: () => void;
 }) {

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { SSOButton } from '@/components/molecules';
 import { useSession } from '@/lib/session';
+import { rutaInicialParaRol } from '@/lib/navigation';
 import { mockUsers } from '@/mocks/users';
 
 /**
@@ -32,7 +33,7 @@ export function LoginCard() {
         return;
       }
       login(mockUser.id);
-      router.push('/dashboard');
+      router.push(rutaInicialParaRol(mockUser.role));
     }, 600);
   }
 

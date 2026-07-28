@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, FlaskConical, Globe } from 'lucide-react';
+import type { User } from '@ambienta/shared';
 import { Avatar, Spinner } from '@/components/atoms';
 import { useSession } from '@/lib/session';
 import { useUsers } from '@/lib/users-store';
 import { ROLE_LABEL } from '@/lib/roles';
+import { rutaInicialParaRol } from '@/lib/navigation';
 import { mockTenants } from '@/mocks/tenants';
 
 /**
@@ -38,13 +40,13 @@ function DevRoleSwitcherPanel() {
   const { users } = useUsers();
   const [entrandoComo, setEntrandoComo] = useState<string | null>(null);
 
-  function handleEntrar(userId: string, esClienteInvitado: boolean) {
-    setEntrandoComo(userId);
-    login(userId);
-    // El Cliente Invitado no puede ver contenido de negocio (RF-05): mandarlo
-    // al dashboard solo provocaría que `ClienteInvitadoGate` lo rebote.
-    // El resto va al dashboard y los gates deciden si corresponde redirigir.
-    router.push(esClienteInvitado ? '/crear-ticket' : '/dashboard');
+  function handleEntrar(user: User) {
+    setEntrandoComo(user.id);
+    login(user.id);
+    // Cada rol aterriza donde le corresponde (`lib/navigation.ts`): el Cliente
+    // Invitado en sus tickets y el Superadmin en Gestión de Tenants, no en un
+    // dashboard de tenant que para él saldría vacío.
+    router.push(rutaInicialParaRol(user.role));
   }
 
   return (
@@ -71,14 +73,13 @@ function DevRoleSwitcherPanel() {
           // su alcance. Mover el provider al layout raíz por una herramienta de
           // desarrollo sería peor que leer el dato de solo lectura que necesita.
           const tenant = mockTenants.find((t) => t.id === u.tenantId);
-          const esClienteInvitado = u.role === 'cliente_invitado';
           const estaEntrando = entrandoComo === u.id;
 
           return (
             <li key={u.id}>
               <button
                 type="button"
-                onClick={() => handleEntrar(u.id, esClienteInvitado)}
+                onClick={() => handleEntrar(u)}
                 disabled={entrandoComo !== null}
                 className="flex w-full items-center gap-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-left transition hover:border-amber-400 hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-50"
               >

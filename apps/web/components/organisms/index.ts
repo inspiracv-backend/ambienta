@@ -46,3 +46,4 @@ export * from './UserFormModal';
 export * from './UsersManagementTable';
 export * from './UserProfileView';
 export * from './DevRoleSwitcher';
+export * from './TenantScopeGate';
