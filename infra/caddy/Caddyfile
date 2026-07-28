@@ -1,0 +1,56 @@
+# Reverse proxy de producción de Ambienta.
+#
+# Caddy gestiona los certificados TLS automáticamente vía Let's Encrypt: no hay
+# que renovarlos a mano ni configurar certbot. Requiere que los dominios
+# resuelvan por DNS a este servidor ANTES del primer arranque.
+
+{
+	email {$ACME_EMAIL}
+	# Para probar sin gastar el rate limit de Let's Encrypt (5 certs/semana por
+	# dominio), descomentar el staging de ACME:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# ---------- Frontend ----------
+{$DOMAIN_WEB} {
+	encode zstd gzip
+
+	# `web:3000` es el nombre del servicio en la red de Compose.
+	reverse_proxy web:3000
+
+	header {
+		# HSTS: fuerza HTTPS por un año en navegadores que ya visitaron el sitio.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Oculta que el servidor es Caddy (menos información para un atacante).
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# ---------- API ----------
+{$DOMAIN_API} {
+	encode zstd gzip
+
+	reverse_proxy api:3001
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format json
+		# Los health checks del balanceador inundarían los logs.
+		exclude /health
+	}
+}

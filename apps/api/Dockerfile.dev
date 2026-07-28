@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+#
+# Imagen de DESARROLLO de @ambienta/api — hot reload vía `nest start --watch`.
+# No usar en producción (incluye devDependencies y corre como root para poder
+# escribir en los volúmenes montados desde el host).
+#
+# El código se copia a la imagen (para que sea autosuficiente) y además
+# docker-compose.yml monta apps/api/src encima, de modo que editar en el host
+# recargue dentro del contenedor.
+
+FROM node:24-alpine
+WORKDIR /repo
+
+ENV NODE_ENV=development
+
+# Manifests primero: node_modules se instala dentro de la imagen para que las
+# dependencias con binarios nativos se compilen para Linux, no para el host.
+# Además Docker cachea esta capa mientras el lockfile no cambie.
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY packages/shared/package.json packages/shared/
+
+RUN npm ci --workspace @ambienta/api --include-workspace-root
+
+# Código y configuración (tsconfig, etc.). Los directorios src/ quedan
+# sobrescritos en runtime por los volúmenes del host.
+COPY packages/shared ./packages/shared
+COPY apps/api ./apps/api
+
+EXPOSE 3001
+
+CMD ["npm", "run", "dev", "--workspace", "@ambienta/api"]

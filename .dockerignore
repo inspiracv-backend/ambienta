@@ -1,0 +1,40 @@
+# Sin esto, el contexto de build enviado al daemon de Docker incluiría cientos
+# de MB de node_modules y artefactos, haciendo cada build lentísimo — y además
+# podría filtrar un .env real dentro de la imagen.
+
+node_modules
+**/node_modules
+
+# Artefactos de build
+**/dist
+**/.next
+**/*.tsbuildinfo
+
+# Secretos: nunca dentro de una imagen (van por entorno del contenedor)
+.env
+.env.*
+!.env.example
+
+# Git y metadatos
+.git
+.gitignore
+.github
+
+# Herramientas locales / documentación (no afectan el runtime)
+.claude
+docs
+openspec
+README.md
+CLAUDE.md
+**/*.md
+
+# Compose y Dockerfiles (no se necesitan dentro de la imagen)
+docker-compose*.yml
+**/Dockerfile*
+infra/caddy
+
+# Editor / SO
+.vscode
+.idea
+.DS_Store
+Thumbs.db

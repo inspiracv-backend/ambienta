@@ -1,7 +1,12 @@
 node_modules
 .next
 dist
-.env
-.env.local
 .DS_Store
 *.tsbuildinfo
+
+# Secretos: se ignoran TODAS las variantes de .env excepto la plantilla.
+# El patrón amplio evita que un .env.production o .env.staging se cuele por
+# no estar listado explícitamente.
+.env
+.env.*
+!.env.example
