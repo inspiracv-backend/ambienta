@@ -1,0 +1,1 @@
+export { MisTareasSummary } from './MisTareasSummary';

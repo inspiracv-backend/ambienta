@@ -3,8 +3,14 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileWarning, ShieldAlert, Clock } from 'lucide-react';
-import { MetricCounter } from '@/components/molecules';
-import { DashboardHeroCard, DeadlinesList, MultiPlantTable } from '@/components/organisms';
+import { MetricCounter, PageHeader } from '@/components/molecules';
+import {
+  DashboardHeroCard,
+  DeadlinesList,
+  GestorSummary,
+  MisTareasSummary,
+  MultiPlantTable,
+} from '@/components/organisms';
 import { Spinner } from '@/components/atoms';
 import { useSession } from '@/lib/session';
 import { computePlantMetrics } from '@/lib/dashboard-metrics';
@@ -39,10 +45,13 @@ export default function DashboardPage() {
   }
 
   const tenant = mockTenants.find((t) => t.id === user.tenantId);
-  const isVistaSimplificada = user.role === 'admin_empresa';
+  // El Gestor es A1 + módulo Gestores: le corresponde la misma vista ejecutiva
+  // que al Admin Empresa, más su bloque de cartera.
+  const isVistaSimplificada = user.role === 'admin_empresa' || user.role === 'gestor';
+  const esUsuarioInterno = user.role === 'usuario_interno';
 
   // Usuario Interno ve solo sus plantas asignadas (vista densa);
-  // Admin Empresa/Superadmin ven el tenant completo (vista simplificada, H7).
+  // Admin Empresa y Gestor ven el tenant completo (vista simplificada, H7).
   const scopedPlants =
     !isVistaSimplificada && user.plantIds.length > 0
       ? (tenant?.plants ?? []).filter((p) => user.plantIds.includes(p.id))
@@ -68,12 +77,14 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">
-          {isVistaSimplificada ? 'Resumen ejecutivo' : 'Dashboard'}
-        </h1>
-        <p className="text-sm text-slate-500">{tenant?.nombre}</p>
-      </div>
+      <PageHeader
+        titulo={isVistaSimplificada ? 'Resumen ejecutivo' : 'Mi trabajo'}
+        descripcion={tenant?.nombre}
+      />
+
+      {/* El Usuario Interno abre con lo que le toca a él (RF-40): antes veía
+          primero el panorama del tenant completo y tenía que buscar lo suyo. */}
+      {esUsuarioInterno && <MisTareasSummary user={user} />}
 
       <DashboardHeroCard obligation={proximoCritico} cumplimientoPct={cumplimientoGlobal} />
 
@@ -82,6 +93,9 @@ export default function DashboardPage() {
         <MetricCounter label="No Conformidades abiertas" value={ncAbiertas} icon={FileWarning} tone="warning" />
         <MetricCounter label="Obligaciones por vencer (≤30 días)" value={porVencer} icon={Clock} tone="neutral" />
       </div>
+
+      {/* Cartera de clientes del Gestor (A4, RF-64 a RF-66). */}
+      {user.role === 'gestor' && <GestorSummary />}
 
       <section aria-labelledby="proximos-vencimientos-heading">
         <h2 id="proximos-vencimientos-heading" className="mb-3 text-sm font-semibold text-slate-700">

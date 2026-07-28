@@ -3,25 +3,39 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/atoms';
+import { PageHeader } from '@/components/molecules';
 import { UsersManagementTable } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useUsers } from '@/lib/users-store';
 import { useDepartamentos } from '@/lib/departamentos-store';
+import { navItemsParaRol, rutaInicialParaRol } from '@/lib/navigation';
 import { mockTenants } from '@/mocks/tenants';
 
-/** S-41 Gestión de Usuarios y Roles (exclusivo Admin Empresa, RF-08). */
+/**
+ * S-41 Gestión de Usuarios y Roles (RF-08).
+ *
+ * El permiso se deriva de `lib/navigation.ts` en vez de repetir aquí la lista
+ * de roles: la matriz le da este módulo al Admin Empresa y al Gestor (A4 =
+ * A1 + módulo Gestores), y tener el criterio en dos lugares fue justamente lo
+ * que hizo que el menú ofreciera la pantalla al Gestor mientras la página lo
+ * rebotaba.
+ */
 export default function UsuariosPage() {
   const router = useRouter();
   const { user } = useSession();
   const { users } = useUsers();
   const { departamentos } = useDepartamentos();
 
+  const puedeGestionarUsuarios = user
+    ? navItemsParaRol(user.role).some((item) => item.href === '/usuarios')
+    : false;
+
   useEffect(() => {
     if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-    else if (user && user.role !== 'admin_empresa') router.replace('/dashboard');
-  }, [user, router]);
+    else if (user && !puedeGestionarUsuarios) router.replace(rutaInicialParaRol(user.role));
+  }, [user, puedeGestionarUsuarios, router]);
 
-  if (!user || user.role !== 'admin_empresa') {
+  if (!user || !puedeGestionarUsuarios) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner label="Cargando sesión" />
@@ -35,10 +49,7 @@ export default function UsuariosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Usuarios y Roles</h1>
-        <p className="text-sm text-slate-500">{tenant?.nombre}</p>
-      </div>
+      <PageHeader titulo="Usuarios y Roles" descripcion={tenant?.nombre} />
       <UsersManagementTable
         users={tenantUsers}
         plants={tenant?.plants ?? []}

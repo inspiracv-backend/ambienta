@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import { MODULOS_PLATAFORMA, type ModuloPlataforma } from '@ambienta/shared';
-import { Button, Input, StatusBadge } from '@/components/atoms';
+import { AccountBadge, Button, Input } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { useTenants } from '@/lib/tenants-store';
-import { tenantSemaforo, MODULO_LABEL } from '@/lib/tenant-status';
+import { MODULO_LABEL } from '@/lib/tenant-status';
 import type { TenantConfigViewProps } from './TenantConfigView.types';
 
 /**
@@ -49,7 +49,7 @@ export function TenantConfigView({ tenant: tenantProp, userCount }: TenantConfig
               RUT {tenant.rut} · {tenant.esGestor ? 'Gestor' : tenant.sector} · {tenant.plants.length} planta(s) · {userCount} usuario(s)
             </p>
           </div>
-          <StatusBadge status={tenantSemaforo(tenant.estado)} />
+          <AccountBadge estado={tenant.estado} />
         </div>
       </div>
 

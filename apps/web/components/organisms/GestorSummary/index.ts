@@ -1,0 +1,1 @@
+export { GestorSummary } from './GestorSummary';

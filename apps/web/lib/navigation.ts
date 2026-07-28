@@ -90,6 +90,9 @@ export const TENANT_NAV_ITEMS: readonly NavItem[] = [
  * misma ruta, que cambia de comportamiento según el rol (Sección K).
  */
 export const PLATFORM_NAV_ITEMS: readonly NavItem[] = [
+  // Se llama "Dashboard" porque es lo que significa para él, pero apunta a
+  // /plataforma: /dashboard filtra por tenantId y el suyo es null.
+  { label: 'Dashboard', href: '/plataforma', icon: LayoutDashboard, roles: ['superadmin'], enabled: true },
   { label: 'Gestión de Tenants', href: '/gestion-tenants', icon: ServerCog, roles: ['superadmin'], enabled: true },
   { label: 'Soporte', href: '/soporte', icon: LifeBuoy, roles: ['superadmin'], enabled: true },
   { label: 'Chatbot', href: '/chatbot', icon: Bot, roles: ['superadmin'], enabled: true },
@@ -115,7 +118,7 @@ const TENANT_SCOPED_PREFIXES = [
 ] as const;
 
 /** Rutas del ámbito plataforma: solo el Superadmin. */
-const PLATFORM_SCOPED_PREFIXES = ['/gestion-tenants', '/soporte'] as const;
+const PLATFORM_SCOPED_PREFIXES = ['/plataforma', '/gestion-tenants', '/soporte'] as const;
 
 export function esRutaDeTenant(pathname: string): boolean {
   return TENANT_SCOPED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -134,10 +137,10 @@ export function navItemsParaRol(role: Role): readonly NavItem[] {
 /**
  * Pantalla de inicio de cada rol. El Superadmin no aterriza en /dashboard
  * porque ese dashboard filtra por `tenantId` y para él siempre saldría vacío;
- * su vista consolidada de la plataforma es Gestión de Tenants.
+ * su equivalente es /plataforma, el dashboard consolidado del negocio.
  */
 export function rutaInicialParaRol(role: Role): string {
-  if (role === 'superadmin') return '/gestion-tenants';
+  if (role === 'superadmin') return '/plataforma';
   if (role === 'cliente_invitado') return '/crear-ticket';
   return '/dashboard';
 }

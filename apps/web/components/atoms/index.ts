@@ -4,3 +4,6 @@ export * from './Icon';
 export * from './Avatar';
 export * from './Spinner';
 export * from './StatusBadge';
+export * from './Textarea';
+export * from './BrandMark';
+export * from './AccountBadge';

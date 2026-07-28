@@ -5,8 +5,7 @@ import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AlertTriangle, X } from 'lucide-react';
 import type { Tenant } from '@ambienta/shared';
-import { StatusBadge, Button } from '@/components/atoms';
-import { tenantSemaforo } from '@/lib/tenant-status';
+import { AccountBadge, Button } from '@/components/atoms';
 import type { TenantsManagementTableProps } from './TenantsManagementTable.types';
 
 /**
@@ -41,10 +40,16 @@ export function TenantsManagementTable({ tenants, userCounts, onToggleEstado }: 
                   <p className="text-xs font-normal text-slate-500">{t.esGestor ? 'Gestor' : t.sector}</p>
                 </td>
                 <td className="px-4 py-3">
-                  <StatusBadge status={tenantSemaforo(t.estado)} />
+                  {/* Estado de la cuenta, no semáforo de cumplimiento ambiental:
+                      una empresa suspendida no está "en incumplimiento" normativo. */}
+                  <AccountBadge estado={t.estado} />
                 </td>
                 <td className="px-4 py-3 text-slate-500">
-                  {userCounts[t.id] ?? 0} / {t.limiteUsuarios}
+                  <span className={(userCounts[t.id] ?? 0) >= t.limiteUsuarios ? 'font-semibold text-semaforo-no-cumple' : undefined}>
+                    {userCounts[t.id] ?? 0}
+                  </span>
+                  {' / '}
+                  {t.limiteUsuarios}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{t.modulosActivos.length}</td>
                 <td className="px-4 py-3">

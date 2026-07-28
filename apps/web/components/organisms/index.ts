@@ -47,3 +47,7 @@ export * from './UsersManagementTable';
 export * from './UserProfileView';
 export * from './DevRoleSwitcher';
 export * from './TenantScopeGate';
+export * from './ToastViewport';
+export * from './PlatformDashboard';
+export * from './GestorSummary';
+export * from './MisTareasSummary';
