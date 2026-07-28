@@ -1,5 +1,11 @@
-import { LoginCard } from '@/components/organisms';
+import { DevRoleSwitcher, LoginCard } from '@/components/organisms';
 
 export default function LoginPage() {
-  return <LoginCard />;
+  return (
+    <>
+      <LoginCard />
+      {/* Herramienta de desarrollo: se elimina del bundle de producción. */}
+      <DevRoleSwitcher />
+    </>
+  );
 }

@@ -45,3 +45,4 @@ export * from './ClienteInvitadoGate';
 export * from './UserFormModal';
 export * from './UsersManagementTable';
 export * from './UserProfileView';
+export * from './DevRoleSwitcher';

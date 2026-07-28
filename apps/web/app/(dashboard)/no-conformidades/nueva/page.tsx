@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
 import { RegisterFindingForm } from '@/components/organisms';
@@ -9,8 +9,29 @@ import { useSession } from '@/lib/session';
 import { mockTenants } from '@/mocks/tenants';
 import { mockUsers } from '@/mocks/users';
 
-/** S-24 Crear/Registrar Hallazgo. */
+/**
+ * S-24 Crear/Registrar Hallazgo.
+ *
+ * El contenido va dentro de `<Suspense>` porque usa `useSearchParams()`, que
+ * en el App Router obliga a Next a renderizar del lado del cliente. Sin la
+ * frontera, `next build` falla al prerenderizar esta ruta (el modo desarrollo
+ * lo tolera, así que el error solo aparece al construir para producción).
+ */
 export default function NuevaNoConformidadPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-full items-center justify-center">
+          <Spinner label="Cargando formulario" />
+        </div>
+      }
+    >
+      <NuevaNoConformidadContent />
+    </Suspense>
+  );
+}
+
+function NuevaNoConformidadContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useSession();

@@ -95,6 +95,21 @@ curl http://localhost:3001/health/ready
 
 Debe responder `"estado": "ok"` con `postgres` y `redis` en `ok`.
 
+#### Entrar como cada rol (solo en desarrollo)
+
+No hay autenticación real todavía: los botones SSO de la pantalla de login siempre entran como **Admin Empresa**, y el acceso con RUT siempre como **Cliente Invitado**. Para revisar las vistas del resto de los roles, la pantalla de login muestra un panel **Acceso rápido de desarrollo** con los 6 usuarios mock:
+
+| Usuario | Rol | Empresa |
+|---|---|---|
+| Javiera Soto | Superadmin | — (plataforma completa) |
+| Marcelo Fuentes | Admin Empresa | Recicladora del Sur SpA |
+| Camila Rojas | Usuario Interno | Recicladora del Sur SpA |
+| Diego Muñoz | Usuario Interno | Recicladora del Sur SpA |
+| Antonia Vidal | Gestor | Veolia Ambiental Chile |
+| Roberto Pizarro | Cliente Invitado | Recicladora del Sur SpA |
+
+El panel **no existe en los builds de producción**: `next.config.js` sustituye el módulo por un componente vacío vía `NormalModuleReplacementPlugin`, así que ni la herramienta ni los datos de los usuarios mock llegan al bundle. Se elimina junto con `components/organisms/DevRoleSwitcher/` cuando exista auth real.
+
 ### Producción — servidor
 
 ```bash
