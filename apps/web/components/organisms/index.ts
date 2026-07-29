@@ -54,3 +54,6 @@ export * from './MisTareasSummary';
 export * from './HistorialTimeline';
 export * from './AuditLogView';
 export * from './NuevoTenantModal';
+export * from './MapaProcesos';
+export { ReportePdf } from './ReportePdf';
+export { ReporteCumplimientoPdf } from './ReporteCumplimientoPdf/ReporteCumplimientoPdf';

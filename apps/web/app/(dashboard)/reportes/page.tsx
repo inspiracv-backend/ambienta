@@ -3,12 +3,12 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/atoms';
-import { ReportGenerator, AuditFolderExport } from '@/components/organisms';
+import { ReportGenerator, AuditFolderExport, ReporteCumplimientoPdf } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useObligations } from '@/lib/obligations-store';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
 import { useAudits } from '@/lib/audits-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-39 Reportes + S-40 Exportación de Carpeta de Auditoría (RF-50). */
 export default function ReportesPage() {
@@ -17,6 +17,7 @@ export default function ReportesPage() {
   const { obligations } = useObligations();
   const { norms } = useLegalMatrix();
   const { audits, nonConformities } = useAudits();
+  const { tenants } = useTenants();
 
   useEffect(() => {
     if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
@@ -30,7 +31,9 @@ export default function ReportesPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  // Del store en vivo: si se carga el logo en Perfil Empresa, el informe
+  // impreso debe reflejarlo sin recargar.
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const isVistaSimplificada = user.role === 'admin_empresa';
   const scopedPlants =
     !isVistaSimplificada && user.plantIds.length > 0
@@ -61,6 +64,17 @@ export default function ReportesPage() {
         norms={scopedNorms}
         nonConformities={scopedNcs}
       />
+
+      {tenant && (
+        <ReporteCumplimientoPdf
+          tenant={tenant}
+          usuario={user}
+          plants={scopedPlants}
+          obligations={scopedObligations}
+          norms={scopedNorms}
+          nonConformities={scopedNcs}
+        />
+      )}
 
       {scopedAudits.length > 0 && (
         <AuditFolderExport audits={scopedAudits} plants={scopedPlants} nonConformities={scopedNcs} />

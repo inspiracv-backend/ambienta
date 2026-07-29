@@ -3,10 +3,13 @@
 import { useId, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { Check, Building2, MapPin, Users2, ClipboardCheck } from 'lucide-react';
-import { Button, Input } from '@/components/atoms';
+import type { TipoProceso } from '@ambienta/shared';
+import { TIPOS_PROCESO } from '@ambienta/shared';
+import { Button, Input, Textarea } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { cn } from '@/lib/utils';
 import { ROLE_LABEL } from '@/lib/roles';
+import { MapaProcesos } from '@/components/organisms/MapaProcesos';
 import type { PerfilEmpresaWizardProps } from './PerfilEmpresaWizard.types';
 
 const PASOS = [
@@ -29,6 +32,7 @@ export function PerfilEmpresaWizard({
   departamentos,
   usuarios,
   onUpdateDatosBasicos,
+  onUpdateLogo,
   onAddPlant,
   onAddDepartamento,
   onCompletar,
@@ -45,6 +49,9 @@ export function PerfilEmpresaWizard({
   const [regionPlanta, setRegionPlanta] = useState('');
 
   const [nombreDepto, setNombreDepto] = useState('');
+  const [tipoDepto, setTipoDepto] = useState<TipoProceso>('operativo');
+  const [descripcionDepto, setDescripcionDepto] = useState('');
+  const [logoUrl, setLogoUrl] = useState(tenant.logoUrl ?? '');
 
   const tenantDepartamentos = departamentos.filter((d) => d.tenantId === tenant.id);
 
@@ -65,8 +72,13 @@ export function PerfilEmpresaWizard({
   function handleAgregarDepto(e: FormEvent) {
     e.preventDefault();
     if (!nombreDepto.trim()) return;
-    onAddDepartamento(nombreDepto.trim());
+    onAddDepartamento({
+      nombre: nombreDepto.trim(),
+      tipo: tipoDepto,
+      descripcion: descripcionDepto.trim() || undefined,
+    });
     setNombreDepto('');
+    setDescripcionDepto('');
   }
 
   const puedeContinuarPaso0 = giro.trim().length > 0 && direccion.trim().length > 0;
@@ -139,6 +151,31 @@ export function PerfilEmpresaWizard({
             <FormField label="Dirección" htmlFor={`${formId}-direccion`} required>
               <Input id={`${formId}-direccion`} value={direccion} onChange={(e) => setDireccion(e.target.value)} />
             </FormField>
+
+            {/* El logo no es decoración: encabeza los informes que salen de la
+                empresa hacia un fiscalizador o un certificador. */}
+            <div className="border-t border-slate-100 pt-4">
+              <FormField
+                label="Logo de la empresa"
+                htmlFor={`${formId}-logo`}
+                hint="Aparecerá en los reportes que se impriman o exporten a PDF."
+              >
+                <Input
+                  id={`${formId}-logo`}
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  onBlur={() => logoUrl.trim() !== (tenant.logoUrl ?? '') && onUpdateLogo(logoUrl.trim())}
+                  placeholder="https://…/logo.png"
+                />
+              </FormField>
+              {logoUrl.trim() && (
+                <div className="mt-2 flex items-center gap-3 rounded-lg border border-slate-200 p-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={logoUrl} alt="Logo de la empresa" className="h-12 w-12 object-contain" />
+                  <p className="text-xs text-slate-500">Así se verá en el encabezado de los reportes.</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -174,24 +211,61 @@ export function PerfilEmpresaWizard({
 
         {paso === 2 && (
           <div className="flex flex-col gap-4">
-            <h2 className="text-base font-semibold text-slate-900">Departamentos / Procesos</h2>
-            <p className="text-sm text-slate-500">Todo Usuario Interno debe pertenecer a un departamento.</p>
-            <ul className="flex flex-wrap gap-2">
-              {tenantDepartamentos.map((d) => (
-                <li key={d.id} className="rounded-full bg-brand-50 px-3 py-1 text-sm font-medium text-brand-700">
-                  {d.nombre}
-                </li>
-              ))}
-              {tenantDepartamentos.length === 0 && <p className="text-sm text-slate-500">Aún no hay departamentos.</p>}
-            </ul>
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Departamentos / Procesos</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Todo Usuario Interno pertenece a uno. Clasificarlos por tipo es lo que genera el mapa de procesos
+                que exige ISO 9001 §4.4.
+              </p>
+            </div>
 
-            <form onSubmit={handleAgregarDepto} className="flex items-end gap-3 border-t border-slate-100 pt-4">
-              <FormField label="Nuevo departamento" htmlFor={`${formId}-depto`}>
-                <Input id={`${formId}-depto`} value={nombreDepto} onChange={(e) => setNombreDepto(e.target.value)} />
+            {/* El mapa se genera desde lo declarado aquí: no es un diagrama
+                aparte que quede desactualizado al mes siguiente. */}
+            <MapaProcesos departamentos={tenantDepartamentos} usuarios={usuarios} />
+
+            <form onSubmit={handleAgregarDepto} className="flex flex-col gap-3 border-t border-slate-100 pt-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FormField label="Nombre del proceso" htmlFor={`${formId}-depto`}>
+                  <Input
+                    id={`${formId}-depto`}
+                    value={nombreDepto}
+                    onChange={(e) => setNombreDepto(e.target.value)}
+                    placeholder="Ej: Gestión de Residuos"
+                  />
+                </FormField>
+                <FormField
+                  label="Tipo de proceso"
+                  htmlFor={`${formId}-depto-tipo`}
+                  hint={TIPOS_PROCESO.find((t) => t.codigo === tipoDepto)?.descripcion}
+                >
+                  <select
+                    id={`${formId}-depto-tipo`}
+                    className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                    value={tipoDepto}
+                    onChange={(e) => setTipoDepto(e.target.value as TipoProceso)}
+                  >
+                    {TIPOS_PROCESO.map((t) => (
+                      <option key={t.codigo} value={t.codigo}>
+                        {t.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              </div>
+              <FormField label="Descripción" htmlFor={`${formId}-depto-desc`}>
+                <Textarea
+                  id={`${formId}-depto-desc`}
+                  rows={2}
+                  value={descripcionDepto}
+                  onChange={(e) => setDescripcionDepto(e.target.value)}
+                  placeholder="Qué hace este proceso"
+                />
               </FormField>
-              <Button type="submit" variant="secondary">
-                Agregar
-              </Button>
+              <div>
+                <Button type="submit" variant="secondary">
+                  Agregar proceso
+                </Button>
+              </div>
             </form>
           </div>
         )}

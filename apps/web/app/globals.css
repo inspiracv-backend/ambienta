@@ -14,3 +14,53 @@ body {
 :focus-visible {
   @apply outline outline-2 outline-offset-2 outline-brand-500;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Impresión / exportación a PDF (RF-57).
+   Se usa la impresión nativa del navegador en vez de una librería de PDF: el
+   resultado tiene texto seleccionable y reutiliza el mismo HTML, sin sumar
+   una dependencia ni un segundo sistema de maquetación. Ver ReportePdf.tsx.
+   ────────────────────────────────────────────────────────────────────────── */
+@media print {
+  /* Fuera todo lo que no es el documento: navegación, filtros, botones. */
+  header:not(.reporte-imprimible header),
+  nav,
+  aside,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+  }
+
+  /* El reporte ocupa la hoja completa, sin bordes ni sombras de pantalla. */
+  .reporte-imprimible {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  /* Una fila de tabla partida entre dos páginas es ilegible en un informe. */
+  tr,
+  li,
+  .evitar-corte {
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  /* Los colores de fondo del semáforo son parte del significado, no adorno:
+     sin esto el navegador los descarta al imprimir. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  @page {
+    margin: 1.5cm;
+  }
+}

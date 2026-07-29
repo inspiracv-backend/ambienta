@@ -1,0 +1,1 @@
+export { MapaProcesos } from './MapaProcesos';

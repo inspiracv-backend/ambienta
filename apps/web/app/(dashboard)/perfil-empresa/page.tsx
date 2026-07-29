@@ -7,14 +7,15 @@ import { PerfilEmpresaWizard } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useTenants } from '@/lib/tenants-store';
 import { useDepartamentos } from '@/lib/departamentos-store';
-import { mockUsers } from '@/mocks/users';
+import { useUsers } from '@/lib/users-store';
 
 /** RF-10 a RF-12 (v1.7): flujo obligatorio de Perfil Empresa del Admin Empresa. */
 export default function PerfilEmpresaPage() {
   const router = useRouter();
   const { user } = useSession();
-  const { tenants, updateDatosBasicos, addPlant, completarPerfilEmpresa } = useTenants();
+  const { tenants, updateDatosBasicos, updateLogo, addPlant, completarPerfilEmpresa } = useTenants();
   const { departamentos, addDepartamento } = useDepartamentos();
+  const { users } = useUsers();
 
   useEffect(() => {
     if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
@@ -37,7 +38,9 @@ export default function PerfilEmpresaPage() {
     );
   }
 
-  const usuariosTenant = mockUsers.filter((u) => u.tenantId === tenant.id);
+  // Del store en vivo, no del mock estático: al asignar un responsable de
+  // proceso el mapa debe reflejarlo sin recargar.
+  const usuariosTenant = users.filter((u) => u.tenantId === tenant.id);
 
   return (
     <PerfilEmpresaWizard
@@ -45,8 +48,9 @@ export default function PerfilEmpresaPage() {
       departamentos={departamentos}
       usuarios={usuariosTenant}
       onUpdateDatosBasicos={(datos) => updateDatosBasicos(tenant.id, datos)}
+      onUpdateLogo={(logoUrl) => updateLogo(tenant.id, logoUrl)}
       onAddPlant={(input) => addPlant(tenant.id, input)}
-      onAddDepartamento={(nombre) => addDepartamento(tenant.id, nombre)}
+      onAddDepartamento={(input) => addDepartamento({ tenantId: tenant.id, ...input })}
       onCompletar={() => {
         completarPerfilEmpresa(tenant.id);
         router.push('/dashboard');
