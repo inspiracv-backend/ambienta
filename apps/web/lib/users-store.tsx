@@ -7,7 +7,8 @@ import { mockUsers } from '@/mocks/users';
 interface UsersContextValue {
   users: User[];
   inviteUser: (input: {
-    tenantId: string;
+    /** `null` para usuarios de plataforma (equipo interno), que no pertenecen a ninguna empresa. */
+    tenantId: string | null;
     nombre: string;
     email: string;
     role: Role;
@@ -43,7 +44,7 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<User[]>(mockUsers);
 
   function inviteUser(input: {
-    tenantId: string;
+    tenantId: string | null;
     nombre: string;
     email: string;
     role: Role;

@@ -99,6 +99,9 @@ export const PLATFORM_NAV_ITEMS: readonly NavItem[] = [
   // /plataforma: /dashboard filtra por tenantId y el suyo es null.
   { label: 'Dashboard', href: '/plataforma', icon: LayoutDashboard, roles: ['superadmin'], enabled: true },
   { label: 'Gestión de Tenants', href: '/gestion-tenants', icon: ServerCog, roles: ['superadmin'], enabled: true },
+  // Contraparte de "Usuarios y Roles": esa administra la gente de una empresa,
+  // esta la del equipo de Ambienta.
+  { label: 'Equipo de plataforma', href: '/equipo', icon: Users, roles: ['superadmin'], enabled: true },
   { label: 'Soporte', href: '/soporte', icon: LifeBuoy, roles: ['superadmin'], enabled: true },
   { label: 'Chatbot', href: '/chatbot', icon: Bot, roles: ['superadmin'], enabled: true },
   { label: 'Historial', href: '/historial', icon: History, roles: ['superadmin'], enabled: true },
@@ -124,7 +127,7 @@ const TENANT_SCOPED_PREFIXES = [
 ] as const;
 
 /** Rutas del ámbito plataforma: solo el Superadmin. */
-const PLATFORM_SCOPED_PREFIXES = ['/plataforma', '/gestion-tenants', '/soporte'] as const;
+const PLATFORM_SCOPED_PREFIXES = ['/plataforma', '/gestion-tenants', '/equipo', '/soporte'] as const;
 
 export function esRutaDeTenant(pathname: string): boolean {
   return TENANT_SCOPED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

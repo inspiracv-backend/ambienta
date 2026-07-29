@@ -2,7 +2,7 @@
 
 import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { TenantConfigView } from '@/components/organisms';
+import { HistorialTimeline, TenantConfigView } from '@/components/organisms';
 import { useTenants } from '@/lib/tenants-store';
 import { mockUsers } from '@/mocks/users';
 
@@ -18,6 +18,16 @@ export default function TenantConfigPage({ params }: { params: { id: string } })
     <div className="flex flex-col gap-4">
       <Breadcrumbs items={[{ label: 'Gestión de Tenants', href: '/gestion-tenants' }, { label: tenant.nombre }]} />
       <TenantConfigView tenant={tenant} userCount={userCount} />
+
+      {/* Historial de las decisiones de plataforma sobre esta empresa: alta,
+          cambios de limite, modulos y suspensiones. Es lo que hay que poder
+          mostrarle al cliente si reclama por un cambio en su servicio. */}
+      <HistorialTimeline
+        entidadTipo="tenant"
+        entidadId={tenant.id}
+        titulo="Historial de la cuenta"
+        descripcionVacio="Los cambios de plan, limites y modulos quedaran aqui con su autor y fecha."
+      />
     </div>
   );
 }

@@ -57,3 +57,4 @@ export * from './NuevoTenantModal';
 export * from './MapaProcesos';
 export { ReportePdf } from './ReportePdf';
 export { ReporteCumplimientoPdf } from './ReporteCumplimientoPdf/ReporteCumplimientoPdf';
+export * from './EquipoPlataformaView';

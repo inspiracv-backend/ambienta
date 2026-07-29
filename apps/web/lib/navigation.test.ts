@@ -26,6 +26,7 @@ describe('navItemsParaRol — Superadmin (A0)', () => {
     expect(hrefs('superadmin')).toEqual([
       '/plataforma',
       '/gestion-tenants',
+      '/equipo',
       '/soporte',
       '/chatbot',
       '/historial',
