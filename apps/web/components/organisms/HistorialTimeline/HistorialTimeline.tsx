@@ -18,7 +18,7 @@ import type { AccionAuditable, AuditLogEntry, EntidadAuditable } from '@ambienta
 import { ACCION_LABEL } from '@ambienta/shared';
 import { EmptyState } from '@/components/molecules';
 import { ROLE_LABEL } from '@/lib/roles';
-import { useAuditLog } from '@/lib/audit-log-store';
+import { useAuditLog, type RefEntidad } from '@/lib/audit-log-store';
 import type { Role } from '@ambienta/shared';
 
 const ICONO_ACCION: Record<AccionAuditable, typeof Pencil> = {
@@ -63,6 +63,15 @@ interface HistorialTimelineProps {
   titulo?: string;
   /** Texto del estado vacío, adaptado a la entidad. */
   descripcionVacio?: string;
+  /**
+   * Entidades hijas cuyo historial se muestra junto al de la principal.
+   *
+   * Una norma sin sus artículos no tiene historia propia: lo que interesa
+   * auditar es cuándo cada artículo pasó a cumplir o dejó de hacerlo.
+   */
+  entidadesRelacionadas?: RefEntidad[];
+  /** Muestra sobre qué entidad ocurrió cada evento; útil al combinar varias. */
+  mostrarEntidad?: boolean;
 }
 
 /**
@@ -76,9 +85,18 @@ interface HistorialTimelineProps {
  * Del más reciente al más antiguo: en una auditoría la primera pregunta suele
  * ser "qué pasó al final", y quien necesita el origen puede bajar.
  */
-export function HistorialTimeline({ entidadTipo, entidadId, titulo = 'Historial', descripcionVacio }: HistorialTimelineProps) {
-  const { historialDe } = useAuditLog();
-  const eventos = historialDe(entidadTipo, entidadId);
+export function HistorialTimeline({
+  entidadTipo,
+  entidadId,
+  titulo = 'Historial',
+  descripcionVacio,
+  entidadesRelacionadas,
+  mostrarEntidad = false,
+}: HistorialTimelineProps) {
+  const { historialDe, historialDeVarias } = useAuditLog();
+  const eventos = entidadesRelacionadas?.length
+    ? historialDeVarias([{ tipo: entidadTipo, id: entidadId }, ...entidadesRelacionadas])
+    : historialDe(entidadTipo, entidadId);
 
   return (
     <section aria-labelledby={`historial-${entidadId}`} className="flex flex-col gap-3">
@@ -103,7 +121,7 @@ export function HistorialTimeline({ entidadTipo, entidadId, titulo = 'Historial'
       ) : (
         <ol className="relative flex flex-col gap-0 rounded-card border border-slate-200 bg-white p-4">
           {eventos.map((evento, i) => (
-            <EventoItem key={evento.id} evento={evento} esUltimo={i === eventos.length - 1} />
+            <EventoItem key={evento.id} evento={evento} esUltimo={i === eventos.length - 1} mostrarEntidad={mostrarEntidad} />
           ))}
         </ol>
       )}
@@ -111,7 +129,7 @@ export function HistorialTimeline({ entidadTipo, entidadId, titulo = 'Historial'
   );
 }
 
-function EventoItem({ evento, esUltimo }: { evento: AuditLogEntry; esUltimo: boolean }) {
+function EventoItem({ evento, esUltimo, mostrarEntidad }: { evento: AuditLogEntry; esUltimo: boolean; mostrarEntidad?: boolean }) {
   const Icono = ICONO_ACCION[evento.accion];
   const { absoluta, relativa } = formatearFecha(evento.fecha);
 
@@ -134,6 +152,10 @@ function EventoItem({ evento, esUltimo }: { evento: AuditLogEntry; esUltimo: boo
             {ACCION_LABEL[evento.accion]}
           </span>
         </div>
+
+        {mostrarEntidad && (
+          <p className="mt-0.5 text-xs font-medium text-slate-600">{evento.entidadLabel}</p>
+        )}
 
         <p className="mt-0.5 text-xs text-slate-400">
           {ROLE_LABEL[evento.actorRol as Role] ?? evento.actorRol} ·{' '}

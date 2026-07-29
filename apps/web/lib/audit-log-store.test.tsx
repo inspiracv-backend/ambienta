@@ -119,9 +119,21 @@ describe('append-only', () => {
     // RNF-08: el log debe ser inmutable. Aquí solo se garantiza que la
     // aplicación no ofrezca la operación; la garantía real es del backend
     // (tabla sin permisos de UPDATE/DELETE).
+    //
+    // Se afirma por lo que NO existe y no por la lista exacta: agregar una
+    // función de lectura nueva es legítimo y no debería romper el test, pero
+    // aparecer un `editar` o un `borrar` sí.
     const { result } = montarConSesion('admin_empresa');
     const claves = Object.keys(result.current.log);
-    expect(claves).toEqual(['entries', 'agregarEntrada', 'historialDe']);
+
+    for (const prohibida of ['editar', 'borrar', 'eliminar', 'actualizar', 'update', 'delete', 'remove']) {
+      expect(
+        claves.some((k) => k.toLowerCase().includes(prohibida)),
+        `el contexto no debe exponer "${prohibida}"`,
+      ).toBe(false);
+    }
+    // La única escritura permitida es añadir.
+    expect(claves.filter((k) => /agregar|añadir|registrar/i.test(k))).toEqual(['agregarEntrada']);
   });
 
   it('registrar nunca reemplaza eventos anteriores', () => {

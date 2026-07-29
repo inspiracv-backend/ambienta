@@ -1,10 +1,12 @@
 import type { SupportTicket, Tenant, User } from '@ambienta/shared';
+import { diasParaVencimiento } from '@ambienta/shared';
 
 export interface PlatformMetrics {
   tenantsActivos: number;
   tenantsSuspendidos: number;
   tenantsTotal: number;
   gestores: number;
+  demos: number;
   usuariosTotal: number;
   ticketsAbiertos: number;
   ticketsEnProgreso: number;
@@ -12,9 +14,18 @@ export interface PlatformMetrics {
   perfilesIncompletos: Tenant[];
   /** Tenants con ≥90% del límite de usuarios contratado. */
   cercaDelLimite: Array<{ tenant: Tenant; usuarios: number; porcentaje: number }>;
+  /** Suscripciones que vencen pronto o ya vencieron, las más urgentes primero. */
+  suscripcionesPorVencer: Array<{ tenant: Tenant; diasRestantes: number }>;
 }
 
 const UMBRAL_LIMITE = 0.9;
+
+/**
+ * Ventana de aviso de vencimiento. Una demo dura 10 días por defecto, así que
+ * avisar con 15 cubre tanto la demo completa como el mes previo a la
+ * renovación de un contrato anual.
+ */
+export const DIAS_AVISO_VENCIMIENTO = 15;
 
 /**
  * Métricas de la plataforma para el Superadmin (A0).
@@ -36,6 +47,7 @@ export function computePlatformMetrics(
   tenants: Tenant[],
   users: User[],
   tickets: SupportTicket[],
+  ahora: Date = new Date(),
 ): PlatformMetrics {
   const usuariosPorTenant = users.reduce<Record<string, number>>((acc, u) => {
     if (u.tenantId) acc[u.tenantId] = (acc[u.tenantId] ?? 0) + 1;
@@ -45,21 +57,29 @@ export function computePlatformMetrics(
   const cercaDelLimite = tenants
     .map((tenant) => {
       const usuarios = usuariosPorTenant[tenant.id] ?? 0;
-      return { tenant, usuarios, porcentaje: tenant.limiteUsuarios > 0 ? usuarios / tenant.limiteUsuarios : 0 };
+      const limite = tenant.suscripcion.limiteUsuarios;
+      return { tenant, usuarios, porcentaje: limite > 0 ? usuarios / limite : 0 };
     })
     .filter((t) => t.porcentaje >= UMBRAL_LIMITE)
     .sort((a, b) => b.porcentaje - a.porcentaje);
+
+  const suscripcionesPorVencer = tenants
+    .map((tenant) => ({ tenant, diasRestantes: diasParaVencimiento(tenant.suscripcion, ahora) }))
+    .filter((t) => t.diasRestantes <= DIAS_AVISO_VENCIMIENTO)
+    .sort((a, b) => a.diasRestantes - b.diasRestantes);
 
   return {
     tenantsActivos: tenants.filter((t) => t.estado === 'activo').length,
     tenantsSuspendidos: tenants.filter((t) => t.estado === 'suspendido').length,
     tenantsTotal: tenants.length,
     gestores: tenants.filter((t) => t.esGestor).length,
+    demos: tenants.filter((t) => t.suscripcion.plan === 'demo').length,
     // Los usuarios de plataforma (Superadmin, tenantId null) no son clientes.
     usuariosTotal: users.filter((u) => u.tenantId !== null).length,
     ticketsAbiertos: tickets.filter((t) => t.estado === 'abierto').length,
     ticketsEnProgreso: tickets.filter((t) => t.estado === 'en_progreso').length,
     perfilesIncompletos: tenants.filter((t) => !t.perfilEmpresaCompleto),
     cercaDelLimite,
+    suscripcionesPorVencer,
   };
 }

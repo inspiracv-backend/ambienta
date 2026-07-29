@@ -27,7 +27,7 @@ const ROLES_ASIGNABLES: AssignableRole[] = ['admin_empresa', 'usuario_interno', 
  */
 export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTenant, plants, departamentos }: UserFormModalProps) {
   const formId = useId();
-  const { inviteUser, updateRole, updatePlants, updateDepartamento } = useUsers();
+  const { inviteUser, updateRole, updatePlants, updateDepartamento, updateDescriptorCargo } = useUsers();
   const registrar = useRegistrarAuditoria();
   const { mostrarToast } = useToast();
   const esEdicion = !!user;
@@ -37,6 +37,7 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
   const [role, setRole] = useState<AssignableRole>((user?.role as AssignableRole) ?? 'usuario_interno');
   const [plantIds, setPlantIds] = useState<string[]>(user?.plantIds ?? []);
   const [departamentoId, setDepartamentoId] = useState<string>(user?.departamentoId ?? '');
+  const [cargo, setCargo] = useState(user?.descriptorCargo?.cargo ?? '');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const rolesDisponibles = ROLES_ASIGNABLES.filter((r) => r !== 'gestor' || esGestorTenant);
@@ -79,6 +80,14 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
       if (JSON.stringify(user.plantIds) !== JSON.stringify(plantIds)) {
         updatePlants(user.id, plantIds);
         registrar(eventoCambioDePlantas(user, user.plantIds, plantIds, plants));
+      }
+      if ((user.descriptorCargo?.cargo ?? '') !== cargo.trim()) {
+        updateDescriptorCargo(user.id, {
+          cargo: cargo.trim(),
+          funciones: user.descriptorCargo?.funciones ?? [],
+          responsabilidades: user.descriptorCargo?.responsabilidades ?? [],
+          ...(user.descriptorCargo?.documentoUrl ? { documentoUrl: user.descriptorCargo.documentoUrl } : {}),
+        });
       }
       if (user.departamentoId !== depto) {
         updateDepartamento(user.id, depto);
@@ -143,6 +152,22 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
                   </option>
                 ))}
               </select>
+            </FormField>
+
+            {/* El cargo es distinto del rol: el rol define qué puede hacer en
+                el sistema, el cargo qué responsabilidades tiene en la empresa.
+                Es lo que se revisa en una auditoría de competencia (ISO 9001 §7.2). */}
+            <FormField
+              label="Cargo en la empresa"
+              htmlFor={`${formId}-cargo`}
+              hint="Distinto del rol del sistema. Se usa en auditorías de competencia."
+            >
+              <Input
+                id={`${formId}-cargo`}
+                value={cargo}
+                onChange={(e) => setCargo(e.target.value)}
+                placeholder="Ej: Jefe de Medio Ambiente"
+              />
             </FormField>
 
             <fieldset className="flex flex-col gap-2">

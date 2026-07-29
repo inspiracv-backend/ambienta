@@ -38,12 +38,27 @@ export interface EventoAuditable {
   aprobadoPorNombre?: string;
 }
 
+/** Referencia a una entidad concreta del log. */
+export interface RefEntidad {
+  tipo: EntidadAuditable;
+  id: string;
+}
+
 interface AuditLogContextValue {
   entries: AuditLogEntry[];
   /** Append-only: no existe editar ni borrar. */
   agregarEntrada: (entry: AuditLogEntry) => void;
   /** Historial de una entidad, del más reciente al más antiguo. */
   historialDe: (entidadTipo: EntidadAuditable, entidadId: string) => AuditLogEntry[];
+  /**
+   * Historial combinado de varias entidades, en una sola línea de tiempo.
+   *
+   * Existe porque la vida de una entidad de negocio no se registra en una
+   * sola: la historia de una norma es la de sus artículos —cuándo cada uno
+   * pasó a cumplir o dejó de hacerlo— y quien audita necesita esa secuencia
+   * junta, no repartida en tantas pantallas como artículos tenga.
+   */
+  historialDeVarias: (refs: RefEntidad[]) => AuditLogEntry[];
 }
 
 const AuditLogContext = createContext<AuditLogContextValue | null>(null);
@@ -72,7 +87,25 @@ export function AuditLogProvider({ children }: { children: ReactNode }) {
     [entries],
   );
 
-  const value = useMemo(() => ({ entries, agregarEntrada, historialDe }), [entries, agregarEntrada, historialDe]);
+  const historialDeVarias = useCallback(
+    (refs: RefEntidad[]) => {
+      const claves = new Set(refs.map((r) => `${r.tipo}:${r.id}`));
+      return entries
+        .map((e, indice) => ({ e, indice }))
+        .filter(({ e }) => claves.has(`${e.entidadTipo}:${e.entidadId}`))
+        .sort((a, b) => {
+          const porFecha = new Date(b.e.fecha).getTime() - new Date(a.e.fecha).getTime();
+          return porFecha !== 0 ? porFecha : b.indice - a.indice;
+        })
+        .map(({ e }) => e);
+    },
+    [entries],
+  );
+
+  const value = useMemo(
+    () => ({ entries, agregarEntrada, historialDe, historialDeVarias }),
+    [entries, agregarEntrada, historialDe, historialDeVarias],
+  );
 
   return <AuditLogContext.Provider value={value}>{children}</AuditLogContext.Provider>;
 }

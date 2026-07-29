@@ -122,8 +122,15 @@ export function PerfilEmpresaWizard({
               <FormField label="Razón social" htmlFor={`${formId}-nombre`}>
                 <Input id={`${formId}-nombre`} value={tenant.nombre} disabled className="bg-slate-50 text-slate-500" />
               </FormField>
-              <FormField label="RUT" htmlFor={`${formId}-rut`}>
-                <Input id={`${formId}-rut`} value={tenant.rut} disabled className="bg-slate-50 text-slate-500" />
+              {/* La etiqueta sale del país: el producto es multi-país y no
+                  todos usan RUT (RF-87). */}
+              <FormField label={tenant.identificacion.tipo} htmlFor={`${formId}-doc`}>
+                <Input
+                  id={`${formId}-doc`}
+                  value={tenant.identificacion.numero}
+                  disabled
+                  className="bg-slate-50 text-slate-500"
+                />
               </FormField>
             </div>
             <FormField label="Giro" htmlFor={`${formId}-giro`} required hint="Actividad económica principal de la empresa.">

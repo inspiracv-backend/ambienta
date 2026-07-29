@@ -6,7 +6,8 @@ import type { EntidadAuditable } from '@ambienta/shared';
 import { ACCION_LABEL, ENTIDAD_LABEL } from '@ambienta/shared';
 import { Button, Input } from '@/components/atoms';
 import { EmptyState, FormField } from '@/components/molecules';
-import { useAuditLog } from '@/lib/audit-log-store';
+import { useAuditLog, useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useTenants } from '@/lib/tenants-store';
 import {
   actoresDe,
   exportarAuditoriaCsv,
@@ -48,12 +49,43 @@ const ENTIDADES: EntidadAuditable[] = [
  */
 export function AuditLogView({ tenantIdVisible }: { tenantIdVisible: string | null }) {
   const { entries } = useAuditLog();
+  const { tenants } = useTenants();
   const { mostrarToast } = useToast();
+  const registrar = useRegistrarAuditoria();
   const [filtros, setFiltros] = useState<FiltrosAuditoria>(FILTROS_INICIALES);
 
+  const esSuperadmin = tenantIdVisible === null;
+
+  /**
+   * Que el Superadmin consulte el historial de un cliente es en sí mismo un
+   * hecho auditable: la matriz le da lectura sobre los tenants para soporte,
+   * pero el cliente debe poder saber quién miró sus datos y cuándo. Sin este
+   * registro, el acceso de plataforma sería una puerta trasera sin rastro.
+   */
+  function cambiarTenantConsultado(nuevo: string) {
+    setFiltros((f) => ({ ...f, tenantId: nuevo }));
+    if (nuevo === 'plataforma') return;
+
+    const tenant = tenants.find((t) => t.id === nuevo);
+    if (!tenant) return;
+
+    registrar({
+      entidadTipo: 'tenant',
+      entidadId: tenant.id,
+      entidadLabel: tenant.nombre,
+      tenantId: tenant.id,
+      accion: 'comentado',
+      resumen: 'Consultó el historial de la empresa desde soporte',
+      motivo: 'Acceso de lectura del equipo de plataforma.',
+    });
+  }
+
+  // "Del alcance" = todo lo que el usuario podría ver con el tenant elegido,
+  // sin los demás filtros. Es el denominador del contador y la fuente de la
+  // lista de personas.
   const delAlcance = useMemo(
-    () => filtrarAuditoria(entries, tenantIdVisible, FILTROS_INICIALES),
-    [entries, tenantIdVisible],
+    () => filtrarAuditoria(entries, tenantIdVisible, { ...FILTROS_INICIALES, tenantId: filtros.tenantId }),
+    [entries, tenantIdVisible, filtros.tenantId],
   );
   const filtrados = useMemo(
     () => filtrarAuditoria(entries, tenantIdVisible, filtros),
@@ -61,7 +93,14 @@ export function AuditLogView({ tenantIdVisible }: { tenantIdVisible: string | nu
   );
   const actores = useMemo(() => actoresDe(delAlcance), [delAlcance]);
 
-  const hayFiltros = JSON.stringify(filtros) !== JSON.stringify(FILTROS_INICIALES);
+  // El tenant consultado no cuenta como "filtro": es el alcance, y limpiarlo
+  // devolvería al Superadmin a plataforma sin que lo haya pedido.
+  const hayFiltros =
+    JSON.stringify({ ...filtros, tenantId: 'plataforma' }) !== JSON.stringify(FILTROS_INICIALES);
+
+  function limpiarFiltros() {
+    setFiltros((f) => ({ ...FILTROS_INICIALES, tenantId: f.tenantId }));
+  }
 
   function handleExportar() {
     if (filtrados.length === 0) return;
@@ -79,6 +118,30 @@ export function AuditLogView({ tenantIdVisible }: { tenantIdVisible: string | nu
 
   return (
     <div className="flex flex-col gap-4">
+      {esSuperadmin && (
+        <div className="rounded-card border border-slate-200 bg-white p-4">
+          <FormField
+            label="Historial que estás viendo"
+            htmlFor="audit-tenant"
+            hint="Consultar el historial de un cliente queda registrado en el suyo."
+          >
+            <select
+              id="audit-tenant"
+              className="h-11 w-full max-w-md rounded-lg border border-slate-300 px-3 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+              value={filtros.tenantId}
+              onChange={(e) => cambiarTenantConsultado(e.target.value)}
+            >
+              <option value="plataforma">Actividad de la plataforma</option>
+              {tenants.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nombre}
+                </option>
+              ))}
+            </select>
+          </FormField>
+        </div>
+      )}
+
       <div className="rounded-card border border-slate-200 bg-white p-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <FormField label="Buscar" htmlFor="audit-texto">
@@ -147,7 +210,7 @@ export function AuditLogView({ tenantIdVisible }: { tenantIdVisible: string | nu
             {hayFiltros && (
               <button
                 type="button"
-                onClick={() => setFiltros(FILTROS_INICIALES)}
+                onClick={limpiarFiltros}
                 className="ml-2 font-medium text-brand-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
                 Limpiar filtros
@@ -177,7 +240,7 @@ export function AuditLogView({ tenantIdVisible }: { tenantIdVisible: string | nu
           }
           accion={
             hayFiltros ? (
-              <Button variant="secondary" size="md" onClick={() => setFiltros(FILTROS_INICIALES)}>
+              <Button variant="secondary" size="md" onClick={limpiarFiltros}>
                 Limpiar filtros
               </Button>
             ) : undefined

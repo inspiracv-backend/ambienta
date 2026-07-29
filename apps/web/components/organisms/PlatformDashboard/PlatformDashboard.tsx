@@ -136,7 +136,7 @@ export function PlatformDashboard() {
                         : 'shrink-0 rounded-full bg-semaforo-parcial-bg px-2 py-0.5 text-xs font-semibold text-semaforo-parcial'
                     }
                   >
-                    {usuarios} / {tenant.limiteUsuarios} usuarios
+                    {usuarios} / {tenant.suscripcion.limiteUsuarios} usuarios
                   </span>
                 </li>
               ))}

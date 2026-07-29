@@ -144,6 +144,12 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
                           <p className="font-medium text-slate-800">
                             {u.nombre} {esUnoMismo && <span className="text-xs font-normal text-slate-400">(tú)</span>}
                           </p>
+                          {/* El cargo es lo que se revisa en una auditoría de
+                              competencia (ISO 9001 §7.2); el rol del sistema
+                              va en su propia columna. */}
+                          {u.descriptorCargo?.cargo && (
+                            <p className="text-xs font-medium text-slate-600">{u.descriptorCargo.cargo}</p>
+                          )}
                           <p className="text-xs text-slate-500">{u.email}</p>
                         </div>
                       </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import type { Role, User, UserEstado } from '@ambienta/shared';
+import type { DescriptorCargo, Role, User, UserEstado } from '@ambienta/shared';
 import { mockUsers } from '@/mocks/users';
 
 interface UsersContextValue {
@@ -18,6 +18,7 @@ interface UsersContextValue {
   updatePlants: (userId: string, plantIds: string[]) => void;
   updateDepartamento: (userId: string, departamentoId: string | null) => void;
   updateNombre: (userId: string, nombre: string) => void;
+  updateDescriptorCargo: (userId: string, descriptor: DescriptorCargo) => void;
   setEstado: (userId: string, estado: UserEstado) => void;
 }
 
@@ -80,13 +81,17 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, nombre } : u)));
   }
 
+  function updateDescriptorCargo(userId: string, descriptorCargo: DescriptorCargo) {
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, descriptorCargo } : u)));
+  }
+
   function setEstado(userId: string, estado: UserEstado) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, estado } : u)));
   }
 
   return (
     <UsersContext.Provider
-      value={{ users, inviteUser, updateRole, updatePlants, updateDepartamento, updateNombre, setEstado }}
+      value={{ users, inviteUser, updateRole, updatePlants, updateDepartamento, updateNombre, updateDescriptorCargo, setEstado }}
     >
       {children}
     </UsersContext.Provider>

@@ -53,3 +53,4 @@ export * from './GestorSummary';
 export * from './MisTareasSummary';
 export * from './HistorialTimeline';
 export * from './AuditLogView';
+export * from './NuevoTenantModal';

@@ -1,17 +1,48 @@
 'use client';
 
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import type { ModuloPlataforma, Plant, Tenant } from '@ambienta/shared';
+import type {
+  Certificacion,
+  ContactoComercial,
+  ModuloPlataforma,
+  Pais,
+  Plan,
+  Plant,
+  Tenant,
+} from '@ambienta/shared';
+import { documentoDePais, nombreDePais } from '@ambienta/shared';
 import { mockTenants } from '@/mocks/tenants';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { MODULO_LABEL } from '@/lib/tenant-status';
 
+export interface NuevoTenantInput {
+  nombre: string;
+  pais: Pais;
+  numeroIdentificacion: string;
+  sector: string;
+  giro?: string;
+  direccion?: string;
+  sitioWeb?: string;
+  numeroTrabajadores?: number;
+  certificaciones: Certificacion[];
+  contactoComercial?: ContactoComercial;
+  notasComerciales?: string;
+  esGestor: boolean;
+  plan: Plan;
+  /** Días de vigencia desde hoy: la demo por defecto son 10 (RF-82). */
+  diasVigencia: number;
+  limiteUsuarios: number;
+  modulosActivos: ModuloPlataforma[];
+}
+
 interface TenantsContextValue {
   tenants: Tenant[];
+  createTenant: (input: NuevoTenantInput) => Tenant;
   setEstado: (tenantId: string, estado: Tenant['estado']) => void;
   setLimiteUsuarios: (tenantId: string, limite: number) => void;
   setModulosActivos: (tenantId: string, modulos: ModuloPlataforma[]) => void;
   updateDatosBasicos: (tenantId: string, datos: { giro: string; direccion: string }) => void;
+  updateLogo: (tenantId: string, logoUrl: string) => void;
   addPlant: (tenantId: string, input: { nombre: string; comuna: string; region: string }) => void;
   completarPerfilEmpresa: (tenantId: string) => void;
 }
@@ -33,6 +64,69 @@ const TenantsContext = createContext<TenantsContextValue | null>(null);
 export function TenantsProvider({ children }: { children: ReactNode }) {
   const [tenants, setTenants] = useState<Tenant[]>(mockTenants);
   const registrar = useRegistrarAuditoria();
+
+  /**
+   * Alta de una empresa (RF-82). No existía: los tenants solo podían nacer
+   * como mocks, así que no había forma de incorporar un cliente nuevo ni de
+   * dar una demo.
+   *
+   * El tenant nace con `perfilEmpresaCompleto: false` a propósito: el
+   * Superadmin registra la empresa y su contrato, pero plantas, departamentos
+   * y trabajadores los declara el Admin Empresa en su flujo obligatorio
+   * (RF-10 a RF-12). Que el Superadmin los cargue por él contradiría
+   * CLAUDE.md — "Admin Global NO puede editar contenido de tenants".
+   */
+  function createTenant(input: NuevoTenantInput): Tenant {
+    const ahora = new Date();
+    const termino = new Date(ahora);
+    termino.setDate(termino.getDate() + input.diasVigencia);
+
+    const nuevo: Tenant = {
+      id: `tenant-${Date.now()}`,
+      nombre: input.nombre,
+      identificacion: { tipo: documentoDePais(input.pais), numero: input.numeroIdentificacion },
+      pais: input.pais,
+      sector: input.sector,
+      giro: input.giro,
+      direccion: input.direccion,
+      sitioWeb: input.sitioWeb,
+      numeroTrabajadores: input.numeroTrabajadores,
+      certificaciones: input.certificaciones,
+      contactoComercial: input.contactoComercial,
+      notasComerciales: input.notasComerciales,
+      esGestor: input.esGestor,
+      estado: 'activo',
+      perfilEmpresaCompleto: false,
+      suscripcion: {
+        plan: input.plan,
+        fechaInicio: ahora.toISOString(),
+        fechaTermino: termino.toISOString(),
+        limiteUsuarios: input.limiteUsuarios,
+      },
+      modulosActivos: input.modulosActivos,
+      plants: [],
+    };
+
+    setTenants((prev) => [...prev, nuevo]);
+
+    registrar({
+      entidadTipo: 'tenant',
+      entidadId: nuevo.id,
+      entidadLabel: nuevo.nombre,
+      tenantId: null,
+      accion: 'creado',
+      resumen: input.plan === 'demo' ? 'Dio de alta una demo' : 'Dio de alta la empresa',
+      cambios: [
+        { campo: 'País', antes: null, despues: nombreDePais(input.pais) },
+        { campo: documentoDePais(input.pais), antes: null, despues: input.numeroIdentificacion },
+        { campo: 'Plan', antes: null, despues: input.plan === 'demo' ? `Demo (${input.diasVigencia} días)` : 'Contrato' },
+        { campo: 'Límite de usuarios', antes: null, despues: String(input.limiteUsuarios) },
+        { campo: 'Módulos habilitados', antes: null, despues: String(input.modulosActivos.length) },
+      ],
+    });
+
+    return nuevo;
+  }
 
   function setEstado(tenantId: string, estado: Tenant['estado']) {
     const anterior = tenants.find((t) => t.id === tenantId);
@@ -59,9 +153,11 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
   function setLimiteUsuarios(tenantId: string, limite: number) {
     const anterior = tenants.find((t) => t.id === tenantId);
-    if (!anterior || anterior.limiteUsuarios === limite) return;
+    if (!anterior || anterior.suscripcion.limiteUsuarios === limite) return;
 
-    setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, limiteUsuarios: limite } : t)));
+    setTenants((prev) =>
+      prev.map((t) => (t.id === tenantId ? { ...t, suscripcion: { ...t.suscripcion, limiteUsuarios: limite } } : t)),
+    );
 
     registrar({
       entidadTipo: 'tenant',
@@ -70,7 +166,28 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
       tenantId: null,
       accion: 'actualizado',
       resumen: 'Cambió el límite de usuarios contratado',
-      cambios: [{ campo: 'Límite de usuarios', antes: String(anterior.limiteUsuarios), despues: String(limite) }],
+      cambios: [
+        { campo: 'Límite de usuarios', antes: String(anterior.suscripcion.limiteUsuarios), despues: String(limite) },
+      ],
+    });
+  }
+
+  function updateLogo(tenantId: string, logoUrl: string) {
+    const anterior = tenants.find((t) => t.id === tenantId);
+    if (!anterior || anterior.logoUrl === logoUrl) return;
+
+    setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, logoUrl } : t)));
+
+    registrar({
+      entidadTipo: 'tenant',
+      entidadId: tenantId,
+      entidadLabel: anterior.nombre,
+      tenantId,
+      accion: 'actualizado',
+      // El logo aparece en los informes impresos, así que cambiarlo altera
+      // documentos que salen de la empresa: es un hecho auditable.
+      resumen: anterior.logoUrl ? 'Cambió el logo de la empresa' : 'Cargó el logo de la empresa',
+      cambios: [{ campo: 'Logo', antes: anterior.logoUrl ?? null, despues: logoUrl }],
     });
   }
 
@@ -170,7 +287,17 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
   return (
     <TenantsContext.Provider
-      value={{ tenants, setEstado, setLimiteUsuarios, setModulosActivos, updateDatosBasicos, addPlant, completarPerfilEmpresa }}
+      value={{
+        tenants,
+        createTenant,
+        setEstado,
+        setLimiteUsuarios,
+        setModulosActivos,
+        updateDatosBasicos,
+        updateLogo,
+        addPlant,
+        completarPerfilEmpresa,
+      }}
     >
       {children}
     </TenantsContext.Provider>

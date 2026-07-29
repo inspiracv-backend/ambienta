@@ -7,6 +7,12 @@ export interface FiltrosAuditoria {
   actorId: string | 'todos';
   desde: string;
   hasta: string;
+  /**
+   * Solo lo usa el Superadmin: `'plataforma'` para su propia actividad, o el
+   * id de una empresa para consultar la de ese cliente. Los roles de tenant
+   * lo ignoran — su alcance lo fija el rol, no un filtro.
+   */
+  tenantId: string | 'plataforma';
 }
 
 export const FILTROS_INICIALES: FiltrosAuditoria = {
@@ -15,6 +21,7 @@ export const FILTROS_INICIALES: FiltrosAuditoria = {
   actorId: 'todos',
   desde: '',
   hasta: '',
+  tenantId: 'plataforma',
 };
 
 function enRango(iso: string, desde: string, hasta: string): boolean {
@@ -46,9 +53,15 @@ export function filtrarAuditoria(
 
   return entries
     .filter((e) => {
-      // `null` = Superadmin: ve la actividad de plataforma. Los roles de
-      // tenant solo ven la suya.
-      if (tenantIdVisible === null) return e.tenantId === null;
+      // `null` = Superadmin. Por defecto ve la actividad de plataforma, pero
+      // puede pedir la de una empresa concreta: la matriz de permisos le
+      // concede lectura ("L") sobre los tenants para soporte y auditoría.
+      // Lectura, nunca edición — CLAUDE.md: "Admin Global NO puede editar
+      // contenido de tenants".
+      if (tenantIdVisible === null) {
+        return filtros.tenantId === 'plataforma' ? e.tenantId === null : e.tenantId === filtros.tenantId;
+      }
+      // Los roles de tenant solo ven la suya, sin excepción.
       return e.tenantId === tenantIdVisible;
     })
     .filter((e) => filtros.entidadTipo === 'todas' || e.entidadTipo === filtros.entidadTipo)

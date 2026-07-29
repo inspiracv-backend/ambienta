@@ -52,10 +52,22 @@ describe('aislamiento por tenant', () => {
     expect(filtrarAuditoria(entries, 'tenant-1', f()).map((e) => e.id)).not.toContain('plataforma');
   });
 
-  it('el Superadmin ve solo la actividad de plataforma, no la de los tenants', () => {
-    // CLAUDE.md: "Admin Global NO puede editar contenido de tenants". Tampoco
-    // debe leer su operación diaria desde esta vista.
+  it('el Superadmin ve por defecto solo la actividad de plataforma', () => {
     expect(filtrarAuditoria(entries, null, f()).map((e) => e.id)).toEqual(['plataforma']);
+  });
+
+  it('el Superadmin puede consultar el historial de una empresa concreta', () => {
+    // La matriz de permisos le concede lectura ("L") sobre los tenants para
+    // soporte y auditoría. Es lectura, nunca edición (CLAUDE.md).
+    const r = filtrarAuditoria(entries, null, f({ tenantId: 'tenant-2' }));
+    expect(r.map((e) => e.id)).toEqual(['ajeno']);
+  });
+
+  it('un rol de tenant NO puede pedir el historial de otra empresa', () => {
+    // El filtro `tenantId` es exclusivo del Superadmin: aunque un usuario de
+    // tenant-1 lo enviara a mano, su alcance sigue siendo el suyo.
+    const r = filtrarAuditoria(entries, 'tenant-1', f({ tenantId: 'tenant-2' }));
+    expect(r.map((e) => e.id)).toEqual(['propio']);
   });
 
   it('el aislamiento se aplica aunque se busque por texto', () => {
