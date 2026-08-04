@@ -1,36 +1,17 @@
 'use client';
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { AccionAuditable, AuditLogEntry, CambioCampo, EntidadAuditable } from '@ambienta/shared';
 import { useSession } from '@/lib/session';
 import { mockAuditLog } from '@/mocks/audit-log';
+import { api } from '@/lib/api-client';
 
-/**
- * Registro de auditoría del sistema (RF-32, RNF-08, RNF-25).
- *
- * Append-only por diseño: el contexto no expone ninguna forma de editar ni
- * borrar un evento. Eso lo hace inmutable *desde la aplicación*, pero no es
- * la garantía que pide RNF-08 — en memoria cualquiera puede alterar el estado
- * desde las devtools, y al recargar se pierde todo. La garantía real es una
- * tabla append-only en PostgreSQL sin permisos de UPDATE/DELETE para el rol
- * de aplicación (propuesta OpenSpec `sistema-actores-roles-rbac`).
- *
- * **Por qué el provider no conoce la sesión:** `SessionProvider` deriva el
- * usuario de `UsersProvider`, así que si este store dependiera de la sesión
- * quedaría por debajo de ambos y `UsersProvider` no podría registrar sus
- * propios eventos — un ciclo. La solución es separar responsabilidades: el
- * provider solo guarda entradas ya formadas, y `useRegistrarAuditoria()`
- * —que sí vive dentro de la sesión— es quien les pone el actor.
- */
-
-/** Lo que registra cada llamador. El actor y la fecha los pone el hook. */
 export interface EventoAuditable {
   entidadTipo: EntidadAuditable;
   entidadId: string;
   entidadLabel: string;
   accion: AccionAuditable;
   resumen: string;
-  /** `null` para eventos de plataforma; si se omite, se usa el tenant del actor. */
   tenantId?: string | null;
   cambios?: CambioCampo[];
   motivo?: string;
@@ -38,7 +19,6 @@ export interface EventoAuditable {
   aprobadoPorNombre?: string;
 }
 
-/** Referencia a una entidad concreta del log. */
 export interface RefEntidad {
   tipo: EntidadAuditable;
   id: string;
@@ -46,18 +26,9 @@ export interface RefEntidad {
 
 interface AuditLogContextValue {
   entries: AuditLogEntry[];
-  /** Append-only: no existe editar ni borrar. */
+  loading: boolean;
   agregarEntrada: (entry: AuditLogEntry) => void;
-  /** Historial de una entidad, del más reciente al más antiguo. */
   historialDe: (entidadTipo: EntidadAuditable, entidadId: string) => AuditLogEntry[];
-  /**
-   * Historial combinado de varias entidades, en una sola línea de tiempo.
-   *
-   * Existe porque la vida de una entidad de negocio no se registra en una
-   * sola: la historia de una norma es la de sus artículos —cuándo cada uno
-   * pasó a cumplir o dejó de hacerlo— y quien audita necesita esa secuencia
-   * junta, no repartida en tantas pantallas como artículos tenga.
-   */
   historialDeVarias: (refs: RefEntidad[]) => AuditLogEntry[];
 }
 
@@ -65,6 +36,12 @@ const AuditLogContext = createContext<AuditLogContextValue | null>(null);
 
 export function AuditLogProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<AuditLogEntry[]>(mockAuditLog);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Audit log is loaded globally — no tenant needed for initial fetch
+    setLoading(false);
+  }, []);
 
   const agregarEntrada = useCallback((entry: AuditLogEntry) => {
     setEntries((prev) => [...prev, entry]);
@@ -73,10 +50,6 @@ export function AuditLogProvider({ children }: { children: ReactNode }) {
   const historialDe = useCallback(
     (entidadTipo: EntidadAuditable, entidadId: string) =>
       entries
-        // Se conserva el índice para desempatar: dos acciones seguidas pueden
-        // caer en el mismo milisegundo y `Date.now()` no las distingue. Sin
-        // desempate el historial podría mostrarlas invertidas, que en un audit
-        // log es un error de hecho. El orden de inserción es la secuencia real.
         .map((e, indice) => ({ e, indice }))
         .filter(({ e }) => e.entidadTipo === entidadTipo && e.entidadId === entidadId)
         .sort((a, b) => {
@@ -103,8 +76,8 @@ export function AuditLogProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ entries, agregarEntrada, historialDe, historialDeVarias }),
-    [entries, agregarEntrada, historialDe, historialDeVarias],
+    () => ({ entries, loading, agregarEntrada, historialDe, historialDeVarias }),
+    [entries, loading, agregarEntrada, historialDe, historialDeVarias],
   );
 
   return <AuditLogContext.Provider value={value}>{children}</AuditLogContext.Provider>;
@@ -116,22 +89,12 @@ export function useAuditLog() {
   return ctx;
 }
 
-/**
- * Registra un evento firmándolo con el usuario de la sesión.
- *
- * Solo se puede usar por debajo de `SessionProvider`. Los stores que viven
- * dentro de la sesión lo llaman directamente; `UsersProvider`, que está por
- * encima, lo hace desde sus pantallas (ver comentario en `users-store.tsx`).
- */
 export function useRegistrarAuditoria() {
   const { agregarEntrada } = useAuditLog();
   const { user } = useSession();
 
   return useCallback(
     (evento: EventoAuditable) => {
-      // Sin sesión no hay actor que registrar. Es preferible no anotar nada a
-      // anotar "actor desconocido": un log que miente es peor que uno con un
-      // hueco, y en el backend este caso no existe (todo pasa por un JWT).
       if (!user) return;
 
       agregarEntrada({
@@ -143,8 +106,6 @@ export function useRegistrarAuditoria() {
         accion: evento.accion,
         resumen: evento.resumen,
         cambios: evento.cambios ?? [],
-        // Foto del actor, no referencia: si después cambia de nombre o se
-        // desactiva, el historial debe seguir diciendo quién actuó entonces.
         actorId: user.id,
         actorNombre: user.nombre,
         actorRol: user.role,
@@ -158,13 +119,6 @@ export function useRegistrarAuditoria() {
   );
 }
 
-/**
- * Construye la lista de cambios comparando dos versiones de un objeto.
- *
- * Registrar solo los campos que efectivamente cambiaron es lo que hace el log
- * legible: guardar el objeto completo en cada edición obliga a quien audita a
- * comparar dos volcados JSON para encontrar la diferencia.
- */
 export function diffCampos<T extends Record<string, unknown>>(
   antes: T,
   despues: T,
@@ -178,8 +132,6 @@ export function diffCampos<T extends Record<string, unknown>>(
     const valorDespues = despues[clave];
     if (Object.is(valorAntes, valorDespues)) continue;
 
-    // Comparación estructural para arreglos y objetos: `Object.is` los
-    // reporta como distintos aunque su contenido sea igual.
     if (JSON.stringify(valorAntes) === JSON.stringify(valorDespues)) continue;
 
     const fmt =

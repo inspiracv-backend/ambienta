@@ -1,12 +1,15 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Articulo, LegalNorm, TipoDocumento } from '@ambienta/shared';
 import { mockLegalNorms } from '@/mocks/catalog';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useSession } from '@/lib/session';
+import { api } from '@/lib/api-client';
 
 interface LegalMatrixContextValue {
   norms: LegalNorm[];
+  loading: boolean;
   updateArticulo: (normId: string, articuloId: string, updates: Partial<Articulo>) => void;
   setIncluidoEnCalculo: (normId: string, articuloId: string, incluido: boolean) => void;
   addNorm: (input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) => void;
@@ -22,22 +25,34 @@ const RESPUESTA_LABEL: Record<NonNullable<Articulo['respuesta']>, string> = {
   N_E: 'Sin evaluar',
 };
 
-/**
- * Estado en memoria para esta iteración (equivalente al `useState` de
- * SessionProvider) — simula persistencia de las evaluaciones de artículo
- * dentro de la sesión del navegador. Integración real: mutations vía
- * apps/api cuando exista spec aprobada para Matriz Legal (RF-19 a RF-24).
- *
- * La evaluación de artículos es **el flujo más sensible del sistema para el
- * audit log**: RF-32 y RNF-08 nacen justamente de aquí. Declarar que un
- * artículo "cumple" es una afirmación con consecuencias legales, y ante una
- * fiscalización hay que poder demostrar quién lo declaró, cuándo y con qué
- * fundamento. Por eso cada cambio de respuesta se registra con su forma de
- * cumplimiento como motivo.
- */
 export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   const [norms, setNorms] = useState<LegalNorm[]>(mockLegalNorms);
+  const [loading, setLoading] = useState(true);
   const registrar = useRegistrarAuditoria();
+  const { user } = useSession();
+
+  useEffect(() => {
+    if (!user?.tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    api
+      .get<Record<string, unknown>[]>('/catalog/norms')
+      .then((data) => {
+        if (cancelled) return;
+        const mapped: LegalNorm[] = data.map((raw) => ({
+          id: String(raw.id),
+          tenantId: user.tenantId!,
+          plantIds: [],
+          tipoDocumento: 'ley' as TipoDocumento,
+          nombre: String(raw.title ?? raw.norm_number ?? ''),
+          fuente: 'RCA' as const,
+          articulos: [],
+        }));
+        if (mapped.length > 0) setNorms(mapped);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.tenantId]);
 
   function updateArticulo(normId: string, articuloId: string, updates: Partial<Articulo>) {
     const norm = norms.find((n) => n.id === normId);
@@ -89,7 +104,6 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     registrar({
       entidadTipo: 'articulo',
       entidadId: articuloId,
-      // Se guarda norma + artículo porque un "Art. 10" suelto no identifica nada.
       entidadLabel: `${anterior.numero} — ${norm.nombre}`,
       tenantId: norm.tenantId,
       accion: evaluado ? 'evaluado' : 'actualizado',
@@ -97,7 +111,6 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         ? `Evaluó el artículo como ${RESPUESTA_LABEL[updates.respuesta!].toLowerCase()}`
         : 'Actualizó la evaluación del artículo',
       cambios,
-      // RF-29: la forma de cumplimiento es el fundamento de la declaración.
       ...(updates.formaCumplimiento ? { motivo: updates.formaCumplimiento } : {}),
     });
   }
@@ -156,7 +169,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <LegalMatrixContext.Provider value={{ norms, updateArticulo, setIncluidoEnCalculo, addNorm, setNormPlants }}>
+    <LegalMatrixContext.Provider value={{ norms, loading, updateArticulo, setIncluidoEnCalculo, addNorm, setNormPlants }}>
       {children}
     </LegalMatrixContext.Provider>
   );

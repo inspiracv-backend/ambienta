@@ -1,13 +1,16 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Departamento, TipoProceso } from '@ambienta/shared';
 import { nombreTipoProceso } from '@ambienta/shared';
 import { mockDepartamentos } from '@/mocks/departamentos';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useSession } from '@/lib/session';
+import { api } from '@/lib/api-client';
 
 interface DepartamentosContextValue {
   departamentos: Departamento[];
+  loading: boolean;
   addDepartamento: (input: {
     tenantId: string;
     nombre: string;
@@ -20,17 +23,16 @@ interface DepartamentosContextValue {
 
 const DepartamentosContext = createContext<DepartamentosContextValue | null>(null);
 
-/**
- * Departamentos/procesos del Perfil Empresa (RF-11, RF-12) — estado en
- * memoria, mismo patrón que los demás stores.
- *
- * Se pide el **tipo de proceso** al crear y no después: clasificarlo es lo que
- * convierte una lista de áreas en un mapa de procesos (ISO 9001 §4.4), y
- * dejarlo opcional garantiza que nadie lo complete y el mapa quede inservible.
- */
 export function DepartamentosProvider({ children }: { children: ReactNode }) {
   const [departamentos, setDepartamentos] = useState<Departamento[]>(mockDepartamentos);
+  const [loading, setLoading] = useState(true);
   const registrar = useRegistrarAuditoria();
+  const { user } = useSession();
+
+  useEffect(() => {
+    // Departments don't have a direct endpoint yet — keep mocks as fallback
+    setLoading(false);
+  }, [user?.tenantId]);
 
   function addDepartamento(input: {
     tenantId: string;
@@ -77,8 +79,6 @@ export function DepartamentosProvider({ children }: { children: ReactNode }) {
       entidadLabel: anterior.nombre,
       tenantId: anterior.tenantId,
       accion: 'actualizado',
-      // Reclasificar un proceso cambia el mapa que se presenta en auditoría,
-      // así que no es un ajuste cosmético.
       resumen: 'Reclasificó el proceso en el mapa',
       cambios: [
         { campo: 'Tipo de proceso', antes: nombreTipoProceso(anterior.tipo), despues: nombreTipoProceso(tipo) },
@@ -87,7 +87,7 @@ export function DepartamentosProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <DepartamentosContext.Provider value={{ departamentos, addDepartamento, updateTipo }}>
+    <DepartamentosContext.Provider value={{ departamentos, loading, addDepartamento, updateTipo }}>
       {children}
     </DepartamentosContext.Provider>
   );

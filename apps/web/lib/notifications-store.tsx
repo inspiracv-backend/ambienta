@@ -1,22 +1,50 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Notification, NotificationPreferences } from '@ambienta/shared';
 import { mockNotifications, mockNotificationPreferences } from '@/mocks/notifications';
+import { useSession } from '@/lib/session';
+import { api } from '@/lib/api-client';
 
 interface NotificationsContextValue {
   notifications: Notification[];
   preferences: NotificationPreferences[];
+  loading: boolean;
   markAllAsRead: (userId: string) => void;
   updatePreferences: (userId: string, updates: Partial<Omit<NotificationPreferences, 'userId'>>) => void;
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 
-/** Estado en memoria para esta iteración (mismo patrón que los demás stores). */
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
   const [preferences, setPreferences] = useState<NotificationPreferences[]>(mockNotificationPreferences);
+  const [loading, setLoading] = useState(true);
+  const { user } = useSession();
+
+  useEffect(() => {
+    if (!user?.tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    api
+      .get<Record<string, unknown>[]>('/notifications/', { tenantId: user.tenantId })
+      .then((data) => {
+        if (cancelled) return;
+        const mapped: Notification[] = data.map((raw) => ({
+          id: String(raw.id),
+          userId: String(raw.recipient_user_id ?? ''),
+          tenantId: String(raw.tenant_id ?? ''),
+          tipo: String(raw.channel ?? 'in_app') as Notification['tipo'],
+          titulo: String(raw.subject ?? ''),
+          mensaje: String(raw.body ?? ''),
+          fecha: String(raw.created_at ?? new Date().toISOString()),
+          leida: raw.read_at !== null,
+        }));
+        if (mapped.length > 0) setNotifications(mapped);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.tenantId]);
 
   function markAllAsRead(userId: string) {
     setNotifications((prev) => prev.map((n) => (n.userId === userId ? { ...n, leida: true } : n)));
@@ -33,7 +61,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <NotificationsContext.Provider value={{ notifications, preferences, markAllAsRead, updatePreferences }}>
+    <NotificationsContext.Provider value={{ notifications, preferences, loading, markAllAsRead, updatePreferences }}>
       {children}
     </NotificationsContext.Provider>
   );

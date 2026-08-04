@@ -1,9 +1,11 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Obligation, ObligationStatus, ObligationTask, SistemaDeclaracion } from '@ambienta/shared';
 import { mockObligations } from '@/mocks/obligations';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useSession } from '@/lib/session';
+import { api } from '@/lib/api-client';
 
 const ESTADO_OBLIGACION_LABEL: Record<ObligationStatus, string> = {
   vigente: 'Vigente',
@@ -14,6 +16,7 @@ const ESTADO_OBLIGACION_LABEL: Record<ObligationStatus, string> = {
 
 interface ObligationsContextValue {
   obligations: Obligation[];
+  loading: boolean;
   updateTask: (obligationId: string, taskId: string, updates: Partial<ObligationTask>) => void;
   addTask: (obligationId: string, input: { titulo: string; vencimiento: string; responsableId: string }) => void;
   addObligation: (input: {
@@ -29,14 +32,55 @@ interface ObligationsContextValue {
 
 const ObligationsContext = createContext<ObligationsContextValue | null>(null);
 
-/**
- * Estado en memoria para esta iteración (mismo patrón que
- * LegalMatrixProvider/SessionProvider). Integración real: mutations vía
- * apps/api cuando exista spec aprobada para Obligaciones (RF-14 a RF-21).
- */
+function mapStatusFromApi(status: string): ObligationStatus {
+  const map: Record<string, ObligationStatus> = {
+    open: 'vigente',
+    upcoming: 'por_vencer',
+    overdue: 'vencida',
+    fulfilled: 'vigente',
+  };
+  return map[status] ?? 'vigente';
+}
+
+function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
+  try {
+    return {
+      id: String(raw.id),
+      tenantId: String(raw.tenant_id ?? ''),
+      plantId: String(raw.facility_id ?? ''),
+      sistema: 'RETC' as SistemaDeclaracion,
+      nombre: String(raw.title ?? raw.description ?? ''),
+      periodo: '',
+      estado: mapStatusFromApi(String(raw.status ?? 'open')),
+      proximoVencimiento: raw.due_date ? String(raw.due_date) : new Date().toISOString(),
+      responsableId: raw.assigned_user_id ? String(raw.assigned_user_id) : undefined,
+      tasks: [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function ObligationsProvider({ children }: { children: ReactNode }) {
   const [obligations, setObligations] = useState<Obligation[]>(mockObligations);
+  const [loading, setLoading] = useState(true);
   const registrar = useRegistrarAuditoria();
+  const { user } = useSession();
+
+  useEffect(() => {
+    if (!user?.tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    api
+      .get<Record<string, unknown>[]>('/obligations/', { tenantId: user.tenantId })
+      .then((data) => {
+        if (cancelled) return;
+        const mapped = data.map(mapApiObligation).filter((o): o is Obligation => o !== null);
+        if (mapped.length > 0) setObligations(mapped);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.tenantId]);
 
   function recomputeEstado(tasks: ObligationTask[]): ObligationStatus {
     if (tasks.some((t) => t.estado === 'vencida')) return 'vencida';
@@ -56,6 +100,10 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
         return { ...ob, tasks, estado: recomputeEstado(tasks) };
       }),
     );
+
+    if (user?.tenantId) {
+      api.patch(`/obligations/tasks/${taskId}`, updates, { tenantId: user.tenantId }).catch(() => {});
+    }
 
     if (!obligacion || !tareaAnterior) return;
 
@@ -81,7 +129,6 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
     registrar({
       entidadTipo: 'tarea',
       entidadId: taskId,
-      // Tarea + obligación: una tarea suelta no se identifica en una auditoría.
       entidadLabel: `${tareaAnterior.titulo} — ${obligacion.nombre}`,
       tenantId: obligacion.tenantId,
       accion: 'actualizado',
@@ -109,6 +156,15 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
         return { ...ob, tasks, estado: recomputeEstado(tasks) };
       }),
     );
+
+    if (user?.tenantId) {
+      api.post(`/obligations/${obligationId}/tasks`, {
+        title: input.titulo,
+        due_date: input.vencimiento,
+        assigned_user_id: input.responsableId,
+        task_type: 'action',
+      }, { tenantId: user.tenantId }).catch(() => {});
+    }
 
     if (!obligacion) return;
 
@@ -146,6 +202,14 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
     };
     setObligations((prev) => [...prev, newObligation]);
 
+    api.post('/obligations/', {
+      title: input.nombre,
+      facility_id: input.plantId,
+      assigned_user_id: input.responsableId,
+      due_date: input.proximoVencimiento,
+      status: 'open',
+    }, { tenantId: input.tenantId }).catch(() => {});
+
     registrar({
       entidadTipo: 'obligacion',
       entidadId: newObligation.id,
@@ -162,7 +226,7 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ObligationsContext.Provider value={{ obligations, updateTask, addTask, addObligation }}>
+    <ObligationsContext.Provider value={{ obligations, loading, updateTask, addTask, addObligation }}>
       {children}
     </ObligationsContext.Provider>
   );

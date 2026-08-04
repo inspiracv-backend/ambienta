@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type {
   Certificacion,
   ContactoComercial,
@@ -14,6 +14,7 @@ import { documentoDePais, nombreDePais } from '@ambienta/shared';
 import { mockTenants } from '@/mocks/tenants';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { MODULO_LABEL } from '@/lib/tenant-status';
+import { api } from '@/lib/api-client';
 
 export interface NuevoTenantInput {
   nombre: string;
@@ -37,6 +38,7 @@ export interface NuevoTenantInput {
 
 interface TenantsContextValue {
   tenants: Tenant[];
+  loading: boolean;
   createTenant: (input: NuevoTenantInput) => Tenant;
   setEstado: (tenantId: string, estado: Tenant['estado']) => void;
   setLimiteUsuarios: (tenantId: string, limite: number) => void;
@@ -49,33 +51,57 @@ interface TenantsContextValue {
 
 const TenantsContext = createContext<TenantsContextValue | null>(null);
 
-/**
- * Gestión de Tenants (RF-81, Sección L) — Superadmin solo administra los
- * campos de plataforma (estado/límites/módulos), nunca contenido de negocio
- * del tenant (CLAUDE.md). Los mutadores de Perfil Empresa (RF-10 a RF-12,
- * v1.7: datos básicos, plantas, completar) son del Admin Empresa —
- * conviven en el mismo store porque ambos mutan la misma entidad Tenant.
- *
- * Todas las mutaciones quedan en el audit log (RF-32, RNF-08). Las de
- * plataforma se registran con `tenantId: null` porque son actos del
- * Superadmin *sobre* una empresa, no actividad *dentro* de ella: mezclarlas
- * con el historial del tenant confundiría a quien audita a la empresa.
- */
+function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
+  try {
+    return {
+      id: String(raw.id),
+      nombre: String(raw.legal_name ?? raw.trade_name ?? ''),
+      identificacion: { tipo: 'RUT', numero: String(raw.rut_tax_id ?? '') },
+      pais: 'CL' as Pais,
+      sector: String(raw.business_activity ?? ''),
+      giro: raw.business_activity ? String(raw.business_activity) : undefined,
+      direccion: undefined,
+      estado: raw.status === 'active' ? 'activo' : raw.status === 'suspended' ? 'suspendido' : 'activo',
+      perfilEmpresaCompleto: Boolean(raw.business_activity && raw.rut_tax_id),
+      esGestor: raw.tenant_type === 'manager',
+      suscripcion: {
+        plan: 'contrato' as Plan,
+        fechaInicio: String(raw.created_at ?? new Date().toISOString()),
+        fechaTermino: new Date(Date.now() + 365 * 86400000).toISOString(),
+        limiteUsuarios: 50,
+      },
+      modulosActivos: [],
+      certificaciones: [],
+      plants: [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function TenantsProvider({ children }: { children: ReactNode }) {
   const [tenants, setTenants] = useState<Tenant[]>(mockTenants);
+  const [loading, setLoading] = useState(true);
   const registrar = useRegistrarAuditoria();
 
-  /**
-   * Alta de una empresa (RF-82). No existía: los tenants solo podían nacer
-   * como mocks, así que no había forma de incorporar un cliente nuevo ni de
-   * dar una demo.
-   *
-   * El tenant nace con `perfilEmpresaCompleto: false` a propósito: el
-   * Superadmin registra la empresa y su contrato, pero plantas, departamentos
-   * y trabajadores los declara el Admin Empresa en su flujo obligatorio
-   * (RF-10 a RF-12). Que el Superadmin los cargue por él contradiría
-   * CLAUDE.md — "Admin Global NO puede editar contenido de tenants".
-   */
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<Record<string, unknown>[]>('/tenants/')
+      .then((data) => {
+        if (cancelled) return;
+        const mapped = data.map(mapApiTenant).filter((t): t is Tenant => t !== null);
+        if (mapped.length > 0) setTenants(mapped);
+      })
+      .catch(() => {
+        // Fallback a mocks si la API no responde
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   function createTenant(input: NuevoTenantInput): Tenant {
     const ahora = new Date();
     const termino = new Date(ahora);
@@ -109,6 +135,14 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     setTenants((prev) => [...prev, nuevo]);
 
+    api.post('/tenants/', {
+      legal_name: input.nombre,
+      rut_tax_id: input.numeroIdentificacion,
+      tenant_type: input.esGestor ? 'manager' : 'company',
+      business_activity: input.sector,
+      country_id: 1,
+    }).catch(() => {});
+
     registrar({
       entidadTipo: 'tenant',
       entidadId: nuevo.id,
@@ -133,6 +167,10 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     if (!anterior || anterior.estado === estado) return;
 
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, estado } : t)));
+
+    api.patch(`/tenants/${tenantId}`, {
+      status: estado === 'activo' ? 'active' : 'suspended',
+    }).catch(() => {});
 
     registrar({
       entidadTipo: 'tenant',
@@ -184,8 +222,6 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
       entidadLabel: anterior.nombre,
       tenantId,
       accion: 'actualizado',
-      // El logo aparece en los informes impresos, así que cambiarlo altera
-      // documentos que salen de la empresa: es un hecho auditable.
       resumen: anterior.logoUrl ? 'Cambió el logo de la empresa' : 'Cargó el logo de la empresa',
       cambios: [{ campo: 'Logo', antes: anterior.logoUrl ?? null, despues: logoUrl }],
     });
@@ -203,8 +239,6 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, modulosActivos: modulos } : t)));
 
-    // Se listan los módulos por nombre y no solo el total: "de 9 a 8 módulos"
-    // no le sirve a quien audita, necesita saber cuál se apagó.
     const cambios = [
       ...(activados.length > 0
         ? [{ campo: 'Módulos activados', antes: null, despues: activados.map((m) => MODULO_LABEL[m]).join(', ') }]
@@ -231,6 +265,10 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, ...datos } : t)));
 
+    api.patch(`/tenants/${tenantId}`, {
+      business_activity: datos.giro,
+    }).catch(() => {});
+
     const cambios = [
       ...(anterior.giro !== datos.giro ? [{ campo: 'Giro', antes: anterior.giro ?? null, despues: datos.giro }] : []),
       ...(anterior.direccion !== datos.direccion
@@ -256,6 +294,14 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     const plant: Plant = { id: `planta-${Date.now()}`, tenantId, ...input };
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, plants: [...t.plants, plant] } : t)));
+
+    api.post('/facilities/', {
+      code: `PLT-${Date.now()}`,
+      name: input.nombre,
+      facility_type: 'plant',
+      region_code: input.region,
+      commune_code: input.comuna,
+    }, { tenantId }).catch(() => {});
 
     registrar({
       entidadTipo: 'planta',
@@ -289,6 +335,7 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     <TenantsContext.Provider
       value={{
         tenants,
+        loading,
         createTenant,
         setEstado,
         setLimiteUsuarios,

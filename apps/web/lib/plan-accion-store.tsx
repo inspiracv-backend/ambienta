@@ -1,12 +1,15 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { OrigenPlanAccion, PlanAccion } from '@ambienta/shared';
 import { mockActionPlans } from '@/mocks/action-plans';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useSession } from '@/lib/session';
+import { api } from '@/lib/api-client';
 
 interface PlanAccionContextValue {
   plans: PlanAccion[];
+  loading: boolean;
   createPlan: (input: {
     tenantId: string;
     origenTipo: OrigenPlanAccion;
@@ -22,14 +25,37 @@ interface PlanAccionContextValue {
 
 const PlanAccionContext = createContext<PlanAccionContextValue | null>(null);
 
-/**
- * Estado en memoria para esta iteración (mismo patrón que los demás stores).
- * Integración real: mutations vía apps/api cuando exista spec aprobada para
- * Planes de Acción (RF-19).
- */
 export function PlanAccionProvider({ children }: { children: ReactNode }) {
   const [plans, setPlans] = useState<PlanAccion[]>(mockActionPlans);
+  const [loading, setLoading] = useState(true);
   const registrar = useRegistrarAuditoria();
+  const { user } = useSession();
+
+  useEffect(() => {
+    if (!user?.tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    api
+      .get<Record<string, unknown>[]>('/audits/action-plans/', { tenantId: user.tenantId })
+      .then((data) => {
+        if (cancelled) return;
+        const mapped: PlanAccion[] = data.map((raw) => ({
+          id: String(raw.id),
+          tenantId: String(raw.tenant_id ?? ''),
+          origenTipo: 'no_conformidad' as OrigenPlanAccion,
+          origenId: String(raw.nonconformity_id ?? ''),
+          origenLabel: String(raw.objective ?? ''),
+          titulo: String(raw.objective ?? raw.root_cause ?? ''),
+          responsableId: raw.owner_user_id ? String(raw.owner_user_id) : undefined,
+          fechaLimite: raw.target_date ? String(raw.target_date) : new Date().toISOString(),
+          estado: (raw.status === 'closed' ? 'cerrado' : raw.status === 'in_progress' ? 'en_progreso' : 'abierto') as PlanAccion['estado'],
+          tareas: [],
+        }));
+        if (mapped.length > 0) setPlans(mapped);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.tenantId]);
 
   function createPlan(input: {
     tenantId: string;
@@ -54,6 +80,13 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
     };
     setPlans((prev) => [...prev, newPlan]);
 
+    api.post('/audits/action-plans/', {
+      objective: input.titulo,
+      owner_user_id: input.responsableId,
+      target_date: input.fechaLimite,
+      status: 'draft',
+    }, { tenantId: input.tenantId }).catch(() => {});
+
     registrar({
       entidadTipo: 'plan_accion',
       entidadId: newPlan.id,
@@ -62,8 +95,6 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
       accion: 'creado',
       resumen: 'Generó el plan de acción',
       cambios: [
-        // El origen es lo que conecta el plan con el incumplimiento que lo
-        // motivó (RF-30, RF-53): sin él, en una auditoría el plan queda huérfano.
         { campo: 'Origen', antes: null, despues: input.origenLabel },
         { campo: 'Fecha límite', antes: null, despues: input.fechaLimite },
       ],
@@ -115,7 +146,7 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <PlanAccionContext.Provider value={{ plans, createPlan, toggleTarea, findByOrigen }}>
+    <PlanAccionContext.Provider value={{ plans, loading, createPlan, toggleTarea, findByOrigen }}>
       {children}
     </PlanAccionContext.Provider>
   );

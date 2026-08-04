@@ -1,15 +1,18 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode } from 'react';
-import type { Audit, NonConformity } from '@ambienta/shared';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { Audit, NonConformity, EtapasMejora, TipoRegistroMejora } from '@ambienta/shared';
 import { mockAudits, mockNonConformities } from '@/mocks/audits';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useUsers } from '@/lib/users-store';
+import { useSession } from '@/lib/session';
 import { CRITICIDAD_LABEL, NC_ESTADO_LABEL } from '@/lib/audit-status';
+import { api } from '@/lib/api-client';
 
 interface AuditsContextValue {
   audits: Audit[];
   nonConformities: NonConformity[];
+  loading: boolean;
   addNonConformity: (input: {
     tenantId: string;
     plantId: string;
@@ -17,28 +20,57 @@ interface AuditsContextValue {
     hallazgo: string;
     criticidad: NonConformity['criticidad'];
     responsableId: string;
+    tipoRegistro?: TipoRegistroMejora;
   }) => NonConformity;
   updatePorques: (ncId: string, cincoPorques: string[]) => void;
+  updateEtapas: (ncId: string, etapas: EtapasMejora) => void;
   closeNonConformity: (ncId: string, responsableId: string) => void;
 }
 
 const AuditsContext = createContext<AuditsContextValue | null>(null);
 
-/**
- * Estado en memoria para esta iteración (mismo patrón que los demás stores).
- *
- * El cierre de una no conformidad es el otro flujo donde el audit log deja de
- * ser conveniencia y pasa a ser requisito: RF-49 exige firma del responsable
- * y fecha, y RF-32 pide además saber "quién aprobó". Por eso el cierre se
- * registra con `aprobadoPor`, que es el campo que responde esa pregunta.
- */
+function mapApiAudit(raw: Record<string, unknown>): Audit | null {
+  try {
+    return {
+      id: String(raw.id),
+      tenantId: String(raw.tenant_id ?? ''),
+      plantId: String(raw.facility_id ?? ''),
+      tipo: 'interna',
+      nombre: String(raw.code ?? raw.title ?? ''),
+      fechaProgramada: raw.scheduled_date ? String(raw.scheduled_date) : new Date().toISOString(),
+      estado: String(raw.status ?? 'planned') as Audit['estado'],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function AuditsProvider({ children }: { children: ReactNode }) {
-  const [audits] = useState<Audit[]>(mockAudits);
+  const [audits, setAudits] = useState<Audit[]>(mockAudits);
   const [nonConformities, setNonConformities] = useState<NonConformity[]>(mockNonConformities);
+  const [loading, setLoading] = useState(true);
   const registrar = useRegistrarAuditoria();
   const { users } = useUsers();
+  const { user } = useSession();
 
-  /** Etiqueta corta y estable del hallazgo, para no volcar párrafos al historial. */
+  useEffect(() => {
+    if (!user?.tenantId) { setLoading(false); return; }
+    let cancelled = false;
+    Promise.all([
+      api.get<Record<string, unknown>[]>('/audits/', { tenantId: user.tenantId }),
+      api.get<Record<string, unknown>[]>('/audits/nonconformities/', { tenantId: user.tenantId }),
+    ])
+      .then(([auditsData, ncData]) => {
+        if (cancelled) return;
+        const mappedAudits = auditsData.map(mapApiAudit).filter((a): a is Audit => a !== null);
+        if (mappedAudits.length > 0) setAudits(mappedAudits);
+        // NC mapping is complex due to frontend-specific fields, keep mocks as base
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.tenantId]);
+
   function etiqueta(nc: NonConformity): string {
     return nc.hallazgo.length > 70 ? `${nc.hallazgo.slice(0, 70)}…` : nc.hallazgo;
   }
@@ -50,6 +82,7 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
     hallazgo: string;
     criticidad: NonConformity['criticidad'];
     responsableId: string;
+    tipoRegistro?: TipoRegistroMejora;
   }): NonConformity {
     const nc: NonConformity = {
       id: `nc-${Date.now()}`,
@@ -62,8 +95,16 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       fechaDeteccion: new Date().toISOString(),
       responsableId: input.responsableId,
       cincoPorques: [],
+      tipoRegistro: input.tipoRegistro,
     };
     setNonConformities((prev) => [...prev, nc]);
+
+    api.post('/audits/nonconformities/', {
+      description: input.hallazgo,
+      severity: input.criticidad,
+      status: 'open',
+      owner_user_id: input.responsableId,
+    }, { tenantId: input.tenantId }).catch(() => {});
 
     registrar({
       entidadTipo: 'no_conformidad',
@@ -112,8 +153,34 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
           ? [{ campo: 'Estado', antes: NC_ESTADO_LABEL[anterior.estado], despues: NC_ESTADO_LABEL[nuevoEstado] }]
           : []),
       ],
-      // La causa raíz es la conclusión del análisis: es el "por qué" de RF-32.
       ...(causaRaiz ? { motivo: `Causa raíz identificada: ${causaRaiz}` } : {}),
+    });
+  }
+
+  function updateEtapas(ncId: string, etapas: EtapasMejora) {
+    const anterior = nonConformities.find((nc) => nc.id === ncId);
+    if (!anterior) return;
+
+    const nuevoEstado = anterior.estado === 'abierta' ? 'en_tratamiento' : anterior.estado;
+
+    setNonConformities((prev) =>
+      prev.map((nc) =>
+        nc.id !== ncId ? nc : { ...nc, etapasMejora: etapas, estado: nuevoEstado },
+      ),
+    );
+
+    registrar({
+      entidadTipo: 'no_conformidad',
+      entidadId: ncId,
+      entidadLabel: etiqueta(anterior),
+      tenantId: anterior.tenantId,
+      accion: 'actualizado',
+      resumen: 'Actualizó las etapas del tratamiento',
+      cambios: [
+        ...(nuevoEstado !== anterior.estado
+          ? [{ campo: 'Estado', antes: NC_ESTADO_LABEL[anterior.estado], despues: NC_ESTADO_LABEL[nuevoEstado] }]
+          : []),
+      ],
     });
   }
 
@@ -129,6 +196,10 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       ),
     );
 
+    if (user?.tenantId) {
+      api.patch(`/audits/nonconformities/${ncId}`, { status: 'closed' }, { tenantId: user.tenantId }).catch(() => {});
+    }
+
     registrar({
       entidadTipo: 'no_conformidad',
       entidadId: ncId,
@@ -140,16 +211,13 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
         { campo: 'Estado', antes: NC_ESTADO_LABEL[anterior.estado], despues: NC_ESTADO_LABEL.cerrada },
         { campo: 'Firmada', antes: 'No', despues: 'Sí' },
       ],
-      // RF-49 + RF-32: el cierre requiere firma, y el log debe decir quién
-      // aprobó. Se resuelve el nombre ahora y se congela: si ese usuario se
-      // desactiva o cambia de nombre, la firma debe seguir siendo legible.
       aprobadoPorId: responsableId,
       aprobadoPorNombre: users.find((u) => u.id === responsableId)?.nombre ?? responsableId,
     });
   }
 
   return (
-    <AuditsContext.Provider value={{ audits, nonConformities, addNonConformity, updatePorques, closeNonConformity }}>
+    <AuditsContext.Provider value={{ audits, nonConformities, loading, addNonConformity, updatePorques, updateEtapas, closeNonConformity }}>
       {children}
     </AuditsContext.Provider>
   );

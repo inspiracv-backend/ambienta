@@ -8,6 +8,7 @@ import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 interface GestoresContextValue {
   subTenants: SubTenant[];
   contratos: Contrato[];
+  loading: boolean;
   addContrato: (input: {
     subTenantId: string;
     nombre: string;
@@ -19,10 +20,10 @@ interface GestoresContextValue {
 
 const GestoresContext = createContext<GestoresContextValue | null>(null);
 
-/** Estado en memoria para esta iteración (mismo patrón que los demás stores). */
 export function GestoresProvider({ children }: { children: ReactNode }) {
   const [subTenants] = useState<SubTenant[]>(mockSubTenants);
   const [contratos, setContratos] = useState<Contrato[]>(mockContratos);
+  const [loading] = useState(false);
   const registrar = useRegistrarAuditoria();
 
   function addContrato(input: {
@@ -52,8 +53,6 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
       resumen: `Creó el contrato con ${subTenant?.nombre ?? 'el cliente'}`,
       cambios: [
         { campo: 'Vigencia', antes: null, despues: `${input.fechaInicio} a ${input.fechaTermino}` },
-        // RF-69: los campos custom por tenant también son parte del contrato,
-        // así que su cantidad debe quedar registrada al crearlo.
         ...(Object.keys(input.camposCustom).length > 0
           ? [{ campo: 'Campos adicionales', antes: null, despues: Object.keys(input.camposCustom).join(', ') }]
           : []),
@@ -62,7 +61,7 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <GestoresContext.Provider value={{ subTenants, contratos, addContrato }}>
+    <GestoresContext.Provider value={{ subTenants, contratos, loading, addContrato }}>
       {children}
     </GestoresContext.Provider>
   );
