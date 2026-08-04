@@ -8,10 +8,10 @@ Dos entornos, definidos como código en el repositorio.
 | Proyecto Docker | `ambienta-dev` | `ambienta-prod` |
 | Dónde corre | Máquina del desarrollador | Servidor (VPS) |
 | Web | http://localhost:3000 | `https://<DOMAIN_WEB>` |
-| API | http://localhost:3001/api/v1 | `https://<DOMAIN_API>/api/v1` |
-| Health | http://localhost:3001/health | `https://<DOMAIN_API>/health` |
+| API | http://localhost:8000/api/v1 | `https://<DOMAIN_API>/api/v1` |
+| Health | http://localhost:8000/health | `https://<DOMAIN_API>/health` |
 | Postgres | `localhost:5432` (expuesto) | Solo red interna (túnel SSH) |
-| Redis | `localhost:6379` (expuesto, sin clave) | Solo red interna, **con** clave |
+| Redis | *(no en el stack actual)* | *(pendiente, epica de Worker)* |
 | TLS | No (HTTP plano) | Sí, automático (Caddy + Let's Encrypt) |
 | Recarga de código | Hot reload (volúmenes montados) | No — imagen inmutable |
 | Secretos | En el Compose, en texto plano | En `.env`, fuera de git |
@@ -42,13 +42,13 @@ La primera vez tarda varios minutos (descarga de imágenes + `npm ci` dentro de 
 docker compose ps
 ```
 
-Los cuatro servicios deben estar `Up`, y `postgres`/`redis` además `(healthy)`.
+Los tres servicios deben estar `Up`, y `postgres` además `(healthy)`.
 
 ```bash
-curl http://localhost:3001/health/ready
+curl http://localhost:8000/health
 ```
 
-Debe devolver `"estado": "ok"` con `postgres` y `redis` en `ok`.
+Debe devolver `200 OK`.
 
 ### Comandos habituales
 
@@ -79,17 +79,15 @@ Base: ambienta    Usuario: ambienta    Contraseña: ambienta_dev
 Las apps pueden correr directo en el host, usando los contenedores solo para las bases de datos:
 
 ```bash
-docker compose up -d postgres redis
+docker compose up -d postgres
 npm install
 
-# Terminal 1 — API (necesita las variables de entorno)
-DATABASE_URL=postgresql://ambienta:ambienta_dev@localhost:5432/ambienta \
-REDIS_URL=redis://localhost:6379 \
-JWT_SECRET=dev-only-secret-no-usar-en-produccion-32c \
-npm run dev --workspace @ambienta/api
+# Terminal 1 — API (requiere Python 3.12+)
+cd apps/api && pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 
 # Terminal 2 — Frontend
-npm run dev --workspace @ambienta/web
+npm run dev:web
 ```
 
 ### Problemas frecuentes
@@ -97,10 +95,10 @@ npm run dev --workspace @ambienta/web
 | Síntoma | Causa y solución |
 |---|---|
 | `failed to connect to the docker API` | Docker Desktop no está corriendo. Ábrelo y espera a que el ícono quede estable. |
-| `port is already allocated` | Otro proceso ocupa 3000/3001/5432/6379. Libéralo o cambia el mapeo en `docker-compose.yml`. |
-| La API reinicia en bucle | Falta una variable requerida. `docker compose logs api` muestra exactamente cuál (la validación Zod lo dice). |
-| Cambié `package.json` y no toma efecto | Las dependencias se instalan en la imagen: `docker compose up -d --build api`. |
-| `/health/ready` da 503 | Postgres o Redis no están listos. `docker compose ps` para ver cuál. |
+| `port is already allocated` | Otro proceso ocupa 3000/8000/5432. Libéralo o cambia el mapeo en `docker-compose.yml`. |
+| La API reinicia en bucle | Revisa los logs: `docker compose logs api`. |
+| Cambié `requirements.txt` y no toma efecto | Las dependencias se instalan en la imagen: `docker compose up -d --build api`. |
+| `/health` da 503 | Postgres no está listo. `docker compose ps` para verificar. |
 | Las extensiones de Postgres no existen | El script de init corre **solo** al crear el volumen. Si el volumen ya existía: `docker compose down -v && docker compose up -d`. |
 
 ---
@@ -126,7 +124,6 @@ Completar en `.env`, generando cada secreto con `openssl rand -base64 32`:
 
 - `DOMAIN_WEB`, `DOMAIN_API`, `ACME_EMAIL`
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-- `REDIS_PASSWORD`
 - `JWT_SECRET` (mínimo 32 caracteres)
 
 Opcionales (hasta que existan): credenciales OAuth y `RESEND_API_KEY`.
@@ -143,8 +140,7 @@ Ver el [runbook de despliegue](./despliegue.md) para el procedimiento completo, 
 
 ### Diferencias de seguridad respecto a desarrollo
 
-- Postgres y Redis en una red Docker `internal: true` → sin ruta desde internet, aun con el firewall mal configurado.
-- Redis con contraseña obligatoria y persistencia AOF.
+- Postgres en una red Docker `internal: true` → sin ruta desde internet, aun con el firewall mal configurado.
 - Contenedores de app con usuario no-root (uid 1001).
 - Caddy añade HSTS, `X-Content-Type-Options`, `X-Frame-Options` y oculta la cabecera `Server`.
 - `restart: always` (en dev es `unless-stopped`, para que no reviva solo tras apagar el equipo).
