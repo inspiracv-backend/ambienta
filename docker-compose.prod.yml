@@ -30,7 +30,11 @@ services:
     # o túnel SSH (`ssh -L 5432:localhost:5432 usuario@servidor`).
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      # Archivos por separado (no el directorio): ver nota en docker-compose.yml.
+      # Init en orden: extensiones → esquema (51 tablas + RLS) → catalogos.
+      - ./infra/postgres/init/01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+      - ./db/01_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
+      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s
@@ -62,17 +66,19 @@ services:
       - interna
 
   api:
+    # Backend FastAPI (Python). El Dockerfile corre uvicorn como usuario no-root.
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: always
     environment:
-      NODE_ENV: production
-      PORT: 3001
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      ENVIRONMENT: production
+      PORT: 8000
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CORS_ORIGINS: https://${DOMAIN_WEB:?falta DOMAIN_WEB en .env}
-      JWT_SECRET: ${JWT_SECRET:?falta JWT_SECRET en .env}
+      # Estos aun no los consume la API minima, pero se dejan pasados para cuando
+      # entren auth (JWT/SSO) y correo (Resend), sin volver a tocar el compose.
+      JWT_SECRET: ${JWT_SECRET:-}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -81,8 +87,6 @@ services:
     # Sin `ports`: el único camino desde internet es a través de Caddy.
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - interna

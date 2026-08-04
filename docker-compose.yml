@@ -1,4 +1,4 @@
-# Entorno de DESARROLLO de Ambienta.
+# Entorno de DESARROLLO de Ambienta — 3 servicios: Postgres, API (FastAPI) y Web.
 #
 #   docker compose up -d          → levanta todo
 #   docker compose logs -f api    → sigue los logs de la API
@@ -6,22 +6,28 @@
 #   docker compose down -v        → detiene Y BORRA la base de datos
 #
 # URLs una vez arriba:
-#   Web       http://localhost:3000
-#   API       http://localhost:3001/api/v1
-#   Health    http://localhost:3001/health
-#   Postgres  postgresql://ambienta:ambienta_dev@localhost:5432/ambienta
-#   Redis     redis://localhost:6379
+#   Web        http://localhost:3000
+#   API        http://localhost:8000
+#   Health     http://localhost:8000/health   ·   BD: /health/db
+#   Swagger    http://localhost:8000/docs
+#   Postgres   postgresql://ambienta:ambienta_dev@localhost:5432/ambienta
 #
-# Las credenciales de este archivo son de DESARROLLO LOCAL únicamente y por eso
-# están en texto plano: la base solo escucha en localhost y no contiene datos
-# reales. Producción usa docker-compose.prod.yml, que exige un .env.
+# La base se inicializa con el esquema completo (db/01_schema.sql) y los
+# catalogos (db/03_seed_catalogos.sql) la PRIMERA vez que se crea el volumen.
+# Para recargar el esquema tras cambiarlo: `docker compose down -v && up`.
+#
+# Las credenciales de este archivo son de DESARROLLO LOCAL unicamente y por eso
+# estan en texto plano: la base solo escucha en localhost y no contiene datos
+# reales. Produccion usa docker-compose.prod.yml, que exige un .env.
+#
+# Redis y el worker no estan aca: vuelven con la epica de Notificaciones/Worker.
 
 name: ambienta-dev
 
 services:
   postgres:
-    # pgvector/pgvector trae la extensión ya compilada; la imagen oficial de
-    # postgres no la incluye y habría que compilarla en cada build.
+    # pgvector/pgvector trae la extension ya compilada; la imagen oficial de
+    # postgres no la incluye y habria que compilarla en cada build.
     image: pgvector/pgvector:pg16
     container_name: ambienta-postgres-dev
     restart: unless-stopped
@@ -33,66 +39,52 @@ services:
       - '5432:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      # Los scripts de esta carpeta corren solo al inicializar el volumen.
-      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      # Se montan los tres archivos por separado (no el directorio init/): en
+      # Docker Desktop Windows no se puede montar un archivo DENTRO de un
+      # directorio que a su vez es bind mount. Corren en orden alfabetico, solo
+      # al inicializar el volumen:
+      #   01-extensions → 02-schema (51 tablas + RLS) → 03-seed (catalogos)
+      - ./infra/postgres/init/01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+      - ./db/01_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
+      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
     healthcheck:
-      # `-d ambienta` es necesario: sin la base explícita, pg_isready responde
-      # OK antes de que la base de la aplicación esté realmente creada.
+      # `-d ambienta` es necesario: sin la base explicita, pg_isready responde
+      # OK antes de que la base de la aplicacion este realmente creada.
       test: ['CMD-SHELL', 'pg_isready -U ambienta -d ambienta']
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
 
-  redis:
-    image: redis:7-alpine
-    container_name: ambienta-redis-dev
-    restart: unless-stopped
-    ports:
-      - '6379:6379'
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   api:
     build:
-      # Contexto en la raíz: npm workspaces necesita el lockfile completo.
+      # Contexto en la raiz para poder copiar apps/api/ y (a futuro) packages/.
       context: .
       dockerfile: apps/api/Dockerfile.dev
     container_name: ambienta-api-dev
     restart: unless-stopped
     environment:
-      NODE_ENV: development
-      PORT: 3001
-      # Dentro de la red de Compose se usan los nombres de servicio como host,
-      # no localhost (localhost sería el propio contenedor de la API).
-      DATABASE_URL: postgresql://ambienta:ambienta_dev@postgres:5432/ambienta
-      REDIS_URL: redis://redis:6379
+      ENVIRONMENT: development
+      PORT: 8000
+      # Dentro de la red de Compose el host es el nombre del servicio
+      # (`postgres`), no localhost.
+      DATABASE_URL: postgresql+psycopg://ambienta:ambienta_dev@postgres:5432/ambienta
       CORS_ORIGINS: http://localhost:3000
-      # Secreto de desarrollo, deliberadamente obvio para que nadie lo confunda
-      # con uno real. Producción lo exige por .env (mín. 32 caracteres).
-      JWT_SECRET: dev-only-secret-no-usar-en-produccion-32c
     ports:
-      - '3001:3001'
+      - '8000:8000'
     volumes:
-      # Se montan SOLO los directorios de código fuente, nunca la carpeta
-      # completa de la app. Así los node_modules instalados en la imagen no
-      # quedan tapados por los del host y no hacen falta volúmenes anónimos
-      # para protegerlos (esos volúmenes fallan al inicializarse en Docker
-      # Desktop para Windows: "failed to chmod ... read-only file system").
-      #
-      # Contrapartida: cambiar package.json o tsconfig.json exige reconstruir
-      # (`docker compose up -d --build api`); cambiar código en src/ recarga solo.
-      - ./apps/api/src:/repo/apps/api/src
-      - ./packages/shared/src:/repo/packages/shared/src
+      # Solo el paquete de codigo: uvicorn --reload observa app/ y recarga al
+      # editar en el host. Cambiar requirements.txt exige reconstruir
+      # (`docker compose up -d --build api`).
+      - ./apps/api/app:/repo/apps/api/app
+    healthcheck:
+      test: ['CMD-SHELL', 'python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(''http://localhost:8000/health'').status==200 else 1)"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   web:
@@ -103,26 +95,25 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: development
-      # El navegador resuelve esta URL, así que es localhost del HOST —
+      # El navegador resuelve esta URL, asi que es localhost del HOST —
       # no el nombre de servicio de Compose.
-      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
-      # Igual que en la API: los eventos inotify no cruzan del host Windows al
-      # contenedor, así que webpack debe hacer polling para ver los cambios.
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      # Los eventos inotify no cruzan del host Windows al contenedor, asi que
+      # webpack debe hacer polling para ver los cambios.
       WATCHPACK_POLLING: 'true'
     ports:
       - '3000:3000'
     volumes:
-      # Mismo criterio que la API: solo directorios de código fuente.
-      # Como no se monta sobre apps/web completo, `.next` queda en el sistema
-      # de archivos del contenedor (rápido) y no requiere volumen propio.
+      # Solo directorios de codigo fuente. Como no se monta sobre apps/web
+      # completo, `.next` queda en el contenedor (rapido) y no requiere volumen.
       - ./apps/web/app:/repo/apps/web/app
       - ./apps/web/components:/repo/apps/web/components
       - ./apps/web/lib:/repo/apps/web/lib
       - ./apps/web/mocks:/repo/apps/web/mocks
       - ./packages/shared/src:/repo/packages/shared/src
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   postgres-data:
-  redis-data:
