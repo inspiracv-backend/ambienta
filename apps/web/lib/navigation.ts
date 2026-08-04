@@ -1,4 +1,4 @@
-import type { Role } from '@ambienta/shared';
+import { FEATURE_FLAGS, type Role } from '@ambienta/shared';
 import {
   LayoutDashboard,
   ScrollText,
@@ -17,6 +17,9 @@ import {
   LifeBuoy,
   FlaskConical,
   History,
+  Leaf,
+  AlertTriangle,
+  Wrench,
 } from 'lucide-react';
 
 /**
@@ -76,6 +79,13 @@ export const TENANT_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Calendario / Gantt', href: '/calendario', icon: CalendarDays, roles: TENANT_ROLES, enabled: true },
   { label: 'Auditorías', href: '/auditorias', icon: ShieldAlert, roles: TENANT_ROLES, enabled: true },
   { label: 'No Conformidades', href: '/no-conformidades', icon: ShieldAlert, roles: TENANT_ROLES, enabled: true },
+  ...(FEATURE_FLAGS.matricesIso
+    ? ([
+        { label: 'Aspectos Ambientales', href: '/aspectos-ambientales', icon: Leaf, roles: TENANT_ROLES, enabled: true },
+        { label: 'Riesgos y Oportunidades', href: '/riesgos-oportunidades', icon: AlertTriangle, roles: TENANT_ROLES, enabled: true },
+        { label: 'Equipos Regulados', href: '/equipos-regulados', icon: Wrench, roles: TENANT_ROLES, enabled: true },
+      ] satisfies NavItem[])
+    : []),
   { label: 'Catálogo Normativo', href: '/catalogo-normativo', icon: BookMarked, roles: TENANT_ROLES, enabled: true },
   { label: 'Gestores', href: '/gestores', icon: Building2, roles: ['gestor'], enabled: true },
   { label: 'Reportes', href: '/reportes', icon: FileBarChart, roles: TENANT_ROLES, enabled: true },
@@ -118,6 +128,9 @@ const TENANT_SCOPED_PREFIXES = [
   '/calendario',
   '/auditorias',
   '/no-conformidades',
+  '/aspectos-ambientales',
+  '/riesgos-oportunidades',
+  '/equipos-regulados',
   '/catalogo-normativo',
   '/gestores',
   '/planes-accion',

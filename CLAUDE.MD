@@ -15,14 +15,14 @@ Objetivo: Centralizar declaraciones ambientales (RETC, residuos peligrosos, Ley 
   4. Actualizar spec si hay cambios
 
 ### 2. Arquitectura Backend Separado
-- Frontend (Next.js) y Backend (NestJS) completamente separados.
+- Frontend (Next.js) y Backend (FastAPI, Python) completamente separados.
 - 4 deployables: web, api, worker, ai-service.
 - Nunca mezclar lógica de negocio en el frontend.
 
 ### 3. API First + OpenAPI
 - Todo endpoint nuevo debe definirse primero en el contrato OpenAPI.
 - Usar `packages/shared` para tipos y validadores compartidos.
-- Validación automática desde el contrato (Zod / class-validator).
+- Validación automática desde el contrato (Pydantic en la API; Zod en el frontend).
 
 ### 4. Seguridad Multi-Tenant (Crítica)
 - Toda consulta debe filtrar por `tenant_id`.

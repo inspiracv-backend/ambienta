@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EtapasMejoraSchema, TipoRegistroMejoraSchema } from './registro-mejora';
 
 export const AuditSchema = z.object({
   id: z.string(),
@@ -37,5 +38,7 @@ export const NonConformitySchema = z.object({
   /** Analisis de causa raiz (RF-35) — hasta 5 preguntas, se completa iterativamente. */
   cincoPorques: z.array(z.string()).max(5),
   cierre: CierreNoConformidadSchema.optional(),
+  tipoRegistro: TipoRegistroMejoraSchema.optional(),
+  etapasMejora: EtapasMejoraSchema.optional(),
 });
 export type NonConformity = z.infer<typeof NonConformitySchema>;

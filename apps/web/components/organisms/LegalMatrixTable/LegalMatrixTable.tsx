@@ -5,7 +5,13 @@ import Link from 'next/link';
 import { Inbox } from 'lucide-react';
 import { StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
-import { computeNormCompliance, countArticulosEnIncumplimiento, normSemaforo } from '@/lib/legal-matrix';
+import {
+  computeNormCompliance,
+  computeNormCoverage,
+  countArticulosEnIncumplimiento,
+  countArticulosSinEvaluar,
+  normSemaforo,
+} from '@/lib/legal-matrix';
 import { getUserName } from '@/lib/get-user-name';
 import type { LegalMatrixTableProps } from './LegalMatrixTable.types';
 
@@ -81,6 +87,7 @@ export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
                 <th scope="col" className="px-4 py-3">Norma</th>
                 <th scope="col" className="px-4 py-3">Tipo</th>
                 <th scope="col" className="px-4 py-3">Cumplimiento</th>
+                <th scope="col" className="px-4 py-3">Cobertura</th>
                 <th scope="col" className="px-4 py-3">En incumplimiento</th>
                 <th scope="col" className="px-4 py-3">Responsable</th>
               </tr>
@@ -99,6 +106,19 @@ export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
                     <td className="px-4 py-3">
                       <StatusBadge status={normSemaforo(pct)} />
                       <span className="ml-2 text-slate-500">{Math.round(pct * 100)}%</span>
+                    </td>
+                    {/* Cobertura y cumplimiento responden preguntas distintas: un
+                        100% de cumplimiento sobre el 20% evaluado no es cumplimiento,
+                        es una muestra. Mostrarlos juntos evita esa lectura. */}
+                    <td className="px-4 py-3">
+                      <span className={countArticulosSinEvaluar(norm) > 0 ? 'text-amber-700' : 'text-slate-600'}>
+                        {Math.round(computeNormCoverage(norm) * 100)}%
+                      </span>
+                      {countArticulosSinEvaluar(norm) > 0 && (
+                        <span className="ml-1 text-xs text-slate-500">
+                          ({countArticulosSinEvaluar(norm)} sin evaluar)
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">{countArticulosEnIncumplimiento(norm)}</td>
                     <td className="px-4 py-3 text-slate-500">{getUserName(norm.responsableId)}</td>

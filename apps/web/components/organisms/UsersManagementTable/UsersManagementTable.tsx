@@ -11,6 +11,8 @@ import { useUsers } from '@/lib/users-store';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useToast } from '@/lib/toast-store';
 import { eventoCambioDeEstado } from '@/lib/user-audit';
+import { PermisosUsuarioModal } from '@/components/organisms/PermisosUsuarioModal/PermisosUsuarioModal';
+import { permisosEfectivos, type Permiso } from '@ambienta/shared';
 import { ROLE_LABEL } from '@/lib/roles';
 import { userSemaforo, USER_ESTADO_LABEL } from '@/lib/user-status';
 import type { UsersManagementTableProps } from './UsersManagementTable.types';
@@ -49,6 +51,7 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
       },
     });
   }
+  const [permisosTarget, setPermisosTarget] = useState<(typeof users)[number] | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [rolFiltro, setRolFiltro] = useState('todos');
   const [estadoFiltro, setEstadoFiltro] = useState('todos');
@@ -171,6 +174,12 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
                         <Button variant="secondary" size="md" onClick={() => setEditTarget(u)}>
                           Editar
                         </Button>
+                        {/* Los permisos van en su propio modal y no dentro de
+                            "Editar": mezclarlos con nombre y planta haría que
+                            se cambien de paso, sin pensarlo. */}
+                        <Button variant="secondary" size="md" onClick={() => setPermisosTarget(u)}>
+                          Permisos
+                        </Button>
                         {!esUnoMismo && (
                           <Button
                             variant={u.estado === 'desactivado' ? 'secondary' : 'danger'}
@@ -191,6 +200,12 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
           </table>
         </div>
       )}
+
+      <PermisosUsuarioModal
+        open={!!permisosTarget}
+        onOpenChange={(open) => !open && setPermisosTarget(null)}
+        user={permisosTarget}
+      />
 
       <UserFormModal
         open={isInviteOpen}

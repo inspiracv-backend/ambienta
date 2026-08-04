@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { CheckCircle2, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import { FEATURE_FLAGS } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
 import { useAudits } from '@/lib/audits-store';
 import { usePlanAccion } from '@/lib/plan-accion-store';
@@ -17,21 +18,28 @@ function formatFecha(iso: string) {
 
 const PREGUNTAS = ['1er ¿Por qué?', '2do ¿Por qué?', '3er ¿Por qué?', '4to ¿Por qué?', '5to ¿Por qué?'];
 
-/** S-23 Detalle de No Conformidad + 5 ¿Por qué?, planes de acción asociados y cierre con firma. */
-export function NonConformityDetailView({ nonConformity: ncProp, plant, responsableOptions }: NonConformityDetailViewProps) {
+/**
+ * S-23 Detalle de No Conformidad: cabecera, análisis de causa y plan de acción.
+ *
+ * El cierre con firma vive en `CierreNoConformidadPanel`, que se renderiza
+ * DESPUÉS de las etapas: cerrar es el último acto del tratamiento y la pantalla
+ * debe leerse en ese orden.
+ */
+export function NonConformityDetailView({
+  nonConformity: ncProp,
+  plant,
+  responsableOptions,
+}: NonConformityDetailViewProps) {
   const router = useRouter();
-  const { nonConformities, updatePorques, closeNonConformity } = useAudits();
+  const { nonConformities, updatePorques } = useAudits();
   const { plans, createPlan, findByOrigen } = usePlanAccion();
   const nc = nonConformities.find((n) => n.id === ncProp.id) ?? ncProp;
 
   const [porques, setPorques] = useState<string[]>(nc.cincoPorques);
-  const [cierreResponsableId, setCierreResponsableId] = useState(nc.responsableId);
-  const [firmada, setFirmada] = useState(false);
 
   useEffect(() => setPorques(nc.cincoPorques), [nc.cincoPorques]);
 
   const existingPlan = findByOrigen(nc.id);
-  const puedeCerrar = nc.estado !== 'cerrada';
 
   function handlePorqueChange(index: number, value: string) {
     const next = [...porques];
@@ -56,11 +64,6 @@ export function NonConformityDetailView({ nonConformity: ncProp, plant, responsa
     router.push(`/planes-accion/${plan.id}`);
   }
 
-  function handleCerrar() {
-    if (!firmada) return;
-    closeNonConformity(nc.id, cierreResponsableId);
-  }
-
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-card border border-slate-200 bg-white p-6">
@@ -78,6 +81,10 @@ export function NonConformityDetailView({ nonConformity: ncProp, plant, responsa
         </div>
       </div>
 
+      {/* Superado por la Etapa de Análisis de Causa del panel de etapas, que
+          ademas permite elegir metodología. Con `registroMejora` encendida este
+          bloque duplicaría los 5 Por Qué en la misma pantalla. */}
+      {!FEATURE_FLAGS.registroMejora && (
       <div className="rounded-card border border-slate-200 bg-white p-6">
         <h2 className="mb-1 text-sm font-semibold text-slate-700">Análisis de causa raíz — 5 ¿Por qué?</h2>
         <p className="mb-4 text-xs text-slate-500">Complétalo de forma iterativa; no es necesario llenar las 5 preguntas de una vez.</p>
@@ -101,6 +108,7 @@ export function NonConformityDetailView({ nonConformity: ncProp, plant, responsa
           </Button>
         )}
       </div>
+      )}
 
       <div className="rounded-card border border-slate-200 bg-white p-6">
         <div className="flex items-center justify-between">
@@ -120,39 +128,6 @@ export function NonConformityDetailView({ nonConformity: ncProp, plant, responsa
         )}
       </div>
 
-      <div className="rounded-card border border-slate-200 bg-white p-6">
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">Cierre</h2>
-        {nc.cierre ? (
-          <div className="flex items-center gap-2 text-sm text-semaforo-cumple">
-            <CheckCircle2 className="h-4 w-4" aria-hidden />
-            Cerrada el {formatFecha(nc.cierre.fecha)} por {getUserName(nc.cierre.responsableId)} (firmada)
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="font-medium text-slate-600">Responsable del cierre</span>
-              <select
-                className="h-11 w-full max-w-xs rounded-lg border border-slate-300 px-3 text-sm"
-                value={cierreResponsableId}
-                onChange={(e) => setCierreResponsableId(e.target.value)}
-              >
-                {responsableOptions.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.nombre}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={firmada} onChange={(e) => setFirmada(e.target.checked)} />
-              Firmo y confirmo el cierre de esta no conformidad (RF-37)
-            </label>
-            <Button onClick={handleCerrar} disabled={!firmada || !puedeCerrar} className="w-fit">
-              Cerrar No Conformidad
-            </Button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

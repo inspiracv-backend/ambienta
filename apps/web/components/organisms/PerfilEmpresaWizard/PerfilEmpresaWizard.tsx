@@ -187,6 +187,21 @@ export function PerfilEmpresaWizard({
                 <li key={plant.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
                   <span className="font-medium text-slate-800">{plant.nombre}</span>{' '}
                   <span className="text-slate-500">— {plant.comuna}, {plant.region}</span>
+                  {/* Datos con los que el MMA conoce a esta instalación: el
+                      identificador es la llave para cruzar con la Ventanilla
+                      Única, y el CIIU habilita la precarga de normativa por rubro. */}
+                  {(plant.identificadorRETC || plant.ciiu) && (
+                    <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                      {plant.identificadorRETC && (
+                        <span className="rounded bg-slate-100 px-2 py-0.5">
+                          RETC {plant.identificadorRETC}
+                        </span>
+                      )}
+                      {plant.ciiu && (
+                        <span className="rounded bg-slate-100 px-2 py-0.5">CIIU {plant.ciiu}</span>
+                      )}
+                    </span>
+                  )}
                 </li>
               ))}
               {tenant.plants.length === 0 && <p className="text-sm text-slate-500">Aún no hay plantas registradas.</p>}

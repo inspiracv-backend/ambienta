@@ -19,6 +19,20 @@ Fuente: "Prompts de Diseño — Ambienta v1.5" (Notion) + "Análisis Funcional v
 - RF-12: enlace externo a fuente oficial (LeyChile/SEIA) sin embeber el texto completo.
 - RF-13: configuración de qué artículos/normas entran en el % de cumplimiento global.
 
+## Actualización 2026-08-01 — cobertura de evaluación
+
+S-08 incorpora una columna **Cobertura** junto al % de cumplimiento. Son dos
+indicadores distintos y hasta ahora estaban fusionados en uno: el cumplimiento
+mide `SI / (SI + NO)` sobre lo ya evaluado, así que una norma con un artículo
+cumplido y cuatro en N/E mostraba 100%. La cobertura mide `evaluados /
+aplicables` y responde la otra pregunta — cuánto se alcanzó a revisar.
+
+`NA` sale de ambos denominadores. `incluidoEnCalculo` (RF-13, S-11) sigue
+afectando solo al cumplimiento: excluir un artículo del cálculo es una decisión
+de la empresa, esconderlo de la cobertura sería tapar que nadie lo miró.
+
+Detalle completo en `docs/development/cambios-2026-08-01-normativa-iso.md` §3.2.
+
 ## Gaps o inconsistencias detectadas
 
 - RF-11 menciona "extracción asistida de artículos aplicables mediante IA" como opcional — no hay spec de OpenSpec aprobada para esa integración. **Se deja explícitamente fuera de esta iteración**: el botón "Subir RCA/ISO" solo agrega el registro con artículos vacíos/a completar manualmente; el comentario de integración real queda en el código.

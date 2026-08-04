@@ -1,0 +1,1 @@
+export { AspectosAmbientalesTable } from './AspectosAmbientalesTable';

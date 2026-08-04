@@ -41,7 +41,7 @@ export const mockLegalNorms: LegalNorm[] = [
     tenantId: 'tenant-1',
     plantIds: ['planta-rancagua', 'planta-talca', 'planta-concepcion'],
     tipoDocumento: 'NCh',
-    nombre: 'ISO 14001:2015 — Sistema de Gestión Ambiental',
+    nombre: 'ISO 14001:2026 — Sistema de Gestión Ambiental',
     fuente: 'ISO',
     responsableId: 'user-admin-empresa',
     articulos: [

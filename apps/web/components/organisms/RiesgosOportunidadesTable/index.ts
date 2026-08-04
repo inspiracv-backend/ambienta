@@ -1,0 +1,1 @@
+export { RiesgosOportunidadesTable } from './RiesgosOportunidadesTable';

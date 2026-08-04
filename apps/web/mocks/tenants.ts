@@ -58,8 +58,8 @@ export const mockTenants: Tenant[] = [
       'chatbot',
     ],
     plants: [
-      { id: 'planta-rancagua', tenantId: 'tenant-1', nombre: 'Planta Rancagua', comuna: 'Rancagua', region: "O'Higgins" },
-      { id: 'planta-talca', tenantId: 'tenant-1', nombre: 'Planta Talca', comuna: 'Talca', region: 'Maule' },
+      { id: 'planta-rancagua', tenantId: 'tenant-1', nombre: 'Planta Rancagua', comuna: 'Rancagua', region: "O'Higgins", identificadorRETC: '5495718', ciiu: 'C107100' },
+      { id: 'planta-talca', tenantId: 'tenant-1', nombre: 'Planta Talca', comuna: 'Talca', region: 'Maule', identificadorRETC: '5495722', ciiu: 'C107100' },
       { id: 'planta-concepcion', tenantId: 'tenant-1', nombre: 'Planta Concepción', comuna: 'Concepción', region: 'Biobío' },
     ],
   },

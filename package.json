@@ -9,10 +9,10 @@
     "dev:down": "docker compose down",
     "dev:logs": "docker compose logs -f",
     "dev:web": "npm run dev --workspace @ambienta/web",
-    "dev:api": "npm run dev --workspace @ambienta/api",
-    "build": "npm run build --workspace @ambienta/api && npm run build --workspace @ambienta/web",
+    "dev:api": "docker compose up api",
+    "build": "npm run build --workspace @ambienta/web",
     "lint": "npm run lint --workspace @ambienta/web",
-    "typecheck": "npm run typecheck --workspace @ambienta/api && tsc --noEmit -p apps/web/tsconfig.json",
+    "typecheck": "tsc --noEmit -p apps/web/tsconfig.json",
     "prod:up": "docker compose -f docker-compose.prod.yml up -d --build",
     "prod:down": "docker compose -f docker-compose.prod.yml down",
     "prod:logs": "docker compose -f docker-compose.prod.yml logs -f"

@@ -6,6 +6,23 @@ export const PlantSchema = z.object({
   nombre: z.string(),
   comuna: z.string(),
   region: z.string(),
+
+  /**
+   * Identificador del establecimiento en la Ventanilla Única del RETC
+   * (vu.mma.gob.cl). Es el número con el que el Ministerio del Medio Ambiente
+   * conoce a esta instalación, y por lo tanto la llave para cruzar lo que
+   * declara la empresa con lo que la autoridad ve. Opcional porque una planta
+   * puede existir en el sistema antes de estar registrada.
+   */
+  identificadorRETC: z.string().optional(),
+
+  /**
+   * Código CIIU de la actividad económica del establecimiento, tal como figura
+   * en el RETC. Habilita la precarga de normativa aplicable por rubro: es el
+   * dato que responde "¿qué le aplica a esta empresa?" sin que alguien arme la
+   * lista a mano.
+   */
+  ciiu: z.string().optional(),
 });
 export type Plant = z.infer<typeof PlantSchema>;
 

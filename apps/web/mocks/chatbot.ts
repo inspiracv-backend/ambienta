@@ -26,7 +26,7 @@ export const mockChatbotQA: ChatbotQA[] = [
   },
   {
     keywords: ['iso 14001', 'iso'],
-    respuesta: 'La ISO 14001:2015 (Sistema de Gestión Ambiental) tiene un 67% de cumplimiento en tu tenant. El artículo pendiente es la cláusula 9.1 (seguimiento y medición).',
+    respuesta: 'La ISO 14001:2026 (Sistema de Gestión Ambiental) tiene un 67% de cumplimiento en tu tenant. El artículo pendiente es la cláusula 9.1 (seguimiento y medición).',
     citaNormId: 'norm-3',
   },
 ];
