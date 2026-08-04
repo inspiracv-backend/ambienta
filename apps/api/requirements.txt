@@ -1,0 +1,9 @@
+# Dependencias de @ambienta/api (FastAPI).
+# Versiones ancladas para que el build sea reproducible.
+
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+# psycopg 3 con binario incluido: no requiere libpq del sistema en la imagen.
+psycopg[binary]==3.2.3
+sqlalchemy==2.0.36
+pydantic-settings==2.6.1
