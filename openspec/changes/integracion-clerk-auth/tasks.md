@@ -7,122 +7,189 @@ Plan de implementacion de [`proposal.md`](./proposal.md) / [`design.md`](./desig
 
 ---
 
-## Supuestos
+## Supuestos vigentes
 
 | # | Supuesto | Por que se tomo | Si se rechaza |
 |---|---|---|---|
-| S-1 | No se usan Organizations de Clerk para mapear tenants | Sub-tenancy por contrato no encaja; reduce lock-in | Se implementa Organizations y se mapea a tenants |
-| S-2 | `tenant_id` va en `publicMetadata` del usuario de Clerk y se inyecta como claim custom en el JWT | Es la forma mas directa de tener tenant_id en cada request sin call extra | Se usa un endpoint de lookup o se lee de nuestra BD en cada request |
-| S-3 | El DevRoleSwitcher se mantiene como fallback en dev (sin Clerk configurado) | Permite desarrollo local sin cuenta de Clerk | Se elimina completamente y se requiere Clerk siempre |
-| S-4 | Los usuarios de seed se crean directo en la BD, sin pasar por Clerk | Son datos de desarrollo, no usuarios reales | Se crean via API de Clerk y se sincronizan por webhook |
-| S-5 | El webhook de Clerk crea usuarios en nuestra BD | Evita que la API tenga que buscar en Clerk en cada request | Se usa la API de Clerk para sync manual |
+| S-1 | No se usan Organizations de Clerk para mapear tenants | Sub-tenancy por contrato (RF-65, RF-66) no encaja en el modelo plano de Organizations; reduce lock-in | Se implementa Organizations, se mapean a tenants, y se aceptan las limitaciones de sub-tenancy |
+| S-2 | `tenant_id` se inyecta como claim de primer nivel en el JWT via JWT Template de Clerk | Es la unica forma de tener `tenant_id` en cada request sin call extra a la API de Clerk | Se lee `publicMetadata` del JWT directamente (requiere que Clerk lo incluya sin template) o se hace un lookup a nuestra BD en cada request |
+| S-3 | El backend valida JWT con JWKS publica, no con el SDK de Clerk para Python | Elimina dependencia de Clerk en runtime; la JWKS se cachea y no requiere call HTTP por request | Se usa `clerk-backend-api` de Python; cada request valida contra la API de Clerk (mas lento, mas acoplado) |
+| S-4 | El DevRoleSwitcher se mantiene como fallback en dev sin Clerk | Permite desarrollo local sin cuenta de Clerk; activado por ausencia de `CLERK_PUBLISHABLE_KEY` | Se elimina y todo desarrollador necesita cuenta de Clerk desde el dia uno |
+| S-5 | El webhook de Clerk crea/actualiza usuarios en nuestra BD | La API nunca llama a Clerk; toda la info del usuario esta en nuestra BD | Se consulta la API de Clerk en cada request para obtener datos del usuario (lento, acoplado) |
+
+## Supuestos a confirmar con el equipo
+
+| # | Supuesto | Que falta para confirmarlo | Impacto si se rechaza |
+|---|---|---|---|
+| S-6 | `tenant_id` va en `publicMetadata` y se mapea con JWT Template | Verificar en el dashboard de Clerk que el JWT Template soporta mapear `publicMetadata.tenant_id` → claim `tenant_id` | Si no soporta el mapeo, hay que usar un campo de `unsafeMetadata` o un claim custom de otra forma; cambia la configuracion, no el codigo |
+| S-7 | Los usuarios de seed se crean directo en la BD, sin pasar por Clerk | Es el mecanismo actual; Clerk no esta involucrado en desarrollo | Si se quiere que los devs usen Clerk desde el dia uno, hay que crear usuarios de prueba en Clerk y sincronizarlos por webhook |
+| S-8 | No se usa `CLERK_SECRET_KEY` en el backend | El backend solo valida JWT (JWKS publica) y verifica webhooks (HMAC). No llama la API de Clerk | Si se necesita crear usuarios desde el backend (ej: Admin Empresa invita), se necesita el secret key |
+| S-9 | Se deshabilita el signup publico en Clerk | Hoy el Admin Empresa registra usuarios (RF-03); self-signup no tiene flujo definido | Si se permite, hay que decidir que pasa con un usuario que se registra sin tenant asignado |
 
 ---
 
-## Fase 1 — Backend: validacion JWT y auth.py
+## Fase 0 — Prerequisitos fuera de este modulo
+
+Sin esto, las fases siguientes se construyen sobre supuestos.
+
+- [ ] **Crear cuenta de Clerk** (gratis para desarrollo). Obtener `PUBLISHABLE_KEY`, dominio y JWKS URL
+- [ ] **Configurar JWT Template** en el dashboard de Clerk para inyectar `publicMetadata.tenant_id` como claim `tenant_id` en el JWT. Verificar que el JWT resultante trae el claim
+- [ ] **Verificar la calidad del SSO con Microsoft/Entra ID** con una cuenta real de Azure. ADR-006 lo dejo como pendiente. Si falla, Microsoft SSO se pospone y no bloquea el resto
+- [ ] **Decidir si se deshabilita signup publico** en Clerk (ver supuesto S-9 y decision abierta #4 de la propuesta)
+
+## Fase 1 — Backend: modulo `auth.py` y validacion JWT
 
 - [ ] Instalar dependencias: `python-jose[cryptography]`, `httpx`
-- [ ] Crear `apps/api/app/auth.py`:
-  - [ ] Funcion `_get_jwks()` con cache en memoria
-  - [ ] Funcion `get_current_user()` que valida JWT RS256 y retorna `{user_id, tenant_id}`
-  - [ ] `HTTPBearer` con `auto_error=False` para el fallback
+- [ ] Crear `apps/api/app/auth.py` con el contrato de §2.3 del design:
+  - [ ] `_get_jwks()` con cache en memoria y TTL de 1 hora
+  - [ ] `get_current_user()` que valida JWT RS256 y retorna `CurrentUser`
+  - [ ] `HTTPBearer(auto_error=False)` para permitir el fallback
+  - [ ] Si JWKS no disponible y cache vacio: 503 (no 401)
 - [ ] Actualizar `apps/api/app/deps.py`:
-  - [ ] `get_tenant_id()` extrae del JWT cuando `CLERK_JWKS_URL` esta configurado
-  - [ ] Fallback al header `X-Tenant-Id` cuando no hay Clerk (desarrollo)
-  - [ ] `get_tenant_db()` no cambia (sigue usando `get_tenant_id`)
-- [ ] Agregar migracion SQL: `ALTER TABLE users ADD COLUMN clerk_id TEXT UNIQUE`
-- [ ] Verificar con curl que un JWT valido pasa y uno invalido da 401
-- [ ] Verificar que sin `CLERK_JWKS_URL`, el fallback sigue funcionando
+  - [ ] `get_tenant_id()` pasa de leer header a depender de `get_current_user()`
+  - [ ] Si `CLERK_JWKS_URL` no esta configurado: fallback al header `X-Tenant-Id`
+  - [ ] `get_tenant_db()` **no cambia** (sigue usando `get_tenant_id()`)
+- [ ] Tests:
+  - [ ] JWT valido con claims completos → retorna `CurrentUser` correcto
+  - [ ] JWT expirado → 401
+  - [ ] JWT sin `tenant_id` en claims → 401
+  - [ ] JWT con firma invalida → 401
+  - [ ] Sin JWT y sin CLERK_JWKS_URL → fallback a header (desarrollo)
+  - [ ] Sin JWT y con CLERK_JWKS_URL → 401 (produccion)
 
-## Fase 2 — Backend: webhook de sincronizacion
+## Fase 2 — Backend: migracion SQL y webhook
 
+- [ ] Migracion: `ALTER TABLE users ADD COLUMN clerk_id TEXT UNIQUE`
+- [ ] Indice: `CREATE INDEX idx_users_clerk_id ON users (clerk_id)`
 - [ ] Crear `apps/api/app/routers/webhooks.py`:
-  - [ ] `POST /webhook/clerk` que recibe eventos de Clerk
-  - [ ] Verificar firma del webhook con `CLERK_WEBHOOK_SECRET` (svix)
-  - [ ] Handler `user.created`: crear usuario en tabla `users`
-  - [ ] Handler `user.updated`: actualizar email/nombre
-- [ ] Registrar router en `main.py` (sin autenticacion — el webhook se verifica con svix)
-- [ ] Testear con Clerk CLI: `clerk webhooks test`
+  - [ ] `POST /webhook/clerk` sin autenticacion JWT
+  - [ ] Verificar firma HMAC con `CLERK_WEBHOOK_SECRET` (svix)
+  - [ ] `user.created` → INSERT en `users` con `clerk_id`, email, nombre, `tenant_id`
+  - [ ] `user.updated` → UPDATE email y nombre en `users` WHERE `clerk_id`
+  - [ ] `user.deleted` → SET `is_active = false` (soft delete, no borrar)
+  - [ ] Payload invalido o firma incorrecta → 400
+- [ ] Registrar router en `main.py` sin dependencia de auth
+- [ ] Tests:
+  - [ ] Webhook con firma valida y evento `user.created` → usuario creado en BD
+  - [ ] Webhook con firma invalida → 400
+  - [ ] Webhook con evento desconocido → 200 (ignorar, no fallar)
 
-## Fase 3 — Frontend: @clerk/nextjs
+## Fase 3 — Frontend: `@clerk/nextjs` y proteccion de rutas
 
 - [ ] Instalar `@clerk/nextjs` en `apps/web`
-- [ ] Crear `apps/web/middleware.ts` con `clerkMiddleware`:
-  - [ ] Rutas publicas: `/login`, `/signup`, `/api/webhook/clerk`
-  - [ ] Todo lo demas requiere sesion
+- [ ] Crear `apps/web/middleware.ts`:
+  - [ ] `clerkMiddleware` con `createRouteMatcher`
+  - [ ] Rutas publicas: `/login(.*)`, `/signup(.*)`, `/api/webhook/clerk(.*)`
+  - [ ] Todo lo demas: `auth.protect()` → redirect a `/login`
 - [ ] Envolver `app/layout.tsx` con `<ClerkProvider>`
 - [ ] Refactorizar `app/(auth)/login/page.tsx`:
-  - [ ] Si `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` existe → renderizar `<SignIn />`
-  - [ ] Si no → renderizar DevRoleSwitcher (fallback dev)
+  - [ ] Si `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` → `<SignIn />` con redirect a `/dashboard`
+  - [ ] Si no → `<DevRoleSwitcher />` (fallback dev)
 - [ ] Crear `app/(auth)/signup/page.tsx` con `<SignUp />`
-- [ ] Agregar `<UserButton />` en el sidebar (reemplaza el avatar actual)
-- [ ] Agregar variables de entorno de Clerk a `.env.example`
-- [ ] Verificar que el middleware redirige a `/login` sin sesion
+- [ ] Reemplazar avatar estatico del sidebar por `<UserButton />` (condicional a Clerk)
+- [ ] Verificar:
+  - [ ] Sin sesion + ruta protegida → redirect a `/login`
+  - [ ] Con sesion → acceso normal
+  - [ ] Sin `CLERK_PUBLISHABLE_KEY` → DevRoleSwitcher funciona como antes
 
 ## Fase 4 — Frontend: api-client con Bearer token
 
 - [ ] Actualizar `RequestOptions` en `api-client.ts`: agregar campo `token`
-- [ ] Actualizar `request()`: enviar `Authorization: Bearer <token>` cuando hay token
-- [ ] Mantener fallback `X-Tenant-Id` para desarrollo sin Clerk
-- [ ] Crear hook `useApiToken()` que usa `useAuth().getToken()` de Clerk
-- [ ] Actualizar todos los stores para pasar `token` en las llamadas a `api.*`
-- [ ] Manejar 401: redirigir a `/login`
-- [ ] Verificar que la carga de datos funciona con JWT real
+- [ ] Actualizar `request()`: logica de prioridad (token > tenantId > sin auth)
+- [ ] Manejo de 401: redirect a `/login`, sin reintento
+- [ ] Crear hook `useApiToken()` que encapsula `useAuth().getToken()`
+- [ ] Actualizar los 13 stores para pasar `token` en las llamadas:
+  - [ ] `plants-store`
+  - [ ] `areas-store`
+  - [ ] `declarations-store`
+  - [ ] `audits-store`
+  - [ ] `non-conformities-store`
+  - [ ] `action-plans-store`
+  - [ ] `risks-store`
+  - [ ] `documents-store`
+  - [ ] `obligations-store`
+  - [ ] `normativas-store`
+  - [ ] `users-store`
+  - [ ] `kpis-store`
+  - [ ] `notifications-store`
+- [ ] Verificar que la carga de datos funciona end-to-end con JWT real
 
-## Fase 5 — Configuracion SSO (no requiere codigo)
+## Fase 5 — Configuracion SSO (sin codigo)
 
-- [ ] Crear cuenta de Clerk (si no existe)
-- [ ] Configurar dominio de produccion en Clerk dashboard
-- [ ] Configurar Microsoft SSO:
-  - [ ] Crear App Registration en Azure / Entra ID
-  - [ ] Configurar Redirect URI
-  - [ ] Copiar Client ID + Secret a Clerk
-- [ ] Configurar Google SSO:
-  - [ ] Crear OAuth Client ID en Google Cloud Console
-  - [ ] Configurar Redirect URI
-  - [ ] Copiar Client ID + Secret a Clerk
-- [ ] Testear login con Microsoft
-- [ ] Testear login con Google
+- [ ] Configurar Microsoft SSO en Clerk:
+  - [ ] App Registration en Azure / Entra ID
+  - [ ] Redirect URI apuntando a Clerk
+  - [ ] Client ID + Secret copiados a Clerk
+  - [ ] Test end-to-end con cuenta real
+- [ ] Configurar Google SSO en Clerk:
+  - [ ] OAuth Client ID en Google Cloud Console
+  - [ ] Redirect URI apuntando a Clerk
+  - [ ] Client ID + Secret copiados a Clerk
+  - [ ] Test end-to-end con cuenta real
 
-## Fase 6 — Docker y entorno
+## Fase 6 — Entorno y documentacion
 
-- [ ] Agregar variables de Clerk a `docker-compose.yml` (servicio `web` y `api`)
-- [ ] Actualizar `.env.example` con todas las variables nuevas
-- [ ] Actualizar `docs/development/entornos.md` con instrucciones de Clerk
-- [ ] Actualizar `docs/development/setup-local.md`: nota sobre desarrollo sin Clerk
-- [ ] Actualizar GitHub Actions CI si es necesario (las variables son secretos)
+- [ ] Agregar variables de Clerk a `docker-compose.yml` (servicios `web` y `api`)
+- [ ] Actualizar `.env.example`:
+  - [ ] Reemplazar seccion de `JWT_SECRET` por variables de Clerk
+  - [ ] Reemplazar seccion de OAuth directo (MICROSOFT_CLIENT_ID, etc.) por nota de que SSO se configura en Clerk
+  - [ ] 6 variables nuevas con placeholders y comentarios
+- [ ] Actualizar `docs/development/setup-local.md`: instrucciones de desarrollo con y sin Clerk
+- [ ] Actualizar `docs/development/entornos.md`: variables de Clerk en la tabla de entornos
+- [ ] GitHub Actions CI: las variables de Clerk son secretos; CI corre con fallback (sin Clerk)
 
-## Fase 7 — Verificacion
+## Fase 7 — Verificacion end-to-end
 
-- [ ] Sin Clerk configurado: DevRoleSwitcher funciona, API acepta header X-Tenant-Id
-- [ ] Con Clerk configurado: login muestra `<SignIn />`, DevRoleSwitcher desaparece
-- [ ] Login con email+password → sesion real → dashboard con datos del tenant
-- [ ] Login con Microsoft SSO → misma experiencia
-- [ ] Login con Google SSO → misma experiencia
-- [ ] Acceder a `/dashboard` sin sesion → redirige a `/login`
-- [ ] API con JWT valido → responde correctamente con datos del tenant
-- [ ] API con JWT invalido → 401
-- [ ] API con JWT de tenant 1 → no ve datos de tenant 2 (RLS)
-- [ ] Webhook: crear usuario en Clerk → aparece en tabla `users`
-- [ ] El `<UserButton />` muestra nombre y foto del usuario logueado
+- [ ] **Sin Clerk configurado** (desarrollo):
+  - [ ] DevRoleSwitcher funciona
+  - [ ] API acepta header `X-Tenant-Id`
+  - [ ] Todos los flujos existentes siguen funcionando
+- [ ] **Con Clerk configurado** (staging/produccion):
+  - [ ] Login muestra `<SignIn />`, DevRoleSwitcher no aparece
+  - [ ] Login con email+password → sesion real → dashboard con datos del tenant
+  - [ ] Login con Microsoft SSO → misma experiencia
+  - [ ] Login con Google SSO → misma experiencia
+  - [ ] `/dashboard` sin sesion → redirect a `/login`
+  - [ ] API con JWT valido → datos correctos del tenant
+  - [ ] API con JWT invalido → 401
+  - [ ] API con JWT de tenant 1 → no ve datos de tenant 2 (RLS verificado)
+  - [ ] Webhook `user.created` → usuario aparece en tabla `users`
+  - [ ] `<UserButton />` muestra nombre y foto del usuario
+  - [ ] Token expirado durante sesion → Clerk lo renueva automaticamente
+  - [ ] Logout → sesion destruida, redirect a `/login`
 
 ---
 
 ## Orden sugerido
 
-Fase 1 y 3 pueden avanzar en paralelo (backend y frontend son independientes).
-Fase 2 depende de Fase 1 (necesita la migracion de `clerk_id`).
-Fase 4 depende de Fase 1 + 3 (necesita JWT del frontend y validacion del backend).
-Fase 5 se puede hacer en cualquier momento (es configuracion en dashboard).
-Fase 6 y 7 al final.
+Fase 0 primero y de verdad: sin la cuenta de Clerk y el JWT Template
+configurado, no se puede validar ningun JWT en las fases siguientes. La
+verificacion de Microsoft SSO tambien va aqui para saber si se puede prometer.
 
-**Estimacion:** cambio grande. Toca `deps.py`, todos los stores del frontend,
-el sistema de login, y agrega un modulo nuevo de webhooks. No rompe el modelo
-de datos (solo agrega `clerk_id`). El RLS no cambia.
+Fase 1 y 3 pueden avanzar en paralelo: el backend (validacion JWT) y el
+frontend (middleware + login) son independientes entre si.
+
+Fase 2 depende de Fase 1: el webhook necesita que `clerk_id` exista en la tabla
+`users`, y el endpoint se registra en el mismo `main.py` que ya tiene la
+dependencia de auth.
+
+Fase 4 depende de Fase 1 + 3: necesita que el frontend tenga el JWT (Fase 3) y
+que el backend lo valide (Fase 1).
+
+Fase 5 se puede hacer en cualquier momento: es configuracion en dashboards
+externos.
+
+Fase 6 y 7 al final: configuracion de entorno y verificacion.
+
+**Estimacion de alcance:** cambio medio-grande. Toca `deps.py`, el api-client,
+todos los stores del frontend, el sistema de login, y agrega un modulo nuevo de
+webhooks. **No toca el modelo de datos de negocio** (solo agrega `clerk_id` a
+`users`). El RLS no cambia. Los 93 endpoints existentes no cambian de firma —
+solo cambia de donde viene el `tenant_id` que ya reciben.
 
 **Dependencias externas:**
-- Cuenta de Clerk (gratis para desarrollo)
-- App Registration en Azure para Microsoft SSO
+- Cuenta de Clerk (gratis para desarrollo, plan Pro para produccion)
+- App Registration en Azure / Entra ID para Microsoft SSO
 - OAuth Client ID en Google Cloud para Google SSO
 
 **Issues de Linear relacionados:**

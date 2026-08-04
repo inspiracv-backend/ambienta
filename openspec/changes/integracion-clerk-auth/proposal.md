@@ -1,33 +1,41 @@
 # Proposal: Integracion de Clerk como proveedor de autenticacion
 
-Fuentes: `docs/arquitectura/adr/ADR-006-autenticacion-clerk.md` (Aceptado, 03-ago-2026) · `Analisis Funcional v1.8` (Notion) · `apps/api/app/deps.py` (auth actual: header X-Tenant-Id sin JWT) · `apps/web/components/organisms/DevRoleSwitcher/` (login mock actual) · `openspec/changes/sistema-actores-roles-rbac/` (spec de actores, aprobada).
+Fuentes: `docs/arquitectura/adr/ADR-006-autenticacion-clerk.md` (Aceptado, 03-ago-2026) · `Analisis Funcional v1.8` (Notion, §3.1 RF-01 a RF-09) · `apps/api/app/deps.py` (auth actual) · `apps/web/components/organisms/DevRoleSwitcher/` (login mock) · `openspec/changes/sistema-actores-roles-rbac/` (spec de actores).
 
 ## Contexto
 
-La autenticacion actual de Ambienta es **simulada**:
+La autenticacion actual de Ambienta es **simulada en ambas capas**:
 
-1. **Frontend**: el DevRoleSwitcher muestra una lista de usuarios de la BD.
-   Al seleccionar uno, guarda `userId` y `tenantId` en memoria (React context).
-   No hay JWT, no hay sesion real, no hay proteccion de rutas.
+1. **Frontend**: el componente `DevRoleSwitcher` muestra una lista de usuarios
+   del seed de la BD. Al seleccionar uno, guarda `userId` y `tenantId` en
+   memoria (React context). No hay JWT, no hay sesion real, no hay proteccion
+   de rutas server-side.
 
 2. **API**: el unico mecanismo de identificacion es el header `X-Tenant-Id`
-   que el frontend envia en cada request. Cualquiera puede inventar un UUID
-   y la API lo acepta. No hay validacion de identidad.
+   que el frontend envia en cada request (`api-client.ts:29`). No se valida
+   identidad: cualquier caller puede inventar un UUID y la API lo acepta sin
+   cuestionarlo.
 
 3. **RLS funciona**, pero confia ciegamente en que el caller dice la verdad
-   sobre su tenant. En produccion esto es una vulnerabilidad critica.
+   sobre su tenant. `deps.py:34` ejecuta `SET LOCAL ROLE ambienta_app` y
+   `set_config('ambienta.tenant_id', ...)` con el valor que llega del header.
 
-El **ADR-006** (aprobado 03-ago-2026) decidio usar **Clerk** como proveedor.
-Esta propuesta especifica como integrarlo en ambas capas.
+El **ADR-006** (aprobado 03-ago-2026) decidio usar **Clerk** como proveedor,
+descartando JWT propio, Supabase Auth y Firebase Auth. Esta propuesta
+especifica como integrarlo.
 
 ### Que se rompe hoy
 
-- Un usuario puede acceder a datos de otro tenant inventando un header.
-- No hay login real: el DevRoleSwitcher es visible en produccion si no se
-  elimina manualmente.
-- No se puede desplegar a produccion sin autenticacion real.
-- Los logs de auditoria registran `user_id` de la sesion simulada, sin
-  garantia de que corresponda a un usuario real.
+1. **Acceso cross-tenant trivial.** Un usuario puede ver datos de otro tenant
+   fabricando un header `X-Tenant-Id`. Las 37 politicas de RLS no sirven si el
+   dato de entrada es mentira.
+2. **No hay login real.** El DevRoleSwitcher esta en el build de produccion
+   si no se elimina manualmente. No hay redireccion a login, no hay sesion,
+   no hay logout.
+3. **No se puede desplegar a produccion.** Sin autenticacion real, exponer la
+   app a internet seria dar acceso irrestricto a todos los datos.
+4. **Los audit logs son ficcion.** Registran `user_id` de la sesion simulada
+   sin garantia de que corresponda a un humano real.
 
 ## Objetivo
 
@@ -36,98 +44,138 @@ Reemplazar la autenticacion simulada por **Clerk** en dos capas:
 1. **Frontend**: `@clerk/nextjs` con middleware, proteccion de rutas,
    componentes de login/signup, y sesion real con JWT.
 2. **API**: validar JWT de Clerk en FastAPI, extraer `user_id` y `tenant_id`
-   de los claims, y alimentar el mecanismo de RLS existente.
+   de los claims, y alimentar el mecanismo de RLS existente sin cambiarlo.
 
-Al terminar, el DevRoleSwitcher desaparece y el sistema tiene login real
-con soporte para Microsoft SSO, Google SSO, email+password y MFA.
+Al terminar, el sistema tiene login real con soporte para email+password,
+Microsoft SSO, Google SSO y MFA — todo gestionado por Clerk.
+
+## Decision estructural: tenant en nuestra BD, no en Clerk Organizations
+
+Clerk trae una primitiva de **Organizations** con invitaciones y roles por
+organizacion. La pregunta es si mapear organizations a tenants o mantener el
+tenant solo en nuestra base.
+
+**Decision: (b) Tenant solo en nuestra base.** Clerk autentica; la pertenencia
+y los permisos son nuestros.
+
+**Por que.** La sub-tenancy por contrato (RF-65, RF-66) no encaja en el modelo
+plano de organizations. Un Gestor crea sub-tenants a partir de un Contrato
+formal, con dashboard propio del cliente final — eso no tiene equivalente en
+Clerk. Ademas, los 39 permisos granulares del RBAC (RF-08) ya estan modelados
+en nuestra BD y no conviene duplicarlos.
+
+**Consecuencia practica.** Al crear un usuario en Clerk, se guarda su
+`tenant_id` como `publicMetadata.tenant_id` para que aparezca en el JWT.
+La API lo lee del claim firmado — ya no se puede falsificar.
 
 ## Alcance
 
 ### Incluye
 
-- Instalar y configurar `@clerk/nextjs` en `apps/web`
-- Clerk Middleware para proteger rutas del App Router
-- Componentes de login/signup de Clerk (reemplazan DevRoleSwitcher)
-- Sincronizacion Clerk → tabla `users`: webhook `user.created` / `user.updated`
-- Validar JWT de Clerk en FastAPI (`deps.py`) con la JWKS publica
-- Extraer `tenant_id` del JWT (claim custom o metadata de user)
-- Mapeo de usuario Clerk → usuario en nuestra BD (`users.clerk_id`)
-- Enviar JWT como `Authorization: Bearer <token>` en el api-client del frontend
-- Configurar Microsoft SSO y Google SSO en el dashboard de Clerk
-- Variables de entorno: `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`
-- Eliminar DevRoleSwitcher del build de produccion
-- Actualizar `docker-compose.yml` y `.env.example` con las nuevas variables
+- `@clerk/nextjs` en `apps/web`: provider, middleware de rutas, `<SignIn />`,
+  `<SignUp />`, `<UserButton />`
+- Validar JWT de Clerk en FastAPI con JWKS publica (RS256)
+- Extraer `user_id` y `tenant_id` del JWT firmado — reemplaza el header
+  `X-Tenant-Id` sin cambiar `get_tenant_db()`
+- Sincronizacion Clerk → tabla `users` via webhook (`user.created`,
+  `user.updated`)
+- Columna `clerk_id` en tabla `users` para vincular identidades
+- Envio de `Authorization: Bearer <token>` en el api-client del frontend
+- Configuracion de Microsoft SSO y Google SSO en dashboard de Clerk (sin codigo)
+- Variables de entorno nuevas en `.env.example` y `docker-compose.yml`
+- Fallback: DevRoleSwitcher sigue funcionando en desarrollo sin Clerk
 
 ### NO incluye
 
-- **RBAC granular** — los 39 permisos siguen en nuestra BD (spec separada
-  `sistema-actores-roles-rbac`). Clerk solo autentica, no autoriza.
-- **Organizations de Clerk** — decision: **no usarlas** (ver ADR-006,
-  mitigacion de lock-in). El tenant_id vive solo en nuestra BD.
-- **Flujo de Cliente Invitado** (RUT + clave dinamica) — es un flujo
-  custom que no pasa por Clerk (spec separada, ABA-23).
-- **Clave local post-SSO** (RF-06) — spec separada (ABA-24).
-- **MFA obligatorio por tenant** — Clerk lo trae, pero la configuracion
-  por tenant es post-MVP.
-- **Migracion de usuarios existentes** — no hay usuarios reales todavia;
-  los del seed son de desarrollo.
+- **RBAC granular** — los 39 permisos siguen en nuestra BD; Clerk solo
+  autentica, no autoriza. Va en la spec de `sistema-actores-roles-rbac`.
+- **Organizations de Clerk** — decision explicita de no usarlas (ver arriba).
+- **Flujo de Cliente Invitado** (RF-01, RF-02, RF-07: link especial + RUT +
+  clave dinamica) — es un flujo custom que no pasa por Clerk. Spec separada,
+  ABA-23.
+- **Clave local post-SSO** (RF-06) — spec separada, ABA-24.
+- **MFA obligatorio configurable por tenant** — Clerk lo trae, pero la
+  configuracion por tenant es post-MVP.
+- **Migracion de usuarios reales** — no hay: los del seed son de desarrollo.
+- **Codigo de implementacion** — esta propuesta es spec-only (CLAUDE.md §1).
 
-## Decisiones de diseño
+## Lo que esto exige del resto del sistema
 
-### 1. Tenant en nuestra BD, no en Clerk Organizations
+| Area | Impacto |
+|---|---|
+| `apps/api/app/deps.py` | `get_tenant_id()` pasa de leer un header a extraer del JWT. `get_tenant_db()` no cambia. |
+| `apps/api/app/auth.py` | Modulo nuevo. Toda la logica de validacion JWT vive aqui (mitigacion lock-in). |
+| `apps/api/app/routers/webhooks.py` | Router nuevo para recibir eventos de Clerk (sin auth JWT — se verifica con svix). |
+| `apps/web/lib/api-client.ts` | Agregar `Authorization: Bearer` al request. Mantener fallback `X-Tenant-Id` para dev. |
+| `apps/web/middleware.ts` | Archivo nuevo. `clerkMiddleware` protege todas las rutas excepto login/signup. |
+| `apps/web/app/layout.tsx` | Envolver en `<ClerkProvider>`. |
+| `apps/web/app/(auth)/login/page.tsx` | Condicional: `<SignIn />` si Clerk esta configurado, DevRoleSwitcher si no. |
+| Todos los stores (`lib/*-store.tsx`) | Pasar `token` de Clerk en las llamadas a `api.*`. Son 13 stores. |
+| `db/01_schema.sql` | `ALTER TABLE users ADD COLUMN clerk_id TEXT UNIQUE`. |
+| `.env.example` | 6 variables nuevas de Clerk (3 frontend, 3 backend). |
+| `docker-compose.yml` | Las variables de Clerk en los servicios `web` y `api`. |
+| Docs (`entornos.md`, `setup-local.md`) | Seccion sobre desarrollo con y sin Clerk. |
+| GitHub Actions CI | Las variables de Clerk son secretos; CI corre sin ellas (fallback). |
+| Dashboard (S-06) | No cambia funcionalmente, pero los datos que muestra ahora estan protegidos por auth real. |
+| Audit log | Los `user_id` registrados ahora corresponden a usuarios reales de Clerk. |
 
-**Decision:** el campo `tenant_id` vive **solo** en `users.tenant_id` de
-nuestra base de datos. No se usan Organizations de Clerk.
+## Decisiones que requiere el equipo
 
-**Razon:** la sub-tenancy por contrato (RF-65, RF-66) no encaja en el
-modelo plano de organizations. Mantiene el proveedor reemplazable (punto 2
-de mitigacion del lock-in en ADR-006).
+Estas **no** las resuelve esta propuesta por su cuenta:
 
-**Consecuencia:** al crear un usuario en Clerk, hay que guardar su
-`tenant_id` como `publicMetadata.tenant_id` para que aparezca en el JWT.
-La API lo lee del claim y lo usa para el `SET LOCAL`.
+1. **¿Como se onboardean los primeros usuarios reales en Clerk?** Los del seed
+   SQL no existen en Clerk. Hay que decidir si el Admin Empresa los crea desde
+   el dashboard de Clerk, si se expone un flujo de invitacion en la app, o si
+   se crea un script de migracion que los suba via API de Clerk.
 
-### 2. Una sola dependencia de FastAPI para validar tokens
+2. **¿El `tenant_id` va en `publicMetadata` o en un claim custom?** Ambos
+   aparecen en el JWT. `publicMetadata` es mas simple (se setea via API de
+   Clerk); un claim custom es mas limpio semánticamente pero requiere
+   configurar un template de JWT en Clerk. La propuesta asume `publicMetadata`.
 
-**Decision:** toda la logica de validacion vive en `deps.py`, en una
-funcion `get_current_user()` que reemplaza `get_tenant_id()`. El resto
-de la API no sabe que Clerk existe.
+3. **¿Se verifica la calidad del SSO con Microsoft/Entra ID antes de
+   comprometerse?** ADR-006 lo dejo como pendiente de verificar. Algunos
+   tenants de Azure tienen configuraciones restrictivas que pueden bloquear
+   el flujo. Conviene probar con una cuenta real antes de documentar SSO como
+   feature.
 
-**Razon:** mitigacion del lock-in (ADR-006 punto 1). Si manana se
-cambia de proveedor, se toca un archivo.
+4. **¿Se permite signup sin invitacion?** Hoy el Admin Empresa registra
+   usuarios (RF-03). Si Clerk permite self-signup, cualquiera podria crearse
+   cuenta. Hay que decidir si se deshabilita signup publico o si se permite
+   con aprobacion posterior.
 
-### 3. DevRoleSwitcher se mantiene en desarrollo
-
-**Decision:** en `NODE_ENV=development` y sin `CLERK_PUBLISHABLE_KEY`,
-el DevRoleSwitcher sigue funcionando como fallback para desarrollo local
-sin cuenta de Clerk. En produccion (o con Clerk configurado) desaparece.
+5. **¿Que pasa con el DevRoleSwitcher a largo plazo?** La propuesta lo
+   mantiene como fallback en dev. Si el equipo crece, todo desarrollador
+   necesitaria una cuenta de Clerk o depender del fallback. Definir el corte.
 
 ## Criterios de aceptacion
 
 - [ ] Al acceder a `/dashboard` sin sesion, redirige a la pagina de login de Clerk
-- [ ] Al hacer login con email+password, se crea sesion y se redirige al dashboard
+- [ ] Login con email+password crea sesion y redirige al dashboard con datos reales
 - [ ] El JWT de Clerk incluye `tenant_id` en los claims (via publicMetadata)
-- [ ] La API valida el JWT con la JWKS publica de Clerk y extrae user_id + tenant_id
+- [ ] La API valida el JWT con la JWKS publica y extrae user_id + tenant_id
 - [ ] El RLS sigue funcionando: tenant 1 no ve datos de tenant 2
-- [ ] Microsoft SSO funciona (configurado en dashboard de Clerk)
-- [ ] Google SSO funciona (configurado en dashboard de Clerk)
-- [ ] El api-client envia `Authorization: Bearer <token>` en vez de solo `X-Tenant-Id`
-- [ ] Si el JWT es invalido o expirado, la API responde 401
-- [ ] El DevRoleSwitcher no aparece cuando Clerk esta configurado
-- [ ] El DevRoleSwitcher sigue funcionando en dev sin Clerk (fallback)
-- [ ] La tabla `users` tiene columna `clerk_id` que referencia al usuario de Clerk
-- [ ] Los webhooks de Clerk sincronizan creacion/actualizacion de usuarios
+- [ ] Microsoft SSO funciona end-to-end
+- [ ] Google SSO funciona end-to-end
+- [ ] El api-client envia `Authorization: Bearer <token>` en cada request
+- [ ] Un JWT invalido o expirado produce 401 en la API, no datos vacios
+- [ ] Sin `CLERK_PUBLISHABLE_KEY`, el DevRoleSwitcher sigue funcionando (fallback dev)
+- [ ] La tabla `users` tiene `clerk_id` que vincula al usuario de Clerk
+- [ ] Los webhooks de Clerk sincronizan user.created/updated a nuestra BD
 
-## Alternativas consideradas
+## Alternativas consideradas y descartadas
 
 **JWT propio sin proveedor.** Es lo que planteaba el Analisis Funcional v1.7
-original (RF-05). Requiere implementar OAuth con Microsoft y Google a mano,
-rotacion de tokens, MFA, passkeys y recuperacion de clave. Semanas de
-trabajo que no aporta diferenciacion al producto. Descartado en ADR-006.
+(RF-05 original). Requiere implementar OAuth con Microsoft y Google a mano,
+rotacion de tokens, MFA, passkeys y recuperacion de clave. Semanas de trabajo
+que no aporta diferenciacion al producto. Descartado en ADR-006.
 
-**Supabase Auth.** La integracion nativa con RLS suena ideal, pero solo
-sirve cuando el cliente habla directo con PostgREST. Ambienta tiene FastAPI
-en el medio, asi que esa ventaja no aplica. Descartado en ADR-006.
+**Supabase Auth.** La integracion nativa con RLS suena ideal, pero solo sirve
+cuando el cliente habla directo con PostgREST. Ambienta tiene FastAPI en el
+medio — la ventaja de Supabase nunca se ejerceria. Descartado en ADR-006.
 
 **Firebase Auth.** Sin historia con Postgres, multi-tenancy real exige
-Identity Platform, y arrastra a GCP. Descartado en ADR-006.
+Identity Platform, y arrastra a GCP sin aportar nada. Descartado en ADR-006.
+
+**Mantener el header X-Tenant-Id en produccion.** Inseguro por definicion:
+cualquiera puede fabricar el header. Descartado por RNF-07 (aislamiento).
