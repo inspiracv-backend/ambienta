@@ -57,11 +57,12 @@ def health_db(response: Response, db: Session = Depends(get_db)) -> dict:
 
 
 from .routers import (
-    audits, catalog, compliance, documents, facilities,
+    audits, catalog, compliance, dashboard, documents, facilities,
     iso14001, notifications, obligations, support, system, tenants, users,
 )
 
 api_v1_prefix = "/api/v1"
+app.include_router(dashboard.router, prefix=api_v1_prefix)
 app.include_router(tenants.router, prefix=api_v1_prefix)
 app.include_router(facilities.router, prefix=api_v1_prefix)
 app.include_router(users.router, prefix=api_v1_prefix)
