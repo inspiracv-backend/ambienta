@@ -59,9 +59,13 @@ def health_db(response: Response, db: Session = Depends(get_db)) -> dict:
 from .routers import (
     audits, catalog, compliance, documents, facilities,
     iso14001, notifications, obligations, support, system, tenants, users,
+    webhooks,
 )
 
 api_v1_prefix = "/api/v1"
+# Sin dependencia de auth a proposito: quien llama es Clerk, no un usuario con
+# sesion, y la autenticidad se comprueba con la firma HMAC del payload.
+app.include_router(webhooks.router, prefix=api_v1_prefix)
 app.include_router(tenants.router, prefix=api_v1_prefix)
 app.include_router(facilities.router, prefix=api_v1_prefix)
 app.include_router(users.router, prefix=api_v1_prefix)

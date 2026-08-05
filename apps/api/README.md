@@ -99,6 +99,32 @@ Si Clerk deja de responder pero hay una copia en caché —aunque esté vencida�
 usa: una llave de hace dos horas verifica firmas igual de bien, y rechazar a
 todos porque el CDN parpadeó sería peor que el riesgo que cubre el TTL.
 
+### Sincronización de usuarios
+
+Clerk avisa por webhook cuando un usuario se crea, cambia o se elimina:
+
+```
+POST /api/v1/webhooks/clerk
+```
+
+Es el **único endpoint sin JWT**: quien llama es Clerk, no una persona con
+sesión. La autenticidad se comprueba con la firma HMAC del payload (protocolo
+svix) usando `CLERK_WEBHOOK_SECRET`. Tampoco pasa por RLS — al procesar un
+`user.created` todavía no se sabe de qué tenant es la sesión, porque no hay
+sesión: el tenant sale del payload firmado.
+
+| Evento | Qué hace |
+|---|---|
+| `user.created` | Crea la fila. Si ya existe alguien con ese correo **sin** `clerk_id`, lo adopta en vez de duplicar |
+| `user.updated` | Actualiza email y nombre. **No pisa** el tenant ni el rol: un cambio de foto en Clerk no debe revertir lo que un admin configuró acá |
+| `user.deleted` | `status = 'disabled'`. **No borra la fila**: `audit_log` la referencia, y borrarla dejaría huérfano el historial que RNF-08 exige conservar |
+| Cualquier otro | Responde 200 e ignora, para que Clerk no lo reintente indefinidamente |
+
+Un payload firmado pero incompleto (sin `tenant_id` en `publicMetadata`, por
+ejemplo) responde **400**, no 500: es auténtico, pero le falta algo que solo se
+arregla en el dashboard de Clerk. Con un 5xx, Clerk reintentaría para siempre un
+payload que no va a mejorar solo.
+
 ## Multi-tenancy y RLS
 
 El esquema (`db/01_schema.sql`) aplica `FORCE ROW LEVEL SECURITY` con 37

@@ -76,20 +76,50 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 2 — Backend: migracion SQL y webhook
 
-- [ ] Migracion: `ALTER TABLE users ADD COLUMN clerk_id TEXT UNIQUE`
-- [ ] Indice: `CREATE INDEX idx_users_clerk_id ON users (clerk_id)`
-- [ ] Crear `apps/api/app/routers/webhooks.py`:
-  - [ ] `POST /webhook/clerk` sin autenticacion JWT
-  - [ ] Verificar firma HMAC con `CLERK_WEBHOOK_SECRET` (svix)
-  - [ ] `user.created` → INSERT en `users` con `clerk_id`, email, nombre, `tenant_id`
-  - [ ] `user.updated` → UPDATE email y nombre en `users` WHERE `clerk_id`
-  - [ ] `user.deleted` → SET `is_active = false` (soft delete, no borrar)
-  - [ ] Payload invalido o firma incorrecta → 400
-- [ ] Registrar router en `main.py` sin dependencia de auth
-- [ ] Tests:
-  - [ ] Webhook con firma valida y evento `user.created` → usuario creado en BD
-  - [ ] Webhook con firma invalida → 400
-  - [ ] Webhook con evento desconocido → 200 (ignorar, no fallar)
+> **Completada 05-ago-2026.** Rama `feat/clerk-auth-fase2-webhook`.
+> 16 tests nuevos (33 en total). Verificado contra Postgres real.
+
+- [x] Migracion `db/04_clerk_auth.sql`: `clerk_id text` + constraint UNIQUE
+- [x] ~~`CREATE INDEX idx_users_clerk_id`~~ → **innecesario**: el UNIQUE ya crea
+      su indice. Agregar otro sobre la misma columna duplica escrituras sin
+      acelerar ninguna lectura
+- [x] Crear `apps/api/app/routers/webhooks.py`:
+  - [x] `POST /api/v1/webhooks/clerk` sin autenticacion JWT
+  - [x] Verificar firma HMAC con `CLERK_WEBHOOK_SECRET` (libreria `svix`)
+  - [x] `user.created` → INSERT en `users`
+  - [x] `user.updated` → UPDATE email y nombre WHERE `clerk_id`
+  - [x] `user.deleted` → `status = 'disabled'` (ver correccion en design.md:
+        `is_active` no existe)
+  - [x] Payload invalido o firma incorrecta → 400
+- [x] Registrar router en `main.py` sin dependencia de auth
+- [x] Tests:
+  - [x] Firma valida + `user.created` → usuario creado
+  - [x] Firma de otro secreto → 400
+  - [x] Sin cabeceras de firma → 400
+  - [x] Cuerpo alterado despues de firmar → 400
+  - [x] Evento desconocido → 200 (ignorar, no fallar)
+
+### Agregado durante la implementacion (no estaba en la spec)
+
+- [x] **`services/clerk_sync.py` separado del router.** Permite probar la
+      traduccion de eventos sin fabricar firmas HTTP
+- [x] **Adopcion por email.** Si ya existe un usuario con ese correo pero sin
+      `clerk_id`, se le pega el id en vez de crear un duplicado. Sin esto, la
+      primera entrada de alguien que ya estaba en la base violaba el UNIQUE de
+      `email` y el webhook fallaba en loop
+- [x] **El tenant y el rol no se pisan en `user.updated`.** Un cambio de foto en
+      Clerk no debe revertir lo que un admin configuro en Ambienta
+- [x] **Se toma el correo marcado como primario**, no el primero del arreglo:
+      con dos correos el orden no dice cual usa la persona
+- [x] **Rol validado contra el CHECK de `user_type`.** Un rol inventado desde el
+      dashboard de Clerk cae al default en vez de que lo rechace la base
+- [x] **Nombre vacio cae al correo.** Entrar por SSO sin perfil deja el nombre
+      en blanco y la columna es NOT NULL
+- [x] **503 si falta `CLERK_WEBHOOK_SECRET`**, no 401: el que llama no tiene la
+      culpa de que falte la configuracion
+- [x] **400 y no 500 si el payload viene incompleto.** Es autentico (venia
+      firmado) pero le falta algo que solo se arregla en el dashboard de Clerk;
+      con 5xx, Clerk reintentaria para siempre un payload que no va a mejorar
 
 ## Fase 3 — Frontend: `@clerk/nextjs` y proteccion de rutas
 
