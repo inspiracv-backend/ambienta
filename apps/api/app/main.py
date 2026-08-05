@@ -17,6 +17,10 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import check_database, get_db
+from .routers import (
+    audits, catalog, compliance, documents, facilities,
+    iso14001, notifications, obligations, support, system, tenants, users,
+)
 
 settings = get_settings()
 
@@ -55,11 +59,6 @@ def health_db(response: Response, db: Session = Depends(get_db)) -> dict:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {"status": "error", "connected": False, "detail": str(exc)}
 
-
-from .routers import (
-    audits, catalog, compliance, documents, facilities,
-    iso14001, notifications, obligations, support, system, tenants, users,
-)
 
 api_v1_prefix = "/api/v1"
 app.include_router(tenants.router, prefix=api_v1_prefix)

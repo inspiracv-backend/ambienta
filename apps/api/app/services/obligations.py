@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select, and_
 from sqlalchemy.orm import Session
 
-from ..models.obligations import Obligation, Task
+from ..models.obligations import Obligation
 from ..models.notifications import Notification
 
 

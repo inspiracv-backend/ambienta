@@ -2,7 +2,6 @@
 from uuid import UUID as PyUUID
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     Date,

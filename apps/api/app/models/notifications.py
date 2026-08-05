@@ -2,12 +2,10 @@
 from uuid import UUID as PyUUID
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
     Integer,
-    SmallInteger,
     String,
     Text,
     UniqueConstraint,

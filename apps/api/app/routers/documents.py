@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..crud.documents import crud_document, crud_document_version
+from ..crud.documents import crud_document
 from ..deps import get_tenant_db, get_tenant_id
 from ..schemas.documents import (
     DocumentCreate,
