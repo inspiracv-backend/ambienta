@@ -136,8 +136,25 @@ ClerkWebhookEvent {
 
 **Por que no se borra el usuario en `user.deleted`.** Los audit logs referencian
 `user_id`. Borrar el usuario romperia las FKs o dejaria registros huerfanos.
-Se marca `is_active = false` y el sistema deja de permitir login, pero el
-historial se conserva.
+Se marca inactivo y el sistema deja de permitir login, pero el historial se
+conserva.
+
+**Correccion (04-ago-2026, durante Fase 1).** La v1 de este diseno decia
+`is_active = false`. Esa columna **no existe**. La tabla `users` real
+(`db/01_schema.sql:158`) tiene:
+
+```sql
+status varchar(24) NOT NULL DEFAULT 'invited'
+       CHECK (status IN ('invited','active','blocked','disabled')),
+deleted_at timestamptz    -- del SoftDeleteMixin
+```
+
+Por lo tanto `user.deleted` mapea a `status = 'disabled'`, no a un booleano
+nuevo. Se usa `status` y no `deleted_at` porque son cosas distintas: `disabled`
+es "existe pero no puede entrar" (que es lo que significa borrar en Clerk),
+mientras que `deleted_at` es baja logica del registro completo. Un usuario
+eliminado en Clerk sigue siendo un registro vivo en nuestra BD — solo perdio
+su medio de autenticacion.
 
 **Por que el webhook no pasa por autenticacion JWT.** Es Clerk quien llama al
 endpoint, no un usuario con sesion. La verificacion es via HMAC con el
