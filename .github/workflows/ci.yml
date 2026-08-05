@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main, '002-backend-api-stores-integracion']
+  # Sin filtro de rama a proposito: hoy los PRs se apilan unos sobre otros
+  # (feat/x → feat/y → 002-backend → main). Con una lista blanca de destinos,
+  # los PRs intermedios se quedan sin CI justo cuando mas falta hace.
   pull_request:
-    branches: [main, '002-backend-api-stores-integracion']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -72,15 +74,34 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # Las versiones van ancladas y deben coincidir con requirements-dev.txt.
+      # Sin anclar, el CI se rompe solo cada vez que la herramienta publica una
+      # release con reglas nuevas: paso de 18 hallazgos en local a 171 en CI.
       - name: Lint (ruff)
         run: |
-          pip install ruff
-          ruff check app/
+          pip install ruff==0.8.4
+          # `.` y no `app/`: asi cubre tests/ en cuanto exista, sin tener que
+          # tocar el workflow. ruff respeta .gitignore, no entra a .venv.
+          ruff check .
 
-      - name: Typecheck (mypy)
+      # mypy es informativo por ahora (`|| true`): el codigo viene de la
+      # migracion desde NestJS y todavia no esta anotado. El nombre del paso lo
+      # dice para que nadie lea el check en verde como que los tipos estan bien.
+      - name: Typecheck (mypy, informativo — no bloquea)
         run: |
-          pip install mypy
+          pip install mypy==1.14.0
           mypy app/ --ignore-missing-imports --no-error-summary || true
+
+      # El guard permite que este workflow entre antes que la suite de tests:
+      # sin el, pytest sale con codigo 5 ("no tests collected") y tumba el job.
+      - name: Test (pytest)
+        run: |
+          if [ -d tests ]; then
+            pip install pytest==8.3.4
+            python -m pytest
+          else
+            echo "apps/api todavia no tiene tests/ — se omite."
+          fi
 
       - name: Init database schema
         run: |
@@ -93,8 +114,17 @@ jobs:
           ENVIRONMENT: test
         run: |
           uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-          sleep 5
-          curl -f http://localhost:8000/health
+          # Reintento en vez de `sleep 5`: un arranque lento no deberia pintar
+          # el build en rojo, y uno rapido no deberia costar 5 segundos.
+          for i in $(seq 1 20); do
+            if curl -fs http://localhost:8000/health > /dev/null; then
+              echo "API arriba tras ${i} intento(s)."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "La API no respondio en 20s."
+          exit 1
 
   # ── Shared schemas ────────────────────────────────────────────────────
   shared:
