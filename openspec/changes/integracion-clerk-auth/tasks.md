@@ -39,23 +39,40 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 1 — Backend: modulo `auth.py` y validacion JWT
 
-- [ ] Instalar dependencias: `python-jose[cryptography]`, `httpx`
-- [ ] Crear `apps/api/app/auth.py` con el contrato de §2.3 del design:
-  - [ ] `_get_jwks()` con cache en memoria y TTL de 1 hora
-  - [ ] `get_current_user()` que valida JWT RS256 y retorna `CurrentUser`
-  - [ ] `HTTPBearer(auto_error=False)` para permitir el fallback
-  - [ ] Si JWKS no disponible y cache vacio: 503 (no 401)
-- [ ] Actualizar `apps/api/app/deps.py`:
-  - [ ] `get_tenant_id()` pasa de leer header a depender de `get_current_user()`
-  - [ ] Si `CLERK_JWKS_URL` no esta configurado: fallback al header `X-Tenant-Id`
-  - [ ] `get_tenant_db()` **no cambia** (sigue usando `get_tenant_id()`)
-- [ ] Tests:
-  - [ ] JWT valido con claims completos → retorna `CurrentUser` correcto
-  - [ ] JWT expirado → 401
-  - [ ] JWT sin `tenant_id` en claims → 401
-  - [ ] JWT con firma invalida → 401
-  - [ ] Sin JWT y sin CLERK_JWKS_URL → fallback a header (desarrollo)
-  - [ ] Sin JWT y con CLERK_JWKS_URL → 401 (produccion)
+> **Completada 04-ago-2026.** Rama `feat/clerk-auth-fase1-backend`.
+> 17 tests pasando, verificados con mutacion sobre la propiedad de seguridad.
+
+- [x] Instalar dependencias: `python-jose[cryptography]`, `httpx`
+- [x] Crear `apps/api/app/auth.py` con el contrato de §2.3 del design:
+  - [x] `_get_jwks()` con cache en memoria y TTL de 1 hora
+  - [x] `get_current_user()` que valida JWT RS256 y retorna `CurrentUser`
+  - [x] `HTTPBearer(auto_error=False)` para permitir el fallback
+  - [x] Si JWKS no disponible y cache vacio: 503 (no 401)
+- [x] Actualizar `apps/api/app/deps.py`:
+  - [x] `get_tenant_id()` pasa de leer header a depender de `get_current_user()`
+  - [x] Si `CLERK_JWKS_URL` no esta configurado: fallback al header `X-Tenant-Id`
+  - [x] `get_tenant_db()` **no cambia** (sigue usando `get_tenant_id()`)
+- [x] Tests:
+  - [x] JWT valido con claims completos → retorna `CurrentUser` correcto
+  - [x] JWT expirado → 401
+  - [x] JWT sin `tenant_id` en claims → 401
+  - [x] JWT con firma invalida → 401
+  - [x] Sin JWT y sin CLERK_JWKS_URL → fallback a header (desarrollo)
+  - [x] Sin JWT y con CLERK_JWKS_URL → 401 (produccion)
+
+### Agregado durante la implementacion (no estaba en la spec)
+
+- [x] `CLERK_ISSUER`: se valida el claim `iss`. Sin esto, un JWT de **otra**
+      instancia de Clerk pasaba la verificacion de firma si compartia la JWKS
+      publica. Test: `test_token_de_otro_emisor_da_401`
+- [x] Fallback a JWKS vencida cuando Clerk no responde. Rechazar a todos los
+      usuarios porque el CDN de Clerk parpadeo es peor que el riesgo que cubre
+      el TTL. Test: `test_si_clerk_cae_se_usa_el_cache_vencido`
+- [x] `user_id` vacio en modo desarrollo, en vez de inventar una identidad.
+      Cualquier codigo que dependa de saber quien es el usuario falla visible
+- [x] Infraestructura de tests para la API (`pytest.ini`, `tests/`,
+      `requirements-dev.txt`) — no existia ninguna
+- [x] `.gitignore` de Python: habia **25 archivos `.pyc` commiteados** al repo
 
 ## Fase 2 — Backend: migracion SQL y webhook
 

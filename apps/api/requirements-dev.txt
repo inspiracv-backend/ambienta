@@ -1,0 +1,7 @@
+# Dependencias solo de desarrollo y CI. No van en la imagen de produccion.
+-r requirements.txt
+
+pytest==8.3.4
+# TestClient de FastAPI necesita httpx (ya esta en requirements.txt).
+ruff==0.8.4
+mypy==1.14.0
