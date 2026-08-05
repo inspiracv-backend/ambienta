@@ -261,9 +261,19 @@ def get_dashboard_metrics(
         candidatas = [p for p in proximas.values() if p["due_at"]]
         critica = min(candidatas, key=lambda p: p["due_at"]) if candidatas else None
 
+    # La lista de "proximos vencimientos" de S-06 sale de las mismas filas que
+    # ya se trajeron para el critico: son la obligacion mas urgente de cada
+    # planta, que es exactamente lo que corresponde mostrar. Ordenarlas aca no
+    # cuesta una consulta mas.
+    proximos = sorted(
+        (p for p in proximas.values() if p["due_at"]),
+        key=lambda p: p["due_at"],
+    )[:5]
+
     return {
         "tenant_id": str(tenant_id),
         "generated_at": ahora.isoformat(),
+        "upcoming_deadlines": proximos,
         "global": {
             **global_,
             "total_obligations": total_pendientes,

@@ -62,6 +62,13 @@ class DashboardMetrics(BaseModel):
         description="`global` es palabra reservada en Python; se expone con alias.",
     )
     critical_deadline: CriticalDeadline | None = None
+    upcoming_deadlines: list[CriticalDeadline] = Field(
+        default_factory=list,
+        description=(
+            "Los 5 mas proximos, uno por planta. Alimentan la lista de S-06; "
+            "salen de las mismas filas que el critico, sin consulta extra."
+        ),
+    )
     facilities: list[FacilityMetrics] = Field(
         description=(
             "Una fila por planta activa, incluidas las que no tienen nada "

@@ -130,6 +130,7 @@ def test_forma_de_la_respuesta():
         "generated_at",
         "global",
         "critical_deadline",
+        "upcoming_deadlines",
         "facilities",
     }
     assert set(res["global"]) == {
@@ -220,3 +221,29 @@ def test_dias_restantes_redondea_hacia_arriba():
     assert svc._dias_restantes(ahora + timedelta(days=2, hours=23), ahora) == 3
     # Vencida hace 6 dias y medio: -6, no -7.
     assert svc._dias_restantes(ahora - timedelta(days=6, hours=12), ahora) == -6
+
+
+def test_los_proximos_vienen_ordenados_y_topeados_en_cinco():
+    """La lista de S-06 sale de las mismas filas que el critico, sin consulta extra."""
+    db = SesionQueCompila(
+        obligaciones=[_obligacion(d, f"Obl {d}", uuid4()) for d in (40, 5, 20, 60, 1, 90, 15)]
+    )
+
+    res = svc.get_dashboard_metrics(db, TENANT)
+
+    assert len(db.sql) == 6, "no debe costar una consulta adicional"
+    assert len(res["upcoming_deadlines"]) == 5
+    fechas = [p["due_at"] for p in res["upcoming_deadlines"]]
+    assert fechas == sorted(fechas)
+    # El primero de la lista es el mismo que el critico.
+    assert res["upcoming_deadlines"][0]["title"] == res["critical_deadline"]["title"]
+
+
+def test_una_obligacion_sin_fecha_no_entra_en_la_lista():
+    sin_fecha = _obligacion(10, "Sin fecha")
+    sin_fecha.due_at = None
+    db = SesionQueCompila(obligaciones=[sin_fecha])
+
+    res = svc.get_dashboard_metrics(db, TENANT)
+
+    assert res["upcoming_deadlines"] == []

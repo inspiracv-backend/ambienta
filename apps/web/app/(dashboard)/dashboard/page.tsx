@@ -191,9 +191,17 @@ export default function DashboardPage() {
         <h2 id="proximos-vencimientos-heading" className="mb-3 text-sm font-semibold text-slate-700">
           Próximos vencimientos
         </h2>
-        {/* Sigue en mocks: necesita la lista completa, no los agregados. Se
-            conecta en el issue de Obligaciones (ABA-67). */}
-        <DeadlinesList obligations={scopedObligations} />
+        {/* La API devuelve la obligacion mas urgente de cada planta, que es lo
+            que corresponde listar aca. Sin esto el hero decia "SIDREP vencida"
+            y esta lista, justo debajo, "no hay vencimientos proximos". */}
+        <DeadlinesList
+          obligations={
+            metrics?.proximos ??
+            respaldo.plantas
+              .map((p) => p.proximoVencimiento)
+              .filter((v): v is NonNullable<typeof v> => v !== null)
+          }
+        />
       </section>
 
       {/* S-07: la tabla comparativa es la vista ejecutiva de Admin Empresa (H7) —

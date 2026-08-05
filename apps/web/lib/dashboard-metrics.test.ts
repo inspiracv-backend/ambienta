@@ -139,6 +139,7 @@ function apiResponse(over: Partial<ApiDashboardMetrics> = {}): ApiDashboardMetri
       obligations_overdue: 0,
     },
     critical_deadline: null,
+    upcoming_deadlines: [],
     facilities: [],
     ...over,
   };

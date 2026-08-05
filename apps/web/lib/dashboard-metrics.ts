@@ -19,6 +19,8 @@ export interface VencimientoResumen {
   /** Para enlazar al detalle de la obligacion (RF-49). */
   id: string;
   nombre: string;
+  /** Codigo de la obligacion. Ocupa el lugar de `sistema`, que la API no expone. */
+  codigo: string;
   proximoVencimiento: string;
   estado: SemaforoStatus;
   diasRestantes: number | null;
@@ -51,6 +53,7 @@ export interface ApiDashboardMetrics {
     obligations_overdue: number;
   };
   critical_deadline: ApiCriticalDeadline | null;
+  upcoming_deadlines: ApiCriticalDeadline[];
   facilities: {
     facility_id: string;
     name: string;
@@ -92,6 +95,7 @@ function aVencimiento(d: ApiCriticalDeadline | null): VencimientoResumen | null 
   return {
     id: d.obligation_id,
     nombre: d.title,
+    codigo: d.code,
     proximoVencimiento: d.due_at,
     estado: aSemaforo(d.status, d.days_remaining),
     diasRestantes: d.days_remaining,
@@ -107,6 +111,9 @@ export function fromApiMetrics(api: ApiDashboardMetrics) {
     porVencer: api.global.obligations_upcoming,
     vencidas: api.global.obligations_overdue,
     proximoCritico: aVencimiento(api.critical_deadline),
+    proximos: api.upcoming_deadlines
+      .map(aVencimiento)
+      .filter((v): v is VencimientoResumen => v !== null),
     plantas: api.facilities.map(
       (f): PlantMetric => ({
         plant: {
@@ -164,6 +171,7 @@ export function computePlantMetrics(
         ? {
             id: proxima.id,
             nombre: proxima.nombre,
+            codigo: proxima.sistema,
             proximoVencimiento: proxima.proximoVencimiento,
             estado: proxima.estado,
             diasRestantes: null,

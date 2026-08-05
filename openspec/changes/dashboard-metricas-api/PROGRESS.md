@@ -9,7 +9,7 @@
 Clerk.
 
 Fase 2 se saca de la entrega a proposito (ver abajo). Fase 4 esta verificada
-salvo lo que exige una base levantada.
+completa, incluida la prueba contra Postgres y el navegador.
 
 ## Completado
 
@@ -18,27 +18,43 @@ salvo lo que exige una base levantada.
   - [x] `services/dashboard.py` — 6 consultas fijas, sin N+1 por planta
   - [x] `routers/dashboard.py` — `GET /api/v1/dashboard/metrics`
   - [x] `schemas/dashboard.py` — contrato Pydantic (de aca sale el OpenAPI)
-  - [x] 22 tests, sin base de datos levantada
+  - [x] 24 tests, sin base de datos levantada
 - [x] **Frontend**
   - [x] `lib/dashboard-metrics.ts` — tipos de la API + adaptador
   - [x] `dashboard/page.tsx` — skeleton, banner de error y respaldo a mocks
+  - [x] Lista de proximos vencimientos conectada: sin eso el hero decia "SIDREP
+        vencida" y la lista de abajo "no hay vencimientos proximos"
   - [x] 15 tests nuevos del adaptador (190 en total en el repo)
 
 ## Verificacion hecha
 
 | Que | Resultado |
 |---|---|
-| `pytest` (API) | 22 passed |
+| `pytest` (API) | 24 passed |
 | `vitest` (web) | 190 passed en 14 archivos |
 | `tsc --noEmit` | 0 |
 | `next lint` | 0 |
 | `next build` | 0 |
 | `ruff check` sobre lo nuevo | All checks passed |
 
-**Lo que NO esta verificado:** el endpoint nunca corrio contra Postgres. Docker
-Desktop no esta arriba en la maquina de desarrollo. Las consultas se validan
-compilandolas contra el dialecto de Postgres (`test_todas_las_consultas_compilan`),
-que atrapa columnas inexistentes pero no errores de datos ni de RLS.
+### Verificacion end-to-end contra Postgres (05-ago-2026)
+
+| Que | Resultado |
+|---|---|
+| `GET /dashboard/metrics` tenant 1 (Minera Andes) | 200 en **0,25 s** — 5 obligaciones, 1 NC, 4 plantas |
+| `GET /dashboard/metrics` tenant 2 (EcoGestion) | 200 en **0,02 s** — 0 obligaciones, 0 NC, 1 planta |
+| **Aislamiento RLS** | Datos distintos por tenant, sin filtraciones |
+| Calculo del porcentaje | **40,0 %** exacto: 2 cumplen de 5 evaluados, el `not_applicable` fuera del denominador y el `pending` dentro |
+| Dashboard en el navegador | Muestra los datos reales: 40 %, la SIDREP vencida y las 4 plantas con sus contadores |
+| Enlace del vencimiento | Apunta a `/obligaciones/a0000021-…`, el id real (RF-49) |
+| Estado de error | Con la API caida aparece el banner "no reflejan tu empresa" y no hay crash |
+| Boton Reintentar | Recupera los datos reales al volver la API |
+
+**Limitacion encontrada al probarlo:** con la API completamente caida no se
+llega al Dashboard, porque la sesion tambien depende de la API y la pantalla
+queda en "Cargando sesion". El banner cubre el caso de que falle el endpoint de
+metricas mientras la sesion vive, no una caida total. Eso es del store de
+sesion, no de esta pantalla.
 
 ## Bugs preexistentes encontrados y corregidos
 
@@ -68,16 +84,24 @@ que esto no vuelva a pasar en silencio.
 
 ## Siguiente paso
 
-1. **Levantar Docker Desktop** y correr la verificacion de Fase 4:
-   - `GET /dashboard/metrics` con el tenant 1 y con el tenant 2
-   - Confirmar que devuelven datos distintos (aislamiento RLS)
-   - Medir el tiempo de respuesta
-2. Cargar `db/02_seed.sql`, que **no** esta en el init de docker-compose (solo
-   van `01_schema.sql` y `03_seed_catalogos.sql`). Sin el no hay tenants ni
-   obligaciones y todas las metricas dan 0 — que seria un cero correcto, pero
-   no prueba nada.
+La spec queda cerrada salvo la Fase 2, que se movio a ABA-67. Lo que sigue del
+Dashboard depende de otros modulos:
 
-## Blockers
+- El nombre de la empresa en la cabecera sale de `mockTenants`, que no cruza con
+  los ids reales del seed, asi que aparece vacio. Se arregla al conectar
+  `tenants-store` (ABA-78).
+- El respaldo sin conexion muestra ceros por lo mismo: los mocks de obligaciones
+  referencian ids de mock.
 
-- Docker Desktop apagado: sin eso no hay verificacion contra base real.
-- El seed de demo no se carga solo con `docker compose up`.
+## Notas para quien lo pruebe
+
+`db/02_seed.sql` **no** esta en el init de `docker-compose.yml` (solo van
+`01_schema.sql` y `03_seed_catalogos.sql`). Hay que cargarlo a mano:
+
+```bash
+docker compose exec -T postgres psql -U ambienta -d ambienta < db/02_seed.sql
+```
+
+Sin el no hay tenants ni obligaciones y todas las metricas dan 0 — un cero
+correcto, pero que no prueba nada. Este PR le agrega al seed las filas de
+`article_compliance` que faltaban, que eran el riesgo #1 del design.

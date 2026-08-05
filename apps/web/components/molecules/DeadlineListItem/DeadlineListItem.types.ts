@@ -1,5 +1,9 @@
-import type { Obligation } from '@ambienta/shared';
+import type { VencimientoResumen } from '@/lib/dashboard-metrics';
 
 export interface DeadlineListItemProps {
-  obligation: Obligation;
+  /**
+   * Resumen y no `Obligation`: el Dashboard recibe agregados de la API, no
+   * entidades. `codigo` ocupa el lugar que antes tenia `sistema`.
+   */
+  obligation: VencimientoResumen;
 }
