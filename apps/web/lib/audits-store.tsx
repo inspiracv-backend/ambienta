@@ -29,16 +29,39 @@ interface AuditsContextValue {
 
 const AuditsContext = createContext<AuditsContextValue | null>(null);
 
+/** `audits.audit_type` de la API → los dos tipos del modelo compartido. */
+const TIPO_POR_AUDIT_TYPE: Record<string, Audit['tipo']> = {
+  internal: 'interna',
+  external: 'externa',
+  // La API admite tambien 'regulatory' y 'supplier'. El modelo compartido solo
+  // distingue interna/externa, asi que ambas caen en externa: las hace un
+  // tercero. Si el negocio necesita separarlas, se amplia AuditSchema.
+  regulatory: 'externa',
+  supplier: 'externa',
+};
+
+/** `audits.status` de la API → los tres estados del modelo compartido. */
+const ESTADO_POR_STATUS: Record<string, Audit['estado']> = {
+  planned: 'planificada',
+  active: 'en_curso',
+  reporting: 'en_curso',
+  closed: 'cerrada',
+  cancelled: 'cerrada',
+};
+
 function mapApiAudit(raw: Record<string, unknown>): Audit | null {
   try {
     return {
       id: String(raw.id),
       tenantId: String(raw.tenant_id ?? ''),
       plantId: String(raw.facility_id ?? ''),
-      tipo: 'interna',
-      nombre: String(raw.code ?? raw.title ?? ''),
-      fechaProgramada: raw.scheduled_date ? String(raw.scheduled_date) : new Date().toISOString(),
-      estado: String(raw.status ?? 'planned') as Audit['estado'],
+      tipo: TIPO_POR_AUDIT_TYPE[String(raw.audit_type ?? '')] ?? 'interna',
+      fecha: raw.planned_start ? String(raw.planned_start) : new Date().toISOString(),
+      estado: ESTADO_POR_STATUS[String(raw.status ?? '')] ?? 'planificada',
+      // La API los tiene como `scope` (texto libre) y en tablas aparte; el
+      // listado no los trae. Se pueblan al abrir el detalle.
+      procesos: [],
+      normativaIds: [],
     };
   } catch {
     return null;

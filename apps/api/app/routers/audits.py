@@ -3,15 +3,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..crud.audit import crud_action_plan, crud_audit, crud_audit_item, crud_nonconformity
+from ..crud.audit import crud_action_plan, crud_audit, crud_nonconformity
 from ..deps import get_tenant_db, get_tenant_id
 from ..schemas.audit import (
     ActionPlanCreate,
     ActionPlanRead,
     ActionPlanUpdate,
     AuditCreate,
-    AuditItemCreate,
-    AuditItemRead,
     AuditRead,
     AuditUpdate,
     NonconformityCreate,

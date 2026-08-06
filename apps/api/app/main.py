@@ -17,6 +17,11 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import check_database, get_db
+from .routers import (
+    audits, catalog, compliance, dashboard, documents, facilities,
+    iso14001, notifications, obligations, support, system, tenants, users,
+    webhooks,
+)
 
 settings = get_settings()
 
@@ -56,16 +61,11 @@ def health_db(response: Response, db: Session = Depends(get_db)) -> dict:
         return {"status": "error", "connected": False, "detail": str(exc)}
 
 
-from .routers import (
-    audits, catalog, compliance, documents, facilities,
-    iso14001, notifications, obligations, support, system, tenants, users,
-    webhooks,
-)
-
 api_v1_prefix = "/api/v1"
 # Sin dependencia de auth a proposito: quien llama es Clerk, no un usuario con
 # sesion, y la autenticidad se comprueba con la firma HMAC del payload.
 app.include_router(webhooks.router, prefix=api_v1_prefix)
+app.include_router(dashboard.router, prefix=api_v1_prefix)
 app.include_router(tenants.router, prefix=api_v1_prefix)
 app.include_router(facilities.router, prefix=api_v1_prefix)
 app.include_router(users.router, prefix=api_v1_prefix)
