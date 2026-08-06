@@ -33,7 +33,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
           id: String(raw.id),
           userId: String(raw.recipient_user_id ?? ''),
           tenantId: String(raw.tenant_id ?? ''),
-          tipo: String(raw.channel ?? 'in_app') as Notification['tipo'],
+          // La tabla `notifications` de la API no modela urgencia: tiene
+          // `channel` (email / in_app), que es otra cosa. Hasta que exista un
+          // campo real se asume media, en vez de inventar una prioridad que el
+          // backend nunca envio.
+          urgencia: 'media',
           titulo: String(raw.subject ?? ''),
           mensaje: String(raw.body ?? ''),
           fecha: String(raw.created_at ?? new Date().toISOString()),

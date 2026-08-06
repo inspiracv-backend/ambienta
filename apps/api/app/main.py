@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import check_database, get_db
 from .routers import (
-    audits, catalog, compliance, documents, facilities,
+    audits, catalog, compliance, dashboard, documents, facilities,
     iso14001, notifications, obligations, support, system, tenants, users,
 )
 
@@ -61,6 +61,7 @@ def health_db(response: Response, db: Session = Depends(get_db)) -> dict:
 
 
 api_v1_prefix = "/api/v1"
+app.include_router(dashboard.router, prefix=api_v1_prefix)
 app.include_router(tenants.router, prefix=api_v1_prefix)
 app.include_router(facilities.router, prefix=api_v1_prefix)
 app.include_router(users.router, prefix=api_v1_prefix)

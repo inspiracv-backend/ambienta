@@ -14,7 +14,12 @@ function diasRestantes(iso: string) {
  * en Matriz Legal (Sección D) — aquí solo enlaza hacia allá.
  */
 export function DashboardHeroCard({ obligation, cumplimientoPct }: DashboardHeroCardProps) {
-  const dias = obligation ? diasRestantes(obligation.proximoVencimiento) : null;
+  // Se prefiere el valor que ya calculo la API: si el navegador tiene el reloj
+  // corrido, recalcular aca daria un numero distinto al del resto del tablero.
+  // El calculo local queda para el modo mock, que no trae `diasRestantes`.
+  const dias =
+    obligation?.diasRestantes ??
+    (obligation ? diasRestantes(obligation.proximoVencimiento) : null);
   const esCritico = dias !== null && dias <= 7;
 
   return (

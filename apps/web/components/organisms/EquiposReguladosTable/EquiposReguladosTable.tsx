@@ -32,8 +32,9 @@ interface Props {
 }
 
 export function EquiposReguladosTable({ equipos, plants }: Props) {
-  if (!FEATURE_FLAGS.matricesIso) return null;
-
+  // El guard de la flag va DESPUES de los hooks: React exige que todo hook se
+  // llame en el mismo orden en cada render, y un `return` antes los vuelve
+  // condicionales.
   const hoy = new Date().toISOString().slice(0, 10);
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [tipoFiltro, setTipoFiltro] = useState('todos');
@@ -47,6 +48,8 @@ export function EquiposReguladosTable({ equipos, plants }: Props) {
       }),
     [equipos, plantaFiltro, tipoFiltro],
   );
+
+  if (!FEATURE_FLAGS.matricesIso) return null;
 
   return (
     <div className="flex flex-col gap-4">

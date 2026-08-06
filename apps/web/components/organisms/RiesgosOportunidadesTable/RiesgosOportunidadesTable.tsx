@@ -52,8 +52,9 @@ interface Props {
 }
 
 export function RiesgosOportunidadesTable({ riesgos, plants }: Props) {
-  if (!FEATURE_FLAGS.matricesIso) return null;
-
+  // El guard de la flag va DESPUES de los hooks: React exige que todo hook se
+  // llame en el mismo orden en cada render, y un `return` antes los vuelve
+  // condicionales.
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [tipoFiltro, setTipoFiltro] = useState('todos');
   const [estadoFiltro, setEstadoFiltro] = useState('todos');
@@ -68,6 +69,8 @@ export function RiesgosOportunidadesTable({ riesgos, plants }: Props) {
       }),
     [riesgos, plantaFiltro, tipoFiltro, estadoFiltro],
   );
+
+  if (!FEATURE_FLAGS.matricesIso) return null;
 
   return (
     <div className="flex flex-col gap-4">

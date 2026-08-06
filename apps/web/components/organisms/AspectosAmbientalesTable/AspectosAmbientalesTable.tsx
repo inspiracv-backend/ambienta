@@ -33,8 +33,9 @@ interface Props {
 }
 
 export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
-  if (!FEATURE_FLAGS.matricesIso) return null;
-
+  // El guard de la flag va DESPUES de los hooks: React exige que todo hook se
+  // llame en el mismo orden en cada render, y un `return` antes los vuelve
+  // condicionales.
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [condicionFiltro, setCondicionFiltro] = useState('todas');
   const [significativoFiltro, setSignificativoFiltro] = useState('todos');
@@ -51,6 +52,8 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
       }),
     [aspectos, plantaFiltro, condicionFiltro, significativoFiltro],
   );
+
+  if (!FEATURE_FLAGS.matricesIso) return null;
 
   return (
     <div className="flex flex-col gap-4">
