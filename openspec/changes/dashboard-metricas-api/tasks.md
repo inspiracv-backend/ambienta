@@ -20,43 +20,76 @@ Plan de implementacion de [`proposal.md`](./proposal.md) / [`design.md`](./desig
 
 ## Fase 1 — Backend: Servicio y Endpoint
 
-- [ ] Crear `apps/api/app/services/dashboard.py` con `get_dashboard_metrics()`
-  - [ ] Query agregada para compliance % global (COUNT sobre `article_compliance`)
-  - [ ] Query para contar NC abiertas (`nonconformity` donde `status != 'closed'`)
-  - [ ] Reutilizar `get_upcoming_obligations()` para obligaciones por vencer
-  - [ ] Reutilizar `get_overdue_obligations()` para obligaciones vencidas
-  - [ ] Query para proximo vencimiento critico (ORDER BY `due_at` LIMIT 1)
-  - [ ] Agrupar metricas por `facility_id` para la tabla multi-planta
-- [ ] Crear `apps/api/app/routers/dashboard.py` con `GET /metrics`
-- [ ] Registrar router en `apps/api/app/main.py`
-- [ ] Verificar con curl que el endpoint responde correctamente con ambos tenants
+> **Completada 05-ago-2026.** Rama `feat/dashboard-metricas-api`. 22 tests.
+
+- [x] Crear `apps/api/app/services/dashboard.py` con `get_dashboard_metrics()`
+  - [x] Query agregada para compliance % global (COUNT sobre `article_compliance`)
+  - [x] Query para contar NC abiertas
+  - [x] ~~Reutilizar `get_upcoming_obligations()`~~ → **COUNT agregado**. Ese
+        servicio devuelve entidades completas: traer 500 obligaciones para
+        hacer `len()` es lo que el §7 del design pide evitar
+  - [x] ~~Reutilizar `get_overdue_obligations()`~~ → idem, mismo COUNT
+  - [x] Query para proximo vencimiento critico (`DISTINCT ON` por planta)
+  - [x] Agrupar metricas por `facility_id` para la tabla multi-planta
+- [x] Crear `apps/api/app/routers/dashboard.py` con `GET /metrics`
+- [x] Contrato Pydantic en `apps/api/app/schemas/dashboard.py` (no estaba en la
+      spec, pero sin el no hay OpenAPI del que derivar los tipos — CLAUDE.md §3)
+- [x] Registrar router en `apps/api/app/main.py` (94 rutas)
+- [ ] Verificar con curl que el endpoint responde con ambos tenants — **bloqueado:
+      Docker Desktop no esta corriendo en la maquina de desarrollo**
 
 ## Fase 2 — Frontend: Mapeo de Facilities
 
-- [ ] En `tenants-store.tsx`, cargar facilities por tenant despues de cargar tenants
-- [ ] Mapear `facility` -> `Plant` en `mapApiTenant()`: `id`, `tenantId`, `nombre` (name), `comuna` (commune_code), `region` (region_code)
-- [ ] Verificar que `DevRoleSwitcher` muestra los nombres de tenant correctos (ya no depende de mockTenants IDs)
+> **Se saca de esta entrega a proposito.** El endpoint de metricas ya devuelve
+> las facilities con sus metricas, asi que la tabla S-07 (que era el motivo del
+> mapeo, segun proposal.md) ya funciona sin tocar el store.
+>
+> Hacerlo aca ademas **rompe la lista de proximos vencimientos**: si
+> `tenant.plants` pasa a traer IDs reales, `mockObligations` —que referencia IDs
+> de mock— deja de cruzar y `DeadlinesList` queda vacia. Los dos cambios tienen
+> que moverse juntos, y eso es ABA-67 (Conectar Obligaciones a API real).
+
+- [ ] `tenants-store.tsx`: cargar facilities por tenant → **movido a ABA-67**
+- [ ] Mapear `facility` → `Plant` en `mapApiTenant()` → **movido a ABA-67**
 
 ## Fase 3 — Frontend: Dashboard conectado
 
-- [ ] Crear tipo `DashboardMetrics` en `apps/web/lib/dashboard-metrics.ts` basado en el contrato del endpoint
-- [ ] Refactorizar `dashboard/page.tsx`:
-  - [ ] Reemplazar imports de mocks por llamada a `api.get('/dashboard/metrics')`
-  - [ ] Agregar estados: `loading`, `error`, `metrics`
-  - [ ] Skeleton loading en hero card y contadores
-  - [ ] Error state con mensaje amigable y boton de reintentar
-- [ ] Pasar `metrics.facilities` a `MultiPlantTable` en vez de `computePlantMetrics()`
-- [ ] Pasar `metrics.critical_deadline` a `DashboardHeroCard` en vez de calculo local
-- [ ] Pasar contadores de `metrics.global` a los 3 `MetricCounter`
-- [ ] Mantener `computePlantMetrics()` como fallback si la API no responde
+> **Completada 05-ago-2026.** 15 tests en `lib/dashboard-metrics.test.ts`.
+
+- [x] Tipos `ApiDashboardMetrics` + adaptador `fromApiMetrics()`
+- [x] Refactorizar `dashboard/page.tsx`:
+  - [x] Llamada a `api.get('/dashboard/metrics')` con `AbortController`
+  - [x] Estados: `cargando`, `sinConexion`, `metrics`
+  - [x] Skeleton que conserva la altura, para que no salte el layout
+  - [x] Banner de error con boton de reintentar
+- [x] Pasar las metricas de la API a `MultiPlantTable`
+- [x] Pasar `critical_deadline` a `DashboardHeroCard`
+- [x] Pasar contadores de `global` a los 3 `MetricCounter`
+- [x] Mantener `computePlantMetrics()` como respaldo si la API no responde
+
+### Agregado durante la implementacion (no estaba en la spec)
+
+- [x] **`commune_code` y `region_code` en la respuesta por planta.**
+      `ReporteCumplimientoPdf` los imprime en la cabecera de cada planta; sin
+      ellos habria que pedir `/facilities` aparte solo para eso
+- [x] **`obligation_id` en el vencimiento critico**, para poder enlazar al
+      detalle de la obligacion (RF-49)
+- [x] Contratos de `DashboardHeroCard` y `PlantMetric` acotados a lo que los
+      componentes usan: la API devuelve agregados, no entidades, y exigir un
+      `Obligation` completo obligaba a inventar campos
+- [x] Corregidos tres bugs preexistentes en `services/compliance.py` (ver design §Correcciones)
 
 ## Fase 4 — Verificacion
 
-- [ ] Login como admin_empresa tenant 1: Dashboard muestra datos reales
-- [ ] Login como admin_empresa tenant 2: Dashboard muestra datos distintos (aislamiento RLS)
-- [ ] Tabla multi-planta muestra facilities como plantas
-- [ ] Si se apaga la API, el Dashboard muestra error state (no crash)
-- [ ] Tiempo de carga del endpoint <500ms con datos seed
+- [x] `pytest`: 22 tests del backend
+- [x] `vitest`: 190 tests del frontend (15 nuevos del dashboard)
+- [x] `tsc --noEmit`, `next lint`, `next build`: los tres en 0
+- [x] `ruff check`: limpio en los archivos nuevos
+- [ ] Login como admin_empresa tenant 1: datos reales — **bloqueado por Docker**
+- [ ] Login como admin_empresa tenant 2: datos distintos (RLS) — **bloqueado por Docker**
+- [ ] Tiempo de carga del endpoint <500ms — **bloqueado por Docker**
+- [x] Si la API no responde, el Dashboard no crashea: cae al respaldo y avisa
+      que los numeros son de ejemplo
 
 ---
 
