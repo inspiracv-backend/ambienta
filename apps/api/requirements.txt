@@ -16,3 +16,8 @@ pydantic-settings==2.6.1
 python-jose[cryptography]==3.3.0
 # Cliente HTTP para descargar la JWKS (se cachea en memoria, ver auth.py).
 httpx==0.28.1
+# Verificacion de firma de los webhooks de Clerk. Se usa la libreria del
+# proveedor del protocolo en vez de reimplementar el HMAC a mano: es
+# verificacion de firma, y ahi escribir criptografia propia es como se cuelan
+# los bugs que nadie ve hasta que alguien los explota.
+svix==1.42.0

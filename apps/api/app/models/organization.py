@@ -126,6 +126,9 @@ class User(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
         UUID(as_uuid=True), ForeignKey("departments.id")
     )
     rut_tax_id: Mapped[str | None] = mapped_column(String(32))
+    # Identificador en Clerk (`user_2abc...`). NULL para los usuarios creados
+    # directo en la base, como los del seed. Ver db/04_clerk_auth.sql.
+    clerk_id: Mapped[str | None] = mapped_column(Text, unique=True)
     email: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(180), nullable=False)
     user_type: Mapped[str] = mapped_column(String(32), nullable=False)

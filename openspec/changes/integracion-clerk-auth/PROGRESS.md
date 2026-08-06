@@ -4,10 +4,11 @@
 
 ## Estado actual
 
-**Fase 1 (backend: validacion JWT) — COMPLETADA.**
-Rama `feat/clerk-auth-fase1-backend`, apilada sobre la rama de la spec.
+**Fases 1 y 2 (backend completo) — COMPLETADAS.**
+- Fase 1: `feat/clerk-auth-fase1-backend` (PR #153)
+- Fase 2: `feat/clerk-auth-fase2-webhook`, apilada sobre la anterior
 
-Fases 2 a 7 pendientes. La Fase 0 esta bloqueada en acciones del equipo.
+Fases 3 a 7 pendientes. La Fase 0 sigue bloqueada en acciones del equipo.
 
 ## Completado
 
@@ -21,6 +22,11 @@ Fases 2 a 7 pendientes. La Fase 0 esta bloqueada en acciones del equipo.
   - [x] `apps/api/tests/` — 17 tests, sin necesidad de cuenta de Clerk
   - [x] `apps/api/README.md` — reescrito (estaba en puerto 3001, obsoleto)
   - [x] `.env.example` — Clerk reemplaza a `JWT_SECRET` y OAuth directo
+- [x] **Fase 2 — sincronizacion de usuarios:**
+  - [x] `db/04_clerk_auth.sql` — columna `clerk_id` + UNIQUE, idempotente
+  - [x] `app/services/clerk_sync.py` — traduce eventos de Clerk a filas
+  - [x] `app/routers/webhooks.py` — verificacion de firma svix
+  - [x] 16 tests con firmas generadas de verdad, no simuladas
 
 ## Verificacion hecha
 
@@ -35,6 +41,26 @@ La mutacion fue: hacer que `get_current_user()` confiara en el header
 `X-Tenant-Id` aun con Clerk activo. `test_tenant_id_sale_del_token_no_del_header`
 lo detecto. Esa es la propiedad que justifica todo el cambio.
 
+### Fase 2, contra Postgres real (05-ago-2026)
+
+| Que | Resultado |
+|---|---|
+| `pytest` | **33 passed** (17 de auth + 16 de webhooks) |
+| Migracion aplicada dos veces | Idempotente, sin error |
+| `uq_users_clerk_id` | Creado |
+| Los 5 usuarios del seed | Intactos, con `clerk_id` NULL |
+| `user.created` | Fila creada con email, nombre, tipo y estado correctos |
+| `user.updated` | Nombre actualizado |
+| `user.deleted` | `status = 'disabled'`, **la fila se conserva** |
+| Reenviar el mismo `user.created` | Actualiza, no duplica: sigue habiendo 1 fila |
+| Mutacion: quitar la verificacion de firma | La detectaron 3 tests |
+
+La mutacion de la Fase 2 fue reemplazar `Webhook(...).verify(...)` por un
+`json.loads()` directo. Fallaron los tests de firma de otro secreto, sin
+cabeceras y cuerpo alterado. Es la propiedad que sostiene todo el endpoint:
+sin ella, cualquiera que conozca la URL puede crear usuarios en cualquier
+tenant.
+
 ## Decisiones tomadas durante la implementacion
 
 | Decision | Detalle | Estaba en la spec? |
@@ -48,11 +74,12 @@ lo detecto. Esa es la propiedad que justifica todo el cambio.
 
 ## Siguiente paso
 
-**Fase 2 — migracion `clerk_id` + webhook de sincronizacion.**
-No esta bloqueada: la migracion SQL y el endpoint de webhook se pueden escribir
-y testear sin cuenta de Clerk (la firma svix se puede simular igual que la JWKS).
+**Fase 3 — frontend con `@clerk/nextjs`.** No depende de la Fase 2 y se puede
+construir sin cuenta: el login queda condicional y, sin
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, renderiza el DevRoleSwitcher de siempre.
+Lo que no se puede es *verla* funcionando hasta que exista la cuenta.
 
-En paralelo, **Fase 3 (frontend)** tampoco depende de Fase 2.
+Despues, Fase 4 (los 13 stores pasan el token) y Fase 5 (SSO).
 
 ## Bloqueado en el equipo (Fase 0)
 
