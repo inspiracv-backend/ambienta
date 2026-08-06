@@ -1,5 +1,5 @@
-import type { Obligation } from '@ambienta/shared';
+import type { VencimientoResumen } from '@/lib/dashboard-metrics';
 
 export interface DeadlinesListProps {
-  obligations: Obligation[];
+  obligations: VencimientoResumen[];
 }

@@ -759,4 +759,58 @@ INSERT INTO notifications (id, tenant_id, recipient_user_id, channel, subject, b
    'read')
 ON CONFLICT (id) DO NOTHING;
 
+-- Evaluacion de cumplimiento articulo por articulo.
+-- Sin estas filas el Dashboard muestra 0% de cumplimiento: un cero correcto,
+-- pero que no permite ver si el calculo funciona (riesgo #1 del design de
+-- openspec/changes/dashboard-metricas-api).
+--
+-- Los cinco valores del CHECK quedan representados a proposito, porque cada
+-- uno pesa distinto en el porcentaje:
+--   compliant      -> numerador y denominador
+--   non_compliant  -> solo denominador
+--   partial        -> solo denominador (dos parciales no hacen un cumplido)
+--   not_applicable -> fuera del calculo
+--   pending        -> solo denominador (si no, una matriz a medio evaluar
+--                     mostraria 100%)
+-- Con estas filas: 6 articulos, 1 no aplica -> denominador 5, cumplen 2,
+-- es decir 40,0%.
+INSERT INTO article_compliance (id, tenant_id, matrix_norm_id, article_id, facility_id, compliance_status, assessment_reason) VALUES
+  ('a0000012-0000-0000-0000-000000000001',
+   'a0000000-0000-0000-0000-000000000001',
+   'a0000011-0000-0000-0000-000000000001',
+   'f3000000-0000-0000-0000-000000000001',
+   'b0000000-0000-0000-0000-000000000001',
+   'compliant', 'Monitoreo de emisiones al dia, informes trimestrales presentados.'),
+  ('a0000012-0000-0000-0000-000000000002',
+   'a0000000-0000-0000-0000-000000000001',
+   'a0000011-0000-0000-0000-000000000001',
+   'f3000000-0000-0000-0000-000000000002',
+   'b0000000-0000-0000-0000-000000000001',
+   'compliant', 'Registros de calibracion vigentes.'),
+  ('a0000012-0000-0000-0000-000000000003',
+   'a0000000-0000-0000-0000-000000000001',
+   'a0000011-0000-0000-0000-000000000001',
+   'f3000000-0000-0000-0000-000000000003',
+   'b0000000-0000-0000-0000-000000000001',
+   'non_compliant', 'Falta el registro de disposicion final del ultimo semestre.'),
+  ('a0000012-0000-0000-0000-000000000004',
+   'a0000000-0000-0000-0000-000000000001',
+   'a0000011-0000-0000-0000-000000000001',
+   'f3000000-0000-0000-0000-000000000004',
+   'b0000000-0000-0000-0000-000000000001',
+   'not_applicable', 'La faena no opera fuentes fijas de este tipo.'),
+  ('a0000012-0000-0000-0000-000000000005',
+   'a0000000-0000-0000-0000-000000000001',
+   'a0000011-0000-0000-0000-000000000002',
+   'f3000000-0000-0000-0000-000000000001',
+   'b0000000-0000-0000-0000-000000000001',
+   'partial', 'Procedimiento existe pero no se ha capacitado a todo el personal.'),
+  ('a0000012-0000-0000-0000-000000000006',
+   'a0000000-0000-0000-0000-000000000001',
+   'a0000011-0000-0000-0000-000000000002',
+   'f3000000-0000-0000-0000-000000000002',
+   'b0000000-0000-0000-0000-000000000001',
+   'pending', 'Pendiente de evaluar en la revision de agosto.')
+ON CONFLICT (id) DO NOTHING;
+
 COMMIT;

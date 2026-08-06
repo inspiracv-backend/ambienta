@@ -2,6 +2,7 @@
 -r requirements.txt
 
 pytest==8.3.4
-# TestClient de FastAPI necesita httpx (ya esta en requirements.txt).
+# TestClient de FastAPI necesita httpx, que ya viene en requirements.txt
+# porque auth.py lo usa para descargar la JWKS de Clerk.
 ruff==0.8.4
 mypy==1.14.0

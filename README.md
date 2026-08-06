@@ -1,6 +1,6 @@
 # Ambienta
 
-**Sistema multi-tenant de gestión de cumplimiento ambiental para empresas industriales en Chile y Latam.**
+**Sistema multi-tenant de gestion de cumplimiento ambiental para empresas industriales en Chile y Latam.**
 
 Ambienta ayuda a las empresas a gestionar vencimientos, obligaciones regulatorias (RETC, Ley REP, SINADER, SIDREP, DAE, etc.), evidencias y no conformidades de forma centralizada, reduciendo el riesgo de multas y el trabajo manual.
 
@@ -10,34 +10,30 @@ Ambienta ayuda a las empresas a gestionar vencimientos, obligaciones regulatoria
 
 | Componente | Estado |
 |---|---|
-| **Frontend** (`apps/web`) | 15 de 16 secciones implementadas y verificadas, **con datos mock en memoria** (no consume la API todavía) |
-| **API** (`apps/api`) | Arranca, con configuración validada y health checks. **Sin** módulos de negocio, ORM ni auth |
-| **PostgreSQL + pgvector · Redis** | Operativos en ambos entornos |
-| **Modelo de datos y RBAC** | Especificado en `openspec/`, **pendiente de aprobación** |
-| **Worker · AI Service** | Placeholders, no implementados |
-
-El backend de negocio no está implementado por diseño: [CLAUDE.md](./CLAUDE.md) establece Spec-Driven Development como regla no negociable — primero se aprueba la spec, después se implementa. La propuesta del sistema de actores/roles/RBAC está redactada y espera revisión: [`openspec/changes/sistema-actores-roles-rbac/`](./openspec/changes/sistema-actores-roles-rbac/).
+| **Frontend** (`apps/web`) | 39 paginas, 20+ organismos Atomic Design, 13 stores conectados a la API real |
+| **API** (`apps/api`) | FastAPI con 12 routers, 93 endpoints, servicios de logica de negocio, RLS activo |
+| **Base de datos** (`db/`) | PostgreSQL 16 + pgvector, 51 tablas, 37 RLS policies, seed data |
+| **packages/shared** | Schemas Zod compartidos: user, tenant, obligation, audit, legal-norm, y 6 mas |
+| **Worker** (`apps/worker`) | Placeholder, no implementado |
+| **AI Service** (`apps/ai-service`) | Placeholder, no implementado |
 
 ---
 
-## Stack tecnológico
+## Stack tecnologico
 
-| Capa | Tecnología |
+| Capa | Tecnologia |
 |---|---|
-| Frontend | Next.js 14.2 (App Router) + TypeScript + Tailwind |
-| API | NestJS 10 + Express |
-| Worker | Node.js + BullMQ *(no implementado)* |
+| Frontend | Next.js 14 (App Router) + TypeScript + Tailwind |
+| API | FastAPI + SQLAlchemy 2.0 + Pydantic v2 |
+| Worker | Python + Celery/ARQ *(no implementado)* |
 | Servicio IA | Python + FastAPI + LangGraph *(no implementado)* |
 | Base de datos | PostgreSQL 16 + pgvector 0.8 |
-| Cache / Colas | Redis 7 |
-| Monorepo | npm workspaces + Turborepo |
-| Validación | Zod (compartido entre web y api vía `packages/shared`) |
-| Infraestructura | Docker + Docker Compose · Caddy (TLS automático) |
-| Autenticación | JWT + Microsoft Entra ID (prioridad) + Google *(pendiente de credenciales)* |
+| Monorepo | npm workspaces |
+| Validacion | Zod (frontend) + Pydantic (backend) via `packages/shared` |
+| Infraestructura | Docker + Docker Compose |
+| Autenticacion | Clerk *(ADR-006 aprobado, integracion pendiente)* |
 | Email | Resend *(no implementado)* |
-| Metodología | Spec-Driven Development (OpenSpec) |
-
-> **Nota histórica:** versiones anteriores de este README describían Fastify + tRPC + Drizzle + CASL + pnpm. El código real nunca fue eso. La tabla de arriba refleja el repositorio tal como está. Ver [auditoría de stack](./docs/arquitectura/backend-arquitectura.md#2-stack-real-vs-el-documentado-históricamente).
+| Metodologia | Spec-Driven Development (OpenSpec) |
 
 ---
 
@@ -46,23 +42,29 @@ El backend de negocio no está implementado por diseño: [CLAUDE.md](./CLAUDE.md
 ```
 ambienta/
 ├── apps/
-│   ├── web/                  # Frontend (Next.js) — implementado con mocks
-│   ├── api/                  # API (NestJS) — infraestructura lista
+│   ├── web/                  # Frontend (Next.js) — 39 paginas, stores conectados a API
+│   ├── api/                  # API (FastAPI) — 12 routers, 93 endpoints, RLS
 │   ├── ai-service/           # Servicio de IA — placeholder
 │   └── worker/               # Worker de notificaciones — placeholder
 ├── packages/
 │   └── shared/               # Schemas Zod compartidos (fuente de verdad de tipos)
+├── db/
+│   ├── 01_schema.sql         # 51 tablas con RLS y triggers
+│   ├── 02_seed.sql           # Datos demo (2 tenants, 5 usuarios, facilities)
+│   ├── 02_smoke_test.sql     # Tests de aislamiento y constraints
+│   └── 03_seed_catalogos.sql # Paises, normas, permisos, sectores CIIU
 ├── infra/
-│   ├── postgres/init/        # Extensiones y schemas iniciales
-│   └── caddy/Caddyfile       # Reverse proxy de producción
+│   ├── postgres/init/        # Extension pgvector
+│   └── caddy/Caddyfile       # Reverse proxy de produccion
 ├── docs/
-│   ├── arquitectura/         # ADD, ADRs, arquitectura del backend
-│   └── development/          # Entornos y runbook de despliegue
+│   ├── arquitectura/         # ADRs y arquitectura
+│   └── development/          # Entornos y runbook
 ├── openspec/
-│   ├── analisis/             # Análisis funcional por sección
-│   └── changes/              # Propuestas (proposal → design → tasks)
+│   ├── analisis/             # Analisis funcional por seccion
+│   ├── changes/              # Propuestas (proposal + design + tasks)
+│   └── templates/            # Templates de propuesta y diseno
 ├── docker-compose.yml        # Entorno de DESARROLLO
-├── docker-compose.prod.yml   # Entorno de PRODUCCIÓN
+├── docker-compose.prod.yml   # Entorno de PRODUCCION
 └── .env.example              # Plantilla de variables de entorno
 ```
 
@@ -76,102 +78,59 @@ ambienta/
 docker compose up -d
 ```
 
-No requiere `.env`: el Compose ya trae credenciales locales. La primera vez tarda unos minutos (descarga de imágenes + instalación de dependencias).
+No requiere `.env`: el Compose ya trae credenciales locales. La primera vez tarda unos minutos (descarga de imagenes + instalacion de dependencias).
 
 | Servicio | URL |
 |---|---|
 | **Frontend** | http://localhost:3000 |
-| **API** | http://localhost:3001/api/v1 |
-| Health (liveness) | http://localhost:3001/health |
-| Health (readiness) | http://localhost:3001/health/ready |
+| **API** | http://localhost:8000/api/v1 |
+| **Swagger** | http://localhost:8000/docs |
+| Health | http://localhost:8000/health |
 | PostgreSQL | `postgresql://ambienta:ambienta_dev@localhost:5432/ambienta` |
-| Redis | `redis://localhost:6379` |
 
-Verificar que quedó bien:
+Verificar que quedo bien:
 
 ```bash
-curl http://localhost:3001/health/ready
+curl http://localhost:8000/health
 ```
-
-Debe responder `"estado": "ok"` con `postgres` y `redis` en `ok`.
 
 #### Entrar como cada rol (solo en desarrollo)
 
-No hay autenticación real todavía: los botones SSO de la pantalla de login siempre entran como **Admin Empresa**, y el acceso con RUT siempre como **Cliente Invitado**. Para revisar las vistas del resto de los roles, la pantalla de login muestra un panel **Acceso rápido de desarrollo** con los 6 usuarios mock:
+No hay autenticacion real todavia: la pantalla de login muestra un panel **Acceso rapido de desarrollo** (DevRoleSwitcher) con los usuarios de la base de datos. Al hacer login, el frontend carga los datos reales del tenant correspondiente via la API.
 
-| Usuario | Rol | Empresa |
-|---|---|---|
-| Javiera Soto | Superadmin | — (plataforma completa) |
-| Marcelo Fuentes | Admin Empresa | Recicladora del Sur SpA |
-| Camila Rojas | Usuario Interno | Recicladora del Sur SpA |
-| Diego Muñoz | Usuario Interno | Recicladora del Sur SpA |
-| Antonia Vidal | Gestor | Veolia Ambiental Chile |
-| Roberto Pizarro | Cliente Invitado | Recicladora del Sur SpA |
+| Rol | Descripcion |
+|---|---|
+| Superadmin | Plataforma completa (gestion de tenants) |
+| Admin Empresa | Gestiona su empresa y empleados |
+| Usuario Interno | Operativo — crea/envia declaraciones |
+| Gestor | Admin Empresa + modulo de cartera de clientes |
+| Cliente Invitado | Solo sus tickets de soporte |
 
-El panel **no existe en los builds de producción**: `next.config.js` sustituye el módulo por un componente vacío vía `NormalModuleReplacementPlugin`, así que ni la herramienta ni los datos de los usuarios mock llegan al bundle. Se elimina junto con `components/organisms/DevRoleSwitcher/` cuando exista auth real.
+El DevRoleSwitcher **no existe en builds de produccion**: se elimina cuando exista auth real con Clerk.
 
-#### Qué ve cada rol
+#### Seguridad multi-tenant
 
-La navegación sale de [`apps/web/lib/navigation.ts`](apps/web/lib/navigation.ts), derivada de la matriz de permisos por módulo del Análisis de Actores (§4). Hay **dos ámbitos que no se mezclan**:
+Cada request a la API incluye un header `X-Tenant-Id`. El middleware de FastAPI (`deps.py`):
 
-| Ámbito | Roles | Módulos |
-|---|---|---|
-| **Plataforma** | Superadmin | Gestión de Tenants, Soporte, Chatbot privilegiado, Perfil |
-| **Tenant** | Admin Empresa, Usuario Interno, Gestor | Dashboard, Matriz Legal, Obligaciones, Calendario, Auditorías, No Conformidades, Catálogo Normativo, Reportes, Notificaciones, Chatbot, Perfil |
+1. Ejecuta `SET LOCAL ROLE ambienta_app` para bajar de superuser al rol restringido
+2. Ejecuta `set_config('ambienta.tenant_id', :tid, true)` para activar RLS
 
-Dentro del ámbito tenant: **Perfil Empresa** y **Usuarios y Roles** son de Admin Empresa y Gestor; **Gestores** solo del Gestor (A4 = A1 + ese módulo). El **Cliente Invitado** no entra al área de negocio: solo sus tickets (RF-05).
+Las 37 politicas RLS garantizan que un tenant nunca ve datos de otro, incluso si hay un bug en la aplicacion.
 
-El Superadmin **no** ve los módulos de un tenant en su menú — CLAUDE.md: *"Admin Global NO puede editar contenido de tenants"*. Su acceso de lectura para soporte y auditoría se hace entrando al tenant desde Gestión de Tenants. `TenantScopeGate` aplica lo mismo al acceso por URL directa, en ambas direcciones.
-
-> Esto es **UX, no seguridad**. Ocultar un ítem del menú no impide nada por sí solo: la barrera real es el RBAC en la API, que todavía no existe (propuesta OpenSpec pendiente de aprobación).
-
-#### Historial / audit log
-
-Todo cambio de estado en el sistema queda registrado (RF-32, RNF-08, RNF-25): **quién**, **cuándo**, **qué cambió**, **por qué** y **quién aprobó**.
-
-- Cada entidad muestra su línea de tiempo en su pantalla de detalle (`HistorialTimeline`).
-- **Historial** en el menú da la vista consolidada, filtrable por tipo, persona y rango de fechas, y exportable a CSV para auditorías externas (RNF-26).
-- El registro se hace en los **stores**, no en las pantallas, para que ninguna ruta de mutación pueda olvidarse. La única excepción es el flujo de usuarios: `UsersProvider` está por encima de `SessionProvider` y no tiene actor, así que sus eventos se emiten desde sus pantallas usando los helpers de [`lib/user-audit.ts`](apps/web/lib/user-audit.ts).
-- El alcance lo fija el rol y no un filtro: los roles de tenant ven solo su empresa; el Superadmin, solo la actividad de plataforma.
-
-> ⚠️ **La inmutabilidad que exige RNF-08 es una garantía del backend, no del frontend.** Hoy el log vive en memoria: se pierde al recargar y puede alterarse desde las devtools. La implementación real debe ser una tabla append-only sin permisos de `UPDATE`/`DELETE` para el rol de aplicación, con RLS por `tenant_id`.
-
-### Producción — servidor
+### Produccion — servidor
 
 ```bash
 cp .env.example .env    # completar con valores reales
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-| Servicio | URL |
-|---|---|
-| **Frontend** | `https://<DOMAIN_WEB>` |
-| **API** | `https://<DOMAIN_API>/api/v1` |
-| Health | `https://<DOMAIN_API>/health` |
-| PostgreSQL · Redis | Sin exposición pública (solo red interna Docker) |
+> **No hay un despliegue de produccion activo todavia.** La infraestructura esta lista y validada, pero no existe un servidor aprovisionado.
 
-Los dominios se definen en `.env` (`DOMAIN_WEB`, `DOMAIN_API`) y **deben resolver por DNS al servidor antes del primer arranque**, porque Let's Encrypt valida el dominio por HTTP para emitir el certificado.
-
-> **No hay un despliegue de producción activo todavía.** La infraestructura está lista y validada, pero no existe un servidor aprovisionado ni un dominio configurado, así que no hay una URL pública que compartir. Cuando se aprovisione, las URLs serán las de la tabla con los dominios reales.
-
-Procedimiento completo, verificación y rollback: **[runbook de despliegue](./docs/development/despliegue.md)**.
-
-### Diferencias entre entornos
-
-| | Desarrollo | Producción |
-|---|---|---|
-| TLS | No (HTTP) | Sí, automático (Caddy + Let's Encrypt) |
-| Postgres / Redis | Expuestos en localhost | Solo red interna (`internal: true`) |
-| Redis | Sin contraseña | Con contraseña + persistencia AOF |
-| Recarga de código | Hot reload | Imagen inmutable |
-| Usuario del contenedor | root | No-root (uid 1001) |
-| Secretos | En el Compose, en claro | En `.env`, fuera de git |
-
-Detalle completo en **[guía de entornos](./docs/development/entornos.md)**.
+Procedimiento completo, verificacion y rollback: **[runbook de despliegue](./docs/development/despliegue.md)**.
 
 ---
 
-## Comandos útiles
+## Comandos utiles
 
 ```bash
 # Desarrollo
@@ -185,58 +144,51 @@ docker compose up -d --build api      # reconstruir tras cambiar dependencias
 # Base de datos
 docker compose exec postgres psql -U ambienta -d ambienta
 
-# Sin Docker (solo las bases en contenedor)
-docker compose up -d postgres redis
+# Sin Docker (bases en contenedor, app local)
+docker compose up -d postgres
 npm install
-npm run dev --workspace @ambienta/web
+npm run dev:web                       # Next.js en :3000
 
-# Calidad
-npm run typecheck --workspace @ambienta/api
-npm run lint --workspace @ambienta/web
+# API local (requiere Python 3.12+)
+cd apps/api && pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
 
 ---
 
-## Documentación
+## Documentacion
 
 | Documento | Contenido |
 |---|---|
-| [Arquitectura del backend](./docs/arquitectura/backend-arquitectura.md) | Estado real, stack, topología, health checks, seguridad multi-tenant |
-| [Guía de entornos](./docs/development/entornos.md) | Dev y producción en detalle, problemas frecuentes |
-| [Runbook de despliegue](./docs/development/despliegue.md) | Paso a paso, verificación, rollback, diagnóstico |
-| [Análisis funcional por sección](./openspec/analisis/) | Elementos visuales, RF, gaps y heurísticas de cada pantalla |
-| [Propuestas OpenSpec](./openspec/changes/) | Specs pendientes de aprobación |
 | [CLAUDE.md](./CLAUDE.md) | Reglas no negociables de desarrollo |
+| [ADR-005: Stack y despliegue](./docs/arquitectura/adr/ADR-005-stack-y-despliegue.md) | Decisiones de tecnologia |
+| [ADR-006: Autenticacion Clerk](./docs/arquitectura/adr/ADR-006-autenticacion-clerk.md) | Proveedor de auth elegido |
+| [Analisis funcional por seccion](./openspec/analisis/) | Requisitos, gaps y heuristicas de cada pantalla |
+| [Propuestas OpenSpec](./openspec/changes/) | 4 specs (3 aprobadas, 1 pendiente) |
+| [Guia de entornos](./docs/development/entornos.md) | Dev y produccion en detalle |
+| [Runbook de despliegue](./docs/development/despliegue.md) | Paso a paso, verificacion, rollback |
 
 ---
 
 ## Principios de desarrollo
 
-1. **Spec-Driven Development** → primero se especifica y aprueba, después se implementa.
-2. **Backend separado** → frontend y API completamente desacoplados.
-3. **Multi-tenant fuerte** → aislamiento por `tenant_id` + Row Level Security como segunda barrera.
-4. **RBAC en la API, siempre** → los condicionales por rol del frontend son cosméticos, nunca la barrera real.
-5. **Una sola fuente de verdad de tipos** → schemas Zod en `packages/shared`, consumidos por web y api.
-6. **API-first** → el backend puede ser consumido por web, móvil o integraciones.
+1. **Spec-Driven Development** — primero se especifica y aprueba, despues se implementa.
+2. **Backend separado** — frontend y API completamente desacoplados.
+3. **Multi-tenant fuerte** — aislamiento por `tenant_id` + Row Level Security como segunda barrera.
+4. **RBAC en la API, siempre** — los condicionales por rol del frontend son cosmeticos, nunca la barrera real.
+5. **Una sola fuente de verdad de tipos** — schemas Zod en `packages/shared`, Pydantic en la API.
+6. **API-first** — el backend puede ser consumido por web, movil o integraciones.
 
 ---
 
-## Deuda técnica conocida
+## Deuda tecnica conocida
 
-Documentada explícitamente para que no se asuma resuelta:
-
-1. **ADR-002 sigue en estado "Propuesto"** y describe un stack (Fastify + tRPC + Drizzle) que el código contradice. Requiere decisión del equipo.
-2. **Sin backups automáticos** — RNF-19 exige respaldo diario. Ver §7 del runbook.
-3. **Sin CI/CD** — el despliegue es manual por SSH.
-4. **Sin observabilidad** — logs a stdout, sin agregación ni alertas.
-5. **Credenciales OAuth pendientes** — el login social está deshabilitado y devuelve 501 hasta configurarlas.
-6. **El frontend no consume la API** — toda la persistencia es mock en memoria, por sesión de navegador.
-
----
-
-## Equipo
-
-Luciano Recchini Studio · Fabrizzio Gomez · Gabriel Tovar
+1. **Sin CI/CD** — el despliegue es manual. GitHub Actions pendiente (#86).
+2. **Sin backups automaticos** — RNF-19 exige respaldo diario.
+3. **Sin observabilidad** — logs a stdout, sin agregacion ni alertas.
+4. **Auth mock** — login sin JWT ni Clerk. ADR-006 aprobado, integracion pendiente (#91).
+5. **Migraciones no versionadas** — el schema SQL es la fuente de verdad, sin Alembic (#52).
+6. **Dashboard usa mocks** — propuesta OpenSpec para conectar a API real pendiente de aprobacion (ABA-64).
 
 ---
 
