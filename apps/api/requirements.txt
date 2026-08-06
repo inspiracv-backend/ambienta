@@ -7,3 +7,12 @@ uvicorn[standard]==0.32.1
 psycopg[binary]==3.2.3
 sqlalchemy==2.0.36
 pydantic-settings==2.6.1
+
+# --- Autenticacion (ADR-006: Clerk) ------------------------------------------
+# Validacion local del JWT de Clerk contra su JWKS publica. No se usa el SDK de
+# Clerk a proposito: el SDK llama a la API de Clerk en cada request, mientras
+# que validar la firma RS256 localmente no depende de que Clerk este arriba.
+# Ver openspec/changes/integracion-clerk-auth/design.md §1.
+python-jose[cryptography]==3.3.0
+# Cliente HTTP para descargar la JWKS (se cachea en memoria, ver auth.py).
+httpx==0.28.1

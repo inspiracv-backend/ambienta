@@ -70,6 +70,12 @@ services:
       # (`postgres`), no localhost.
       DATABASE_URL: postgresql+psycopg://ambienta:ambienta_dev@postgres:5432/ambienta
       CORS_ORIGINS: http://localhost:3000
+      # Clerk (ADR-006). Vacias por defecto: sin CLERK_JWKS_URL la API acepta
+      # el header X-Tenant-Id y se puede desarrollar sin cuenta del proveedor.
+      # Se toman del .env de la raiz si estan definidas.
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
+      CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET:-}
     ports:
       - '8000:8000'
     volumes:
