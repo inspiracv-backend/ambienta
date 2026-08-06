@@ -25,8 +25,9 @@ Query params:
   "generated_at": "2026-08-04T12:00:00Z",
   "global": {
     "compliance_percentage": 75.3,
-    "total_obligations": 42,
+    "articles_evaluated": 40,
     "articles_non_compliant": 5,
+    "total_obligations": 42,
     "nc_open": 3,
     "obligations_upcoming": 8,
     "obligations_overdue": 2
@@ -58,19 +59,43 @@ Query params:
 
 ### Logica de agregacion
 
-El servicio `get_dashboard_metrics()` orquesta:
+El servicio `get_dashboard_metrics()` resuelve todo en **6 consultas fijas**,
+independientes de cuantas plantas tenga el tenant.
 
-1. **Compliance %**: consulta todas las `TenantLegalMatrix` activas del tenant,
-   cuenta `ArticleCompliance` con `compliance_answer = 'compliant'` vs total.
-2. **NC abiertas**: cuenta `Nonconformity` donde `status != 'closed'`.
-3. **Obligaciones por vencer**: usa `get_upcoming_obligations(db, tenant_id, days)`.
-4. **Obligaciones vencidas**: usa `get_overdue_obligations(db, tenant_id)`.
-5. **Proximo critico**: la obligacion con `due_at` mas cercana que no esta
-   `fulfilled` ni `closed`.
-6. **Por facility**: agrupa las metricas anteriores por `facility_id` de las
-   obligaciones y normas asignadas.
+1. **Contadores de obligaciones** (1 consulta): total pendientes, por vencer y
+   vencidas, con tres `COUNT(...) FILTER (WHERE ...)` sobre el mismo `FROM`.
+2. **NC abiertas** (1): `GROUP BY facility_id`.
+3. **Compliance %** (1): join `article_compliance → matrix_norm → matrix`.
+4. **Proximo critico** (1): `DISTINCT ON (facility_id) ORDER BY due_at`, que en
+   Postgres da el "top 1 por grupo" sin subconsulta ni window function.
+5. **Compliance por planta** (1): lo mismo que 3 pero con `GROUP BY`.
+6. **Plantas** (1): se parte de `facilities` y no de las obligaciones, para que
+   una planta sin nada cargado aparezca igual en 0.
 
-Todo filtrado por RLS via `SET LOCAL ROLE ambienta_app`.
+Todo filtrado por RLS via `SET LOCAL ROLE ambienta_app`, y ademas por
+`tenant_id` explicito (CLAUDE.md §4: RLS es la segunda barrera, no la unica).
+
+### Correcciones al leer el modelo real (05-ago-2026, durante la implementacion)
+
+La v1 de este diseño se escribio sobre supuestos que el esquema no cumple:
+
+| La spec decia | La realidad | Consecuencia |
+|---|---|---|
+| `ArticleCompliance.compliance_answer` | La columna es **`compliance_status`** | `compliance_answer` **no existe**. `services/compliance.py` la usaba: `get_compliance_stats` lanzaba `AttributeError` en runtime. Corregido de paso |
+| Valores `not_evaluated` | El CHECK admite `compliant`, `non_compliant`, **`partial`**, `not_applicable`, **`pending`** | `evaluate_article` validaba contra una lista que la base rechaza, y omitia dos valores validos. Corregido |
+| `evaluated_by` / `evaluated_at` | Son **`assessed_by`** / **`assessed_at`** | Mismo error, mismo archivo. Corregido |
+| Reusar `get_upcoming_obligations()` | Devuelve entidades completas | Traer 500 obligaciones para hacer `len()` es justo lo que el §7 de este diseño pide evitar. Se escriben COUNT agregados |
+| Pendiente = `status IN ('open','draft')` | El CHECK admite 8 estados | Dejaba fuera `in_progress` y `submitted`: una obligacion en la que alguien ya empezo a trabajar desaparecia del tablero. Se cuenta **por exclusion** (`NOT IN ('accepted','closed')`) para que agregar un estado nuevo no reabra el hueco |
+
+**Sobre el porcentaje.** `not_applicable` sale del denominador; `pending` se
+queda dentro (si no, una matriz con un articulo evaluado mostraria 100%);
+`partial` cuenta en el denominador pero no en el numerador, porque dos
+cumplimientos parciales no equivalen a uno completo.
+
+**Sobre `days_remaining`.** Se redondea hacia arriba (`ceil`), no con
+`timedelta.days` que trunca, para coincidir con el `Math.ceil` que la tarjeta
+hero ya usaba. Con truncamiento, algo que vence en 20 horas se leeria "0 dias"
+en la API y "1 dia" en pantalla.
 
 ---
 

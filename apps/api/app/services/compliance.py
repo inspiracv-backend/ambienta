@@ -39,9 +39,9 @@ def get_compliance_stats(db: Session, matrix_id: UUID) -> dict:
 
         for art in articles:
             total_articles += 1
-            if art.compliance_answer == "compliant":
+            if art.compliance_status == "compliant":
                 compliant += 1
-            elif art.compliance_answer == "non_compliant":
+            elif art.compliance_status == "non_compliant":
                 non_compliant += 1
             else:
                 not_evaluated += 1
@@ -105,18 +105,27 @@ def evaluate_article(
     if not art:
         raise ValueError("Article compliance record not found")
 
-    valid_answers = ["compliant", "non_compliant", "not_applicable", "not_evaluated"]
+    # Los cinco valores del CHECK de `article_compliance.compliance_status`
+    # (db/01_schema.sql). Antes esta lista decia 'not_evaluated', que la base
+    # rechaza, y omitia 'partial' y 'pending', que si acepta.
+    valid_answers = [
+        "compliant",
+        "non_compliant",
+        "partial",
+        "not_applicable",
+        "pending",
+    ]
     if answer not in valid_answers:
         raise ValueError(f"Invalid answer. Must be one of: {valid_answers}")
 
-    art.compliance_answer = answer
+    art.compliance_status = answer
     if compliance_method is not None:
         art.compliance_method = compliance_method
     if evidence_url is not None:
         art.evidence_url = evidence_url
     if user_id is not None:
-        art.evaluated_by = user_id
-    art.evaluated_at = func.now()
+        art.assessed_by = user_id
+    art.assessed_at = func.now()
 
     db.flush()
     db.refresh(art)

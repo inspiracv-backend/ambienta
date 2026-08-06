@@ -15,7 +15,7 @@ export function DeadlineListItem({ obligation }: DeadlineListItemProps) {
           {obligation.nombre}
         </Link>
         <p className="text-xs text-slate-500">
-          {obligation.sistema} · Vence {formatFecha(obligation.proximoVencimiento)}
+          {obligation.codigo} · Vence {formatFecha(obligation.proximoVencimiento)}
         </p>
       </div>
       <StatusBadge status={obligation.estado} />
