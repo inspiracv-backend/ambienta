@@ -10,11 +10,21 @@ Con Docker, desde cero:
 docker run -d --name ambienta-pg -e POSTGRES_PASSWORD=ambienta -e POSTGRES_DB=ambienta -p 5432:5432 pgvector/pgvector:pg16
 ```
 
-Después, en orden:
+Después, en orden. El orden importa: `04_clerk_auth` altera una tabla que crea
+`01_schema`, y `02_seed` inserta filas que dependen de los catálogos.
 
 ```bash
-psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1 -f db/01_schema.sql -f db/03_seed_catalogos.sql
+psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1 \
+  -f db/01_schema.sql \
+  -f db/04_clerk_auth.sql \
+  -f db/03_seed_catalogos.sql \
+  -f db/02_seed.sql
 ```
+
+`docker compose up` los carga solos la primera vez que crea el volumen, en este
+mismo orden. **Todo archivo de esquema nuevo tiene que agregarse a los dos
+lados** — acá y en `docker-compose.yml` — o existirá solo en las bases donde
+alguien lo aplicó a mano.
 
 O todo junto con el script:
 
@@ -29,6 +39,8 @@ bash db/run.sh
 | `01_schema.sql` | Extensiones, 51 tablas, 152 FK, índices, triggers, RLS y rol de aplicación. Transaccional: o entra todo o no entra nada |
 | `02_smoke_test.sql` | Verifica que las garantías se cumplan: aislamiento entre empresas, inmutabilidad del audit log y los CHECK de negocio. Hace `ROLLBACK` al final |
 | `03_seed_catalogos.sql` | Países, fuentes normativas, 39 permisos, sectores CIIU y plantillas de declaración. Idempotente |
+| `04_clerk_auth.sql` | Columna `clerk_id` en `users` con UNIQUE, para vincular con Clerk (ADR-006). Idempotente |
+| `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
 `02_smoke_test.sql` no es parte del despliegue — es la verificación. Corrélo después de cualquier cambio al esquema.
 
