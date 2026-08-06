@@ -19,3 +19,7 @@ venv/
 .env
 .env.*
 !.env.example
+
+# Scripts sueltos de automatizacion puntual (creacion de epicas, migraciones
+# de tickets). Son de un solo uso y suelen llevar tokens o ids del entorno.
+add-epics.sh
