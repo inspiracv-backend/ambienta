@@ -1,11 +1,10 @@
-﻿from datetime import date, datetime
+﻿from datetime import date
 from uuid import UUID as PyUUID
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
-    DateTime,
     ForeignKey,
     Integer,
     SmallInteger,

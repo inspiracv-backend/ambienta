@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..crud.support import crud_chatbot_conversation, crud_chatbot_message, crud_support_ticket, crud_ticket_message
+from ..crud.support import crud_chatbot_conversation, crud_support_ticket
 from ..deps import get_tenant_db, get_tenant_id
 from ..schemas.support import (
     ChatbotConversationCreate,
