@@ -14,6 +14,28 @@ Objetivo: Centralizar declaraciones ambientales (RETC, residuos peligrosos, Ley 
   3. Implementar (Claude Code solo implementa specs aprobadas)
   4. Actualizar spec si hay cambios
 
+#### 1.1 Protocolo OpenSpec para implementación
+**ANTES de escribir cualquier línea de código de una Feature:**
+1. Leer completos los 3 archivos de la spec (`proposal.md`, `design.md`, `tasks.md`)
+2. Leer la sección de análisis relevante en `openspec/analisis/` (ej: `seccion-a-autenticacion.md`)
+3. Leer las fuentes referenciadas en la spec si existen (`fuentes/`)
+4. Verificar que la spec está aprobada (no implementar specs pendientes de revisión)
+
+**DURANTE la implementación:**
+1. Marcar cada checkbox `[ ]` → `[x]` en `tasks.md` conforme se completa
+2. Si una decisión cambia respecto a la spec, actualizar `design.md` antes de seguir
+3. Si se descubre un supuesto incorrecto, moverlo a "Supuestos derribados" en `tasks.md`
+
+**AL TERMINAR la sesión o si se corta el contexto:**
+1. Crear/actualizar `PROGRESS.md` en la carpeta de la spec con:
+   - Última fase/tarea completada
+   - Siguiente tarea pendiente
+   - Decisiones tomadas durante la implementación que difieren de la spec
+   - Blockers encontrados
+2. Hacer commit del `PROGRESS.md` junto con el código
+
+**Referencia de calidad:** `openspec/changes/hallazgos-auditoria-no-conformidades/` es el estándar de rigor para specs. Toda spec nueva debe seguir su nivel de detalle.
+
 ### 2. Arquitectura Backend Separado
 - Frontend (Next.js) y Backend (FastAPI, Python) completamente separados.
 - 4 deployables: web, api, worker, ai-service.
