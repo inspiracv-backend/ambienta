@@ -31,10 +31,18 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       # Archivos por separado (no el directorio): ver nota en docker-compose.yml.
-      # Init en orden: extensiones → esquema (51 tablas + RLS) → catalogos.
+      # Init en orden: extensiones → esquema (52 tablas + RLS) → clerk → permisos → catalogos.
+      #
+      # 04_clerk_auth NO es opcional: crea users.clerk_id, sin la cual el webhook
+      # que sincroniza usuarios desde Clerk falla contra su propio esquema.
+      # Debe estar en los tres lados — aca, en docker-compose.yml y en db/README.
+      #
+      # 02_seed (datos de demo) NO se monta a proposito: produccion arranca vacia.
       - ./infra/postgres/init/01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
       - ./db/01_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
-      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
+      - ./db/04_clerk_auth.sql:/docker-entrypoint-initdb.d/03-clerk.sql:ro
+      - ./db/05_user_permissions.sql:/docker-entrypoint-initdb.d/04-permisos.sql:ro
+      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/05-catalogos.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s
@@ -76,13 +84,16 @@ services:
       PORT: 8000
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CORS_ORIGINS: https://${DOMAIN_WEB:?falta DOMAIN_WEB en .env}
-      # Estos aun no los consume la API minima, pero se dejan pasados para cuando
-      # entren auth (JWT/SSO) y correo (Resend), sin volver a tocar el compose.
-      JWT_SECRET: ${JWT_SECRET:-}
-      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
-      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Clerk (ADR-006). OBLIGATORIAS en produccion, y por eso van con `:?`.
+      #
+      # No es una preferencia de estilo: `clerk_configured` en apps/api/app/deps.py
+      # se deriva de CLERK_JWKS_URL. Si esta vacia, la API cae al fallback de
+      # desarrollo y acepta el header X-Tenant-Id — o sea, cualquiera declara el
+      # tenant que quiera y RLS le obedece. Fallar al arrancar es lo correcto.
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:?falta CLERK_JWKS_URL en .env — sin ella la API queda sin autenticacion}
+      CLERK_ISSUER: ${CLERK_ISSUER:?falta CLERK_ISSUER en .env}
+      CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET:?falta CLERK_WEBHOOK_SECRET en .env}
+      # Correo transaccional. Opcional hasta que existan las notificaciones.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
     # Sin `ports`: el único camino desde internet es a través de Caddy.
     depends_on:
@@ -97,9 +108,11 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        # Se hornea en el bundle del cliente en tiempo de build: cambiar el
-        # dominio exige reconstruir la imagen, no solo reiniciar el contenedor.
+        # Se hornean en el bundle del cliente en tiempo de build: cambiarlas
+        # exige reconstruir la imagen, no solo reiniciar el contenedor.
         NEXT_PUBLIC_API_URL: https://${DOMAIN_API:?falta DOMAIN_API en .env}/api/v1
+        # Sin esta clave el frontend no puede iniciar sesion contra Clerk.
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?falta NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY en .env}
     restart: always
     environment:
       NODE_ENV: production

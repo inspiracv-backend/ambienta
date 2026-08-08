@@ -20,6 +20,21 @@ Por instrucción explícita del prompt de implementación adjunto ("no lo implem
 ## Checklist de implementación (para cuando esta spec sea aprobada — NO ejecutado en esta sesión)
 
 ### Fundación
+
+> **Lo de base ya existe, por otra vía.** El esquema no se construyó desde este
+> cambio sino junto con el backend, así que las tareas de abajo describen un
+> plan (Drizzle, `packages/db`) que no es el que se siguió. Lo que sí quedó
+> hecho y cubre los requisitos de este cambio:
+>
+> - [x] `users`, `roles`, `permissions`, `role_permissions`, `user_roles` — en `db/01_schema.sql`
+> - [x] `user_permissions` con su resolución documentada — `db/05_user_permissions.sql`
+> - [x] RLS por empresa: 37 políticas, una por tabla con `tenant_id`
+> - [x] `audit_log` inmutable: `REVOKE UPDATE, DELETE` sobre el rol de aplicación
+> - [x] `contracts` y `tenant_access_grants` — esquema sí, lógica no
+> - [x] 39 permisos sembrados en `db/03_seed_catalogos.sql`
+>
+> **Lo que falta es la API**, no la base: resolver el permiso efectivo, aplicar
+> el alcance acotado, y los flujos de gestor y cliente invitado.
 - [ ] Crear `packages/db` (Drizzle + cliente de Postgres + config de migraciones)
 - [ ] Levantar Postgres local (Docker Compose) — no existe hoy en el repo
 - [ ] Migraciones iniciales: `tenants`, `plants`, `departamentos`, `users`, `permissions`, `user_permissions`

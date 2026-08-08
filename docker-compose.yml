@@ -43,8 +43,8 @@ services:
       # Docker Desktop Windows no se puede montar un archivo DENTRO de un
       # directorio que a su vez es bind mount. Corren en orden alfabetico, solo
       # al inicializar el volumen:
-      #   01-extensions → 02-schema (51 tablas + RLS) → 03-clerk (clerk_id)
-      #   → 04-catalogos → 05-demo (tenants, usuarios, obligaciones)
+      #   01-extensions → 02-schema (52 tablas + RLS) → 03-clerk (clerk_id)
+      #   → 04-permisos → 05-catalogos → 06-demo
       #
       # Todo cambio de esquema nuevo (db/NN_*.sql) tiene que agregarse aca, o
       # existe solo en las bases donde alguien lo aplico a mano y una base
@@ -52,11 +52,12 @@ services:
       - ./infra/postgres/init/01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
       - ./db/01_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
       - ./db/04_clerk_auth.sql:/docker-entrypoint-initdb.d/03-clerk.sql:ro
-      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/04-catalogos.sql:ro
+      - ./db/05_user_permissions.sql:/docker-entrypoint-initdb.d/04-permisos.sql:ro
+      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/05-catalogos.sql:ro
       # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
       # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —
       # correctos, pero que no permiten ver si algo funciona.
-      - ./db/02_seed.sql:/docker-entrypoint-initdb.d/05-demo.sql:ro
+      - ./db/02_seed.sql:/docker-entrypoint-initdb.d/06-demo.sql:ro
     healthcheck:
       # `-d ambienta` es necesario: sin la base explicita, pg_isready responde
       # OK antes de que la base de la aplicacion este realmente creada.

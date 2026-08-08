@@ -1,6 +1,6 @@
 # Base de datos — Ambienta
 
-Esquema PostgreSQL del sistema. 51 tablas, RLS multi-tenant y catálogos base.
+Esquema PostgreSQL del sistema. 52 tablas, RLS multi-tenant y catálogos base.
 
 ## Ejecutar
 
@@ -10,21 +10,23 @@ Con Docker, desde cero:
 docker run -d --name ambienta-pg -e POSTGRES_PASSWORD=ambienta -e POSTGRES_DB=ambienta -p 5432:5432 pgvector/pgvector:pg16
 ```
 
-Después, en orden. El orden importa: `04_clerk_auth` altera una tabla que crea
-`01_schema`, y `02_seed` inserta filas que dependen de los catálogos.
+Después, en orden. El orden importa: `04` y `05` alteran tablas que crea `01`, y
+`02_seed` inserta filas que dependen de los catálogos.
 
 ```bash
 psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1 \
   -f db/01_schema.sql \
   -f db/04_clerk_auth.sql \
+  -f db/05_user_permissions.sql \
   -f db/03_seed_catalogos.sql \
   -f db/02_seed.sql
 ```
 
 `docker compose up` los carga solos la primera vez que crea el volumen, en este
-mismo orden. **Todo archivo de esquema nuevo tiene que agregarse a los dos
-lados** — acá y en `docker-compose.yml` — o existirá solo en las bases donde
-alguien lo aplicó a mano.
+mismo orden. **Todo archivo de esquema nuevo tiene que agregarse a los cuatro
+lados** — acá, en `db/run.sh`, en `docker-compose.yml` y en
+`docker-compose.prod.yml` — o existirá solo en las bases donde alguien lo
+aplicó a mano.
 
 O todo junto con el script:
 
@@ -36,10 +38,11 @@ bash db/run.sh
 
 | Archivo | Qué hace |
 |---|---|
-| `01_schema.sql` | Extensiones, 51 tablas, 152 FK, índices, triggers, RLS y rol de aplicación. Transaccional: o entra todo o no entra nada |
-| `02_smoke_test.sql` | Verifica que las garantías se cumplan: aislamiento entre empresas, inmutabilidad del audit log y los CHECK de negocio. Hace `ROLLBACK` al final |
+| `01_schema.sql` | Extensiones, 52 tablas, 156 FK, índices, triggers, RLS y rol de aplicación. Transaccional: o entra todo o no entra nada |
+| `02_smoke_test.sql` | 9 verificaciones de las garantías: aislamiento entre empresas, inmutabilidad del audit log, CHECK de negocio, unicidad de la matriz por periodo y permisos individuales. Hace `ROLLBACK` al final |
 | `03_seed_catalogos.sql` | Países, fuentes normativas, 39 permisos, sectores CIIU y plantillas de declaración. Idempotente |
 | `04_clerk_auth.sql` | Columna `clerk_id` en `users` con UNIQUE, para vincular con Clerk (ADR-006). Idempotente |
+| `05_user_permissions.sql` | Tabla `user_permissions` (RF-12) y dos unicidades que tratan los NULL como iguales. Crea su propia política RLS y sus permisos: una tabla nacida en una migración no hereda el `GRANT ON ALL TABLES` ni el bucle de políticas de `01_schema`. Idempotente |
 | `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
 `02_smoke_test.sql` no es parte del despliegue — es la verificación. Corrélo después de cualquier cambio al esquema.
@@ -72,7 +75,7 @@ Tres puntos del modelo estaban sin cerrar. Se eligió un valor por defecto para 
 | Estados de un hallazgo | Los 6 del backend | El frontend usa 3 y el borrador v1.8 modela las etapas como entidad propia |
 | Etapas del tratamiento | Columna `improvement_stages` JSONB en `nonconformities` | Si se normalizan, se convierte en tabla hija. El JSONB evita perder lo que el frontend ya guarda mientras tanto |
 
-El stack del backend (NestJS o FastAPI) **no afecta este esquema**: es el mismo en ambos casos. Esa decisión bloquea la API, no la base.
+El stack del backend quedó resuelto en **FastAPI** (ADR-005), y no afectaba a este esquema: era el mismo en cualquier caso.
 
 ## Convenciones
 

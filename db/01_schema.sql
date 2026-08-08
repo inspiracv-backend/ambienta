@@ -220,6 +220,35 @@ CREATE TABLE user_roles (
     CONSTRAINT ck_user_roles_vigencia CHECK (valid_to IS NULL OR valid_to > valid_from)
 );
 
+-- Permisos concedidos o revocados a UN usuario concreto, por encima de sus
+-- roles (RF-12). Existe porque el frontend ya modela `User.permisos` como algo
+-- distinto de "los permisos de su rol": el analisis de actores lo resume en que
+-- un Usuario Interno "no es una fila unica sino un espacio de configuracion".
+--
+-- Resolucion del permiso efectivo, en este orden:
+--   1. Si hay fila en user_permissions para (usuario, permiso) -> manda esa.
+--   2. Si no, se une lo que otorguen sus roles vigentes en user_roles.
+--   3. En ambos niveles, granted = false gana sobre cualquier concesion.
+--
+-- El paso 3 es lo que permite quitarle UN permiso a alguien sin sacarlo del rol
+-- ni inventar un rol nuevo por excepcion.
+CREATE TABLE user_permissions (
+    user_id       uuid         NOT NULL,
+    permission_id smallint     NOT NULL,
+    tenant_id     uuid         NOT NULL,
+    granted       boolean      NOT NULL DEFAULT true,
+    granted_by    uuid,
+    granted_at    timestamptz  NOT NULL DEFAULT now(),
+    reason        text,
+    PRIMARY KEY (user_id, permission_id)
+);
+COMMENT ON TABLE user_permissions IS
+  'Concesion o denegacion individual, por encima del rol (RF-12).';
+COMMENT ON COLUMN user_permissions.granted IS
+  'false = denegacion explicita; gana sobre lo que otorgue cualquier rol.';
+COMMENT ON COLUMN user_permissions.reason IS
+  'Por que se dio o quito. Lo pide RNF-08 para permisos fuera del rol.';
+
 CREATE TABLE processes (
     id                  uuid          PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id           uuid          NOT NULL,
@@ -522,7 +551,12 @@ CREATE TABLE article_compliance (
     updated_at          timestamptz   NOT NULL DEFAULT now(),
     updated_by          uuid,
     deleted_at          timestamptz,
-    CONSTRAINT uq_article_compliance UNIQUE (matrix_norm_id, article_id, facility_id)
+    -- NULLS NOT DISTINCT es imprescindible: facility_id es nullable (NULL =
+    -- evaluacion a nivel empresa). Con el comportamiento por defecto los NULL
+    -- no colisionan entre si, asi que se podria evaluar el mismo articulo a
+    -- nivel empresa tantas veces como se quisiera.
+    CONSTRAINT uq_article_compliance
+      UNIQUE NULLS NOT DISTINCT (matrix_norm_id, article_id, facility_id)
 );
 COMMENT ON COLUMN article_compliance.row_version IS 'Control optimista de concurrencia.';
 
@@ -1191,6 +1225,11 @@ ALTER TABLE user_roles         ADD CONSTRAINT fk_userroles_tenant      FOREIGN K
 ALTER TABLE user_roles         ADD CONSTRAINT fk_userroles_facility    FOREIGN KEY (facility_id)       REFERENCES facilities(id);
 ALTER TABLE user_roles         ADD CONSTRAINT fk_userroles_department  FOREIGN KEY (department_id)     REFERENCES departments(id);
 
+ALTER TABLE user_permissions   ADD CONSTRAINT fk_userperm_user         FOREIGN KEY (user_id)           REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE user_permissions   ADD CONSTRAINT fk_userperm_permission   FOREIGN KEY (permission_id)     REFERENCES permissions(id);
+ALTER TABLE user_permissions   ADD CONSTRAINT fk_userperm_tenant       FOREIGN KEY (tenant_id)         REFERENCES tenants(id) ON DELETE CASCADE;
+ALTER TABLE user_permissions   ADD CONSTRAINT fk_userperm_granted_by   FOREIGN KEY (granted_by)        REFERENCES users(id);
+
 ALTER TABLE processes          ADD CONSTRAINT fk_processes_tenant      FOREIGN KEY (tenant_id)         REFERENCES tenants(id) ON DELETE CASCADE;
 ALTER TABLE processes          ADD CONSTRAINT fk_processes_department  FOREIGN KEY (department_id)     REFERENCES departments(id);
 ALTER TABLE processes          ADD CONSTRAINT fk_processes_parent      FOREIGN KEY (parent_process_id) REFERENCES processes(id);
@@ -1373,6 +1412,9 @@ CREATE INDEX ix_departments_tenant     ON departments (tenant_id)  WHERE deleted
 CREATE INDEX ix_users_tenant           ON users (tenant_id)        WHERE deleted_at IS NULL;
 CREATE INDEX ix_users_status           ON users (tenant_id, status) WHERE deleted_at IS NULL;
 CREATE INDEX ix_roles_tenant           ON roles (tenant_id)        WHERE deleted_at IS NULL;
+-- La PK (user_id, permission_id) ya cubre "que permisos tiene este usuario".
+-- Este indice cubre el sentido inverso, que es el de RLS: filtrar por tenant.
+CREATE INDEX ix_userperm_tenant        ON user_permissions (tenant_id);
 CREATE INDEX ix_processes_tenant       ON processes (tenant_id)    WHERE deleted_at IS NULL;
 CREATE INDEX ix_contracts_manager      ON contracts (manager_tenant_id);
 CREATE INDEX ix_contracts_client       ON contracts (client_tenant_id);
@@ -1390,6 +1432,15 @@ CREATE INDEX ix_relations_source       ON legal_relations (source_norm_id);
 CREATE INDEX ix_relations_target       ON legal_relations (target_norm_id);
 
 CREATE INDEX ix_matrices_tenant_year   ON tenant_legal_matrices (tenant_id, period_year) WHERE deleted_at IS NULL;
+-- Unicidad de la matriz: una sola por empresa, ano, instalacion y version.
+-- Va como indice parcial y no como CONSTRAINT por el borrado logico: una matriz
+-- archivada con deleted_at no debe impedir crear la del mismo periodo de nuevo.
+-- NULLS NOT DISTINCT porque facility_id NULL significa "nivel empresa", que es
+-- un valor con significado y no un dato faltante: sin esto se podrian crear
+-- infinitas matrices de empresa para el mismo ano.
+CREATE UNIQUE INDEX uq_matrices_periodo ON tenant_legal_matrices
+    (tenant_id, period_year, facility_id, version_no) NULLS NOT DISTINCT
+    WHERE deleted_at IS NULL;
 CREATE INDEX ix_matrixnorms_matrix     ON matrix_norms (matrix_id)  WHERE deleted_at IS NULL;
 CREATE INDEX ix_matrixnorms_review     ON matrix_norms (next_review_date) WHERE deleted_at IS NULL;
 CREATE INDEX ix_ac_tenant_status       ON article_compliance (tenant_id, compliance_status) WHERE deleted_at IS NULL;

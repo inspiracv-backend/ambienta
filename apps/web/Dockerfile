@@ -31,6 +31,12 @@ COPY apps/web ./apps/web
 ARG NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
+# Clave publica de Clerk (ADR-006). Las NEXT_PUBLIC_* se resuelven en tiempo de
+# build, no de arranque: si no entra aca no existe en el bundle del navegador y
+# el login no funciona por mucho que este en el .env del servidor.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build --workspace @ambienta/web
 

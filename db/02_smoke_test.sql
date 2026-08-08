@@ -238,4 +238,57 @@ END $$;
 
 RESET ROLE;
 
+
+-- ── 8. Una matriz por empresa, ano, instalacion y version ─────────────────
+--
+-- El caso que importa es facility_id NULL ("nivel empresa"). Con la unicidad
+-- por defecto de PostgreSQL los NULL no colisionan entre si, asi que se
+-- podrian crear infinitas matrices de empresa para el mismo ano sin que la
+-- base dijera nada. Lo cubre NULLS NOT DISTINCT en uq_matrices_periodo.
+
+DO $$
+BEGIN
+    INSERT INTO tenant_legal_matrices (tenant_id, name, period_year, version_no)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'Matriz 2026', 2026, 1);
+
+    BEGIN
+        INSERT INTO tenant_legal_matrices (tenant_id, name, period_year, version_no)
+        VALUES ('11111111-1111-1111-1111-111111111111', 'Matriz 2026 otra vez', 2026, 1);
+        RAISE EXCEPTION 'FALLO 8: se acepto una segunda matriz de empresa para el mismo ano y version';
+    EXCEPTION
+        WHEN unique_violation THEN NULL;
+    END;
+
+    RAISE NOTICE 'OK 8 · No se duplica la matriz de un periodo, ni a nivel empresa';
+END $$;
+
+
+-- ── 9. Permisos individuales por encima del rol (RF-12) ───────────────────
+
+DO $$
+DECLARE pid smallint;
+BEGIN
+    SELECT id INTO pid FROM permissions ORDER BY id LIMIT 1;
+    IF pid IS NULL THEN
+        RAISE EXCEPTION 'FALLO 9: no hay permisos sembrados; corre 03_seed_catalogos.sql antes';
+    END IF;
+
+    -- Denegacion explicita: el caso que no se puede expresar solo con roles.
+    INSERT INTO user_permissions (user_id, permission_id, tenant_id, granted, reason)
+    VALUES ('aaaaaaaa-0000-0000-0000-000000000001', pid,
+            '11111111-1111-1111-1111-111111111111', false, 'Smoke test');
+
+    BEGIN
+        INSERT INTO user_permissions (user_id, permission_id, tenant_id)
+        VALUES ('aaaaaaaa-0000-0000-0000-000000000001', pid,
+                '11111111-1111-1111-1111-111111111111');
+        RAISE EXCEPTION 'FALLO 9b: se acepto el mismo permiso dos veces para el mismo usuario';
+    EXCEPTION
+        WHEN unique_violation THEN NULL;
+    END;
+
+    RAISE NOTICE 'OK 9 · Se puede conceder y denegar un permiso a un usuario concreto';
+END $$;
+
+
 ROLLBACK;

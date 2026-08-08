@@ -28,6 +28,7 @@ run() {
 echo "Base: ${DB_URL%%\?*}"
 run "$DIR/01_schema.sql"
 run "$DIR/04_clerk_auth.sql"
+run "$DIR/05_user_permissions.sql"
 run "$DIR/03_seed_catalogos.sql"
 $CON_DEMO && run "$DIR/02_seed.sql"
 
