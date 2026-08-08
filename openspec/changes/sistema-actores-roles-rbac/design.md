@@ -166,3 +166,31 @@ CHECK ((actor_type = 'human' AND actor_user_id IS NOT NULL AND actor_system_key 
 | `tenant_access_grants` se usa como bypass general de RLS en vez de accesos puntuales | `scope` es un enum acotado (no "acceso total"), cada grant queda en el audit log con `created_by`, y se puede revocar (`revoked_at`) sin borrar el historial |
 | Un actor nuevo (ej. otro tipo de integración externa) aparece más adelante y no encaja en `actor_type` humano/sistema | El diseño de `permissions`/`user_permissions` ya es extensible sin migración; agregar un tercer `actor_type` si hiciera falta es una migración menor y aislada, no un rediseño |
 | El CHECK constraint de `departamento_id` para `usuario_interno` podría chocar con datos de seed mal formados | Se seedea primero `departamentos`, luego `users`, respetando el orden de dependencias — ver `tasks.md` |
+
+## Estado real frente a este diseño (08-ago-2026)
+
+Este diseño se escribió antes de que existiera el backend. Buena parte de lo
+que propone terminó implementándose **por otra vía**, y su capa de
+autenticación quedó obsoleta. Se documenta acá para que nadie lo lea como si
+describiera lo que hay.
+
+| Punto del diseño | Qué existe hoy | ¿Coincide? |
+|---|---|---|
+| Tabla `users` con roles | En `db/01_schema.sql` | El diseño pide Drizzle; se implementó con SQLAlchemy |
+| RLS por empresa | 37 políticas activas | El diseño pide `packages/db`; vive en FastAPI con SQL directo |
+| Audit log inmutable | Tabla con `REVOKE UPDATE, DELETE` | Sí, falta contrastar el contrato |
+| Auth con JWT propio | **Reemplazado por Clerk** (ADR-006) | **No.** Va por `integracion-clerk-auth` |
+| RBAC con 39 permisos | Modelado en la base, sin resolver en la API | Pendiente |
+| Permiso individual sobre el rol | `user_permissions` en el esquema | Pendiente en la API |
+| Sub-tenancy por contrato | Esquema sí, lógica no | Pendiente |
+| Cliente invitado | Esquema sí, flujo no | Pendiente |
+
+**Lo que queda vivo de este cambio** son las cuatro últimas filas, y es lo que
+recoge su delta en `specs/rbac/spec.md`: resolución del permiso efectivo,
+alcance acotado de un rol, acceso del gestor por concesión explícita y acceso
+temporal del cliente invitado.
+
+**Lo que hay que decidir:** si este cambio se reescribe sobre el stack real
+(FastAPI + SQLAlchemy, sin la capa de auth) o se cierra y sus requisitos vivos
+se mueven a un cambio nuevo. Mientras no se decida, el diseño de arriba
+describe un sistema que no es el que tenemos.

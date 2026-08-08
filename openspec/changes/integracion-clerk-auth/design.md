@@ -370,7 +370,55 @@ nunca ve el OAuth code ni el access token del IdP.
 
 ---
 
-## 11. Lo que este diseno deliberadamente no resuelve
+## 11. Verificacion de las decisiones
+
+Cada decision de arriba tiene una prueba que la sostiene. Sin esto, un diseno
+es una opinion.
+
+### Que se probo por mutacion
+
+Un test que no falla cuando se rompe lo que dice proteger no prueba nada. Las
+dos propiedades que justifican este cambio se verificaron rompiendolas a
+proposito:
+
+| Mutacion aplicada | Resultado |
+|---|---|
+| Que `get_current_user()` confiara en el header `X-Tenant-Id` aun con Clerk activo | Fallo `test_tenant_id_sale_del_token_no_del_header`. Es la propiedad que justifica todo el cambio |
+| Reemplazar `Webhook(...).verify(...)` por un `json.loads()` directo | Fallaron los tres tests de firma: otro secreto, sin cabeceras y cuerpo alterado |
+
+La segunda importa especialmente: sin verificacion de firma, cualquiera que
+conozca la URL del webhook puede crear usuarios en cualquier empresa.
+
+### Contra Postgres real (05-ago-2026)
+
+Los tests usan un doble de sesion, asi que no cubren el motor SQL. El ciclo
+completo se corrio contra la base:
+
+| Que | Resultado |
+|---|---|
+| Migracion `04_clerk_auth.sql` aplicada dos veces | Idempotente, sin error |
+| `uq_users_clerk_id` | Creado |
+| Los 5 usuarios del seed | Intactos, con `clerk_id` NULL |
+| `user.created` | Fila creada con correo, nombre, tipo y estado correctos |
+| `user.updated` | Nombre actualizado, empresa y rol sin tocar |
+| `user.deleted` | `status = 'disabled'` y **la fila se conserva** |
+| Reenviar el mismo `user.created` | Actualiza en vez de duplicar: sigue habiendo 1 fila |
+
+La ultima linea es la que prueba la adopcion por correo: sin ella, la segunda
+llegada del mismo evento violaria el UNIQUE de `email` y el webhook quedaria
+fallando en bucle.
+
+### Cobertura
+
+57 tests en total sobre el backend de auth: 17 de validacion de credenciales y
+16 de webhooks, mas los 24 heredados del tablero. `ruff` limpio sobre los
+archivos de esta capacidad.
+
+Ninguno necesita cuenta de Clerk: las llaves y las firmas se generan en los
+propios tests. Eso es deliberado — un test que exige una cuenta de un proveedor
+externo deja de correr en CI el dia que alguien rota una credencial.
+
+## 12. Lo que este diseno deliberadamente no resuelve
 
 - **RBAC granular.** Los 39 permisos siguen en nuestra BD. Clerk solo dice
   "este usuario es quien dice ser" — nunca "este usuario puede hacer X". El
