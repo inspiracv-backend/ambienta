@@ -6,35 +6,76 @@ Objetivo: Centralizar declaraciones ambientales (RETC, residuos peligrosos, Ley 
 
 ## Reglas Obligatorias de Desarrollo (NO NEGOCIABLES)
 
-### 1. Spec-Driven Development (SDD)
-- **La especificación es la fuente de verdad**, no el código.
-- Ciclo obligatorio por cada Feature:
-  1. Especificar (OpenSpec: proposal.md + design.md + tasks.md)
-  2. Revisar y aprobar la spec
-  3. Implementar (Claude Code solo implementa specs aprobadas)
-  4. Actualizar spec si hay cambios
+### 1. Spec-Driven Development con OpenSpec
 
-#### 1.1 Protocolo OpenSpec para implementación
-**ANTES de escribir cualquier línea de código de una Feature:**
-1. Leer completos los 3 archivos de la spec (`proposal.md`, `design.md`, `tasks.md`)
-2. Leer la sección de análisis relevante en `openspec/analisis/` (ej: `seccion-a-autenticacion.md`)
-3. Leer las fuentes referenciadas en la spec si existen (`fuentes/`)
-4. Verificar que la spec está aprobada (no implementar specs pendientes de revisión)
+Usamos **OpenSpec** de verdad: el framework, no una imitación.
+CLI: `@fission-ai/openspec` · `npm install -g @fission-ai/openspec`
 
-**DURANTE la implementación:**
-1. Marcar cada checkbox `[ ]` → `[x]` en `tasks.md` conforme se completa
-2. Si una decisión cambia respecto a la spec, actualizar `design.md` antes de seguir
-3. Si se descubre un supuesto incorrecto, moverlo a "Supuestos derribados" en `tasks.md`
+#### 1.1 Los dos directorios
 
-**AL TERMINAR la sesión o si se corta el contexto:**
-1. Crear/actualizar `PROGRESS.md` en la carpeta de la spec con:
-   - Última fase/tarea completada
-   - Siguiente tarea pendiente
-   - Decisiones tomadas durante la implementación que difieren de la spec
-   - Blockers encontrados
-2. Hacer commit del `PROGRESS.md` junto con el código
+| Directorio | Qué contiene |
+|---|---|
+| `openspec/specs/<capacidad>/spec.md` | **Cómo se comporta el sistema hoy.** La fuente de verdad |
+| `openspec/changes/<nombre>/` | Un cambio propuesto: `proposal.md`, `design.md`, `tasks.md` y `specs/` con los **deltas** |
+| `openspec/changes/archive/` | Cambios terminados, con fecha. Sus deltas ya se fundieron en `specs/` |
 
-**Referencia de calidad:** `openspec/changes/hallazgos-auditoria-no-conformidades/` es el estándar de rigor para specs. Toda spec nueva debe seguir su nivel de detalle.
+`openspec/analisis/` es nuestro (secciones del Análisis Funcional) y no forma
+parte del framework. Sirve como fuente, no como spec.
+
+#### 1.2 El ciclo: proponer → aplicar → archivar
+
+1. **Proponer** — `/opsx:propose`. Genera los 4 artefactos. **Solo planificación:
+   no se escribe código en este paso**, aunque el pedido diga "arregla" o "haz".
+2. **Aplicar** — `/opsx:apply`. Se implementa siguiendo `tasks.md`, marcando cada
+   checkbox. Si el modelo real contradice la spec, se corrige el `design.md`
+   antes de seguir.
+3. **Archivar** — `/opsx:archive`. Los deltas se funden en `openspec/specs/` y el
+   cambio se mueve a `archive/` con fecha.
+
+**El paso 3 no es opcional.** Sin archivar, `specs/` nunca refleja el sistema
+real y cada spec nueva se escribe contra un estado imaginado. Así llegamos a
+tener código que leía columnas inexistentes (`compliance_answer`, `is_active`)
+sin que nada lo detectara.
+
+#### 1.3 Formato
+
+Un spec es **un contrato de comportamiento, no un plan de implementación**. Qué
+hace el sistema, no cómo. El cómo va en `design.md`.
+
+```markdown
+### Requirement: Nombre del requisito
+El sistema SHALL <comportamiento observable>.
+
+#### Scenario: Caso concreto
+- **GIVEN** un estado previo
+- **WHEN** ocurre algo
+- **THEN** el sistema responde así
+```
+
+Los deltas van bajo `## ADDED Requirements`, `## MODIFIED Requirements` o
+`## REMOVED Requirements`. Los encabezados y las palabras `SHALL`, `GIVEN`,
+`WHEN`, `THEN` son estructura que el CLI parsea: van en inglés. La prosa va en
+español.
+
+#### 1.4 Antes de implementar
+
+Leer el cambio completo (`proposal`, `design`, `tasks`, `specs/`), el spec vivo
+de la capacidad en `openspec/specs/` si existe, y las fuentes en `fuentes/`.
+
+#### 1.5 Verificación
+
+```bash
+openspec list              # cambios activos y su avance
+openspec validate --changes # los 4 artefactos y el formato de los deltas
+openspec status --change <nombre>
+```
+
+Un cambio sin `specs/` no valida. Si de verdad no toca comportamiento
+(herramientas, documentación), va `skip_specs: true` en su `.openspec.yaml`.
+
+**Referencia de calidad:** `openspec/specs/dashboard/spec.md` es el ejemplo de
+spec vivo; `openspec/changes/archive/2026-08-08-dashboard-metricas-api/` muestra
+el ciclo completo.
 
 ### 2. Arquitectura Backend Separado
 - Frontend (Next.js) y Backend (FastAPI, Python) completamente separados.
