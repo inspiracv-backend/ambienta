@@ -115,7 +115,7 @@ Cada request a la API incluye un header `X-Tenant-Id`. El middleware de FastAPI 
 1. Ejecuta `SET LOCAL ROLE ambienta_app` para bajar de superuser al rol restringido
 2. Ejecuta `set_config('ambienta.tenant_id', :tid, true)` para activar RLS
 
-Las 37 politicas RLS garantizan que un tenant nunca ve datos de otro, incluso si hay un bug en la aplicacion.
+Las politicas RLS garantizan que un tenant nunca ve datos de otro, incluso si hay un bug en la aplicacion.
 
 ### Produccion — servidor
 

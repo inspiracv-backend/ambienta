@@ -177,7 +177,7 @@ describiera lo que hay.
 | Punto del diseño | Qué existe hoy | ¿Coincide? |
 |---|---|---|
 | Tabla `users` con roles | En `db/01_schema.sql` | El diseño pide Drizzle; se implementó con SQLAlchemy |
-| RLS por empresa | 37 políticas activas | El diseño pide `packages/db`; vive en FastAPI con SQL directo |
+| RLS por empresa | Una política por tabla con `tenant_id` (38) | El diseño pide `packages/db`; vive en FastAPI con SQL directo |
 | Audit log inmutable | Tabla con `REVOKE UPDATE, DELETE` | Sí, falta contrastar el contrato |
 | Auth con JWT propio | **Reemplazado por Clerk** (ADR-006) | **No.** Va por `integracion-clerk-auth` |
 | RBAC con 39 permisos | Modelado en la base, sin resolver en la API | Pendiente |

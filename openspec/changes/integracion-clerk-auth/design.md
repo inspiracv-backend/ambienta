@@ -187,7 +187,7 @@ webhooks. El endpoint se registra sin el middleware de auth.
 **El unico cambio en el flujo de datos es el origen del `tenant_id`.** Antes
 llegaba como header `X-Tenant-Id` sin firmar. Ahora llega como claim dentro de
 un JWT firmado con RS256. Todo lo que pasa despues — `SET LOCAL ROLE`,
-`set_config`, las 37 politicas de RLS — funciona identico. No hay migracion de
+`set_config`, las politicas de RLS — funciona identico. No hay migracion de
 datos, no hay cambio de schema en las tablas de negocio, no hay cambio en los
 routers.
 

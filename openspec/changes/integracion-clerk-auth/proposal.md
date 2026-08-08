@@ -27,7 +27,7 @@ especifica como integrarlo.
 ### Que se rompe hoy
 
 1. **Acceso cross-tenant trivial.** Un usuario puede ver datos de otro tenant
-   fabricando un header `X-Tenant-Id`. Las 37 politicas de RLS no sirven si el
+   fabricando un header `X-Tenant-Id`. Las politicas de RLS no sirven si el
    dato de entrada es mentira.
 2. **No hay login real.** El DevRoleSwitcher esta en el build de produccion
    si no se elimina manualmente. No hay redireccion a login, no hay sesion,

@@ -28,7 +28,7 @@ Por instrucción explícita del prompt de implementación adjunto ("no lo implem
 >
 > - [x] `users`, `roles`, `permissions`, `role_permissions`, `user_roles` — en `db/01_schema.sql`
 > - [x] `user_permissions` con su resolución documentada — `db/05_user_permissions.sql`
-> - [x] RLS por empresa: 37 políticas, una por tabla con `tenant_id`
+> - [x] RLS por empresa: una política por cada tabla con `tenant_id` (38 hoy)
 > - [x] `audit_log` inmutable: `REVOKE UPDATE, DELETE` sobre el rol de aplicación
 > - [x] `contracts` y `tenant_access_grants` — esquema sí, lógica no
 > - [x] 39 permisos sembrados en `db/03_seed_catalogos.sql`
