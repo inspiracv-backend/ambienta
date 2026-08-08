@@ -17,13 +17,16 @@
     "check-all": "turbo run build lint typecheck test",
     "prod:up": "docker compose -f docker-compose.prod.yml up -d --build",
     "prod:down": "docker compose -f docker-compose.prod.yml down",
-    "prod:logs": "docker compose -f docker-compose.prod.yml logs -f"
+    "prod:logs": "docker compose -f docker-compose.prod.yml logs -f",
+    "spec": "openspec list",
+    "spec:check": "openspec validate --changes"
   },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "devDependencies": {
+    "@fission-ai/openspec": "^1.8.0",
     "turbo": "^2.10.5"
   }
 }

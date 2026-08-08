@@ -1,5 +1,47 @@
 schema: spec-driven
 
+context: |
+  Ambienta — cumplimiento ambiental multi-tenant para industria en Chile.
+
+  Stack: Next.js 14 (App Router, Atomic Design) · FastAPI + SQLAlchemy 2.0 ·
+  PostgreSQL 16 + pgvector · Turborepo. Monolito modular, no microservicios:
+  una sola base, sin bus de eventos, y los limites entre dominios se sostienen
+  por convencion en el codigo, no por infraestructura.
+
+  Autenticacion: Clerk (ADR-006). Clerk autentica; los permisos y la
+  pertenencia a la empresa son nuestros.
+
+  Aislamiento multi-tenant: dos barreras. La aplicacion filtra por tenant_id y
+  RLS en PostgreSQL existe para cuando la primera falle. 37 de 52 tablas lo
+  llevan; las otras 14 son catalogo compartido (la ley es igual para todos).
+
+  Idioma: la prosa va en espanol. Las palabras que el CLI parsea —SHALL,
+  GIVEN, WHEN, THEN, los encabezados ADDED/MODIFIED/REMOVED— van en ingles.
+
+  Dominio: ISO 9001 e ISO 14001, RETC, Ley REP, SINADER, SIDREP, DAE. Los
+  requisitos citan el articulo de la norma cuando corresponde.
+
+rules:
+  proposal:
+    - Incluir siempre una tabla de que exige el cambio del resto del sistema.
+    - Incluir las decisiones que requiere el equipo, como preguntas abiertas.
+  design:
+    - Contratos y modelo, no codigo de implementacion copiado.
+    - Cada decision lleva su porque, y que se pierde con la alternativa.
+  tasks:
+    - Separar los supuestos vigentes de los que hay que confirmar.
+    - Fase 0 para los prerequisitos que estan fuera del modulo.
+
+operations:
+  apply:
+    guidance:
+      - Leer el modelo real antes de codear; si contradice el diseno, corregir
+        design.md antes de seguir. Ya paso con compliance_answer e is_active.
+      - Verificar los tests rompiendo a proposito lo que dicen proteger.
+  archive:
+    guidance:
+      - Completar el Purpose del spec vivo; el CLI lo deja en TBD.
+
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.

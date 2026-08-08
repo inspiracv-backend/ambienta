@@ -9,7 +9,17 @@ Objetivo: Centralizar declaraciones ambientales (RETC, residuos peligrosos, Ley 
 ### 1. Spec-Driven Development con OpenSpec
 
 Usamos **OpenSpec** de verdad: el framework, no una imitación.
-CLI: `@fission-ai/openspec` · `npm install -g @fission-ai/openspec`
+
+La versión está fijada en `package.json`, así que `npx openspec ...` funciona
+tras `npm install` sin instalar nada más. Para que las skills de `.claude/`
+lo invoquen directo hace falta además el global:
+
+```bash
+npm install -g @fission-ai/openspec@1.8.0
+```
+
+El contexto del proyecto y las reglas por artefacto viven en
+`openspec/config.yaml`; el CLI se las muestra a la IA al generar artefactos.
 
 #### 1.1 Los dos directorios
 
@@ -65,9 +75,10 @@ de la capacidad en `openspec/specs/` si existe, y las fuentes en `fuentes/`.
 #### 1.5 Verificación
 
 ```bash
-openspec list              # cambios activos y su avance
-openspec validate --changes # los 4 artefactos y el formato de los deltas
-openspec status --change <nombre>
+npm run spec        # cambios activos y su avance
+npm run spec:check  # los 4 artefactos y el formato de los deltas
+npx openspec status --change <nombre>
+npx openspec list --specs   # capacidades con spec vivo
 ```
 
 Un cambio sin `specs/` no valida. Si de verdad no toca comportamiento
