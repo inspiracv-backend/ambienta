@@ -125,12 +125,15 @@ BEGIN
             '1,2,3 HAVING count(*) > 1;', duplicados;
     END IF;
 
+    -- La bandera NULLS NOT DISTINCT vive en el INDICE que respalda al
+    -- constraint (pg_index.indnullsnotdistinct), no en pg_constraint. Se llega
+    -- por conindid. Consultarla en pg_constraint falla: esa columna no existe.
     IF EXISTS (
         SELECT 1 FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_index i ON i.indexrelid = c.conindid
         WHERE c.conname = 'uq_article_compliance'
-          AND t.relname = 'article_compliance'
-          AND c.connullsnotdistinct IS NOT TRUE
+          AND c.conrelid = 'article_compliance'::regclass
+          AND i.indnullsnotdistinct IS NOT TRUE
     ) THEN
         ALTER TABLE article_compliance DROP CONSTRAINT uq_article_compliance;
     END IF;
@@ -189,6 +192,7 @@ COMMIT;
 --    WHERE c.relname = 'user_permissions';
 --   -- debe devolver tenant_isolation
 --
---   SELECT connullsnotdistinct FROM pg_constraint
---    WHERE conname = 'uq_article_compliance';
+--   SELECT i.indnullsnotdistinct FROM pg_constraint c
+--     JOIN pg_index i ON i.indexrelid = c.conindid
+--    WHERE c.conname = 'uq_article_compliance';
 --   -- debe ser true
