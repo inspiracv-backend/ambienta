@@ -2,6 +2,28 @@
 
 Esquema PostgreSQL del sistema. 52 tablas, RLS multi-tenant y catálogos base.
 
+## Estado verificado
+
+**09-ago-2026** — recreada desde cero con `docker compose down -v && up`. Los
+seis scripts de init corrieron en orden sin un solo error, y las 9
+comprobaciones de `02_smoke_test.sql` pasaron.
+
+| Qué | Cuánto |
+|---|---|
+| Tablas | 52 |
+| Políticas RLS · tablas con `FORCE` | 38 · 38 |
+| Claves foráneas | 156 |
+| Índices | 142 |
+| Permisos sembrados | 39 |
+| Datos de demo | 2 empresas · 5 usuarios · 5 obligaciones · 6 artículos evaluados |
+
+Comprobado además: `user_permissions` tiene su política `tenant_isolation` y su
+`GRANT` (no los hereda por nacer en una migración), las dos unicidades tratan
+los NULL como iguales, y `users.clerk_id` existe. La API responde el tablero en
+0,3 s con 40,0 % de cumplimiento — el mismo número que da el cálculo a mano.
+
+Para reproducirlo: `bash db/run.sh --with-tests`.
+
 ## Ejecutar
 
 Con Docker, desde cero:

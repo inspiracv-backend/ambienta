@@ -90,8 +90,10 @@ el ciclo completo.
 
 ### 2. Arquitectura Backend Separado
 - Frontend (Next.js) y Backend (FastAPI, Python) completamente separados.
-- 4 deployables: web, api, worker, ai-service.
-- Nunca mezclar lógica de negocio en el frontend.
+- 4 deployables previstos: web, api, worker, ai-service — **hoy solo existen
+  los dos primeros**. Ver "Estructura del monorepo" más abajo.
+- Nunca mezclar lógica de negocio en el frontend. El frontend presenta; el
+  backend decide.
 
 ### 3. API First + OpenAPI
 - Todo endpoint nuevo debe definirse primero en el contrato OpenAPI.
@@ -114,4 +116,104 @@ el ciclo completo.
 - Revisión humana obligatoria de todo PR generado por IA.
 - Seguir convenciones del monorepo y este archivo.
 
-## Estructura del Monorepo
+---
+
+## Estructura del monorepo
+
+```
+apps/web          Next.js 14 · App Router · Atomic Design · 40 pantallas
+apps/api          FastAPI · 95 endpoints · routers → services → crud → models
+apps/worker       CARPETA VACIA. Un archivo. Vuelve con Notificaciones
+apps/ai-service   CARPETA VACIA. Un archivo. LangGraph, post-MVP
+packages/shared   18 schemas Zod compartidos por el frontend
+db/               Esquema SQL numerado. Ver db/README.md
+openspec/         Specs vivos y cambios propuestos. Ver §1
+docs/arquitectura Los 5 ADR y el modelo entidad-relacion
+```
+
+`worker` y `ai-service` **existen como carpetas, no como servicios**. La
+arquitectura los contempla; el repo todavia no. Conviene decirlo asi y no
+"4 deployables", porque el worker es el que hara falta apenas entren las
+notificaciones con vencimientos.
+
+## Estilo arquitectonico
+
+**Monolito modular**, no microservicios. Una sola base de datos, un solo
+`SessionLocal`, sin bus de eventos ni HTTP interno. Los 13 dominios comparten
+las 52 tablas y hay FKs cruzando entre ellos: 40 apuntan a `tenants` y 33 a
+`users`.
+
+Los limites entre dominios existen **en el codigo y por convencion**, no
+forzados por infraestructura. Esa es la diferencia con microservicios, y es
+deliberada: el aislamiento multi-tenant se garantiza hoy con RLS en la base, y
+repartido en cinco bases pasaria a ser cinco implementaciones que mantener
+coherentes a mano.
+
+Los 4 deployables se separan por **preocupacion de runtime** —navegador, HTTP,
+trabajos en segundo plano, inferencia— no por dominio de negocio.
+
+## Como levantarlo
+
+```bash
+docker compose up -d      # postgres + api + web
+```
+
+- Web http://localhost:3000 · API http://localhost:8000 · Swagger `/docs`
+- La base se inicializa sola con los 6 scripts de `db/`, en orden, la primera
+  vez que se crea el volumen
+- Para recrearla: `docker compose down -v && docker compose up -d`
+
+No hace falta cuenta de Clerk: sin `CLERK_JWKS_URL` la API acepta el header
+`X-Tenant-Id` y el frontend muestra el DevRoleSwitcher.
+
+## Estado del proyecto
+
+**Actualizado 09-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
+de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
+
+| Area | Estado |
+|---|---|
+| Base de datos | **Completa y verificada.** 52 tablas, 38 con RLS, 9 smoke tests en verde |
+| API | 95 endpoints. Backend de auth completo (Clerk fases 1 y 2) |
+| Tablero S-06/S-07 | **Conectado a datos reales** y verificado contra Postgres |
+| Resto del frontend | 20 pantallas **con datos de ejemplo**, no con la API |
+| Auth en el frontend | **NO existe.** Sigue el DevRoleSwitcher. No desplegar asi |
+| worker · ai-service | Sin implementar |
+
+**Lo unico que consume la API de verdad es el tablero.** Cualquier otra
+pantalla que se vea funcionando esta leyendo `apps/web/mocks/`.
+
+## Trampas conocidas
+
+Cosas que ya costaron tiempo. Vale leerlas antes de tocar lo que mencionan.
+
+**`db/01_schema.sql` no es una migracion.** Editarlo solo afecta a bases
+nuevas. Todo cambio de esquema necesita ademas un `db/NN_*.sql` idempotente, y
+ese archivo tiene que declarar **su propia politica RLS y sus GRANT**: el bucle
+de politicas y el `GRANT ON ALL TABLES` de `01_schema` corren una sola vez, asi
+que una tabla nacida en una migracion no los hereda y queda visible entre
+empresas. La lista de archivos vive en cuatro lugares que deben coincidir: los
+dos compose, `db/run.sh` y `db/README.md`.
+
+**El modelo esta escrito dos veces.** `packages/shared` lo define en Zod y
+`apps/api/schemas` en Pydantic, en dos lenguajes que no pueden importarse. Hoy
+la sincronia es manual y ya se rompio: hubo codigo leyendo `compliance_answer`
+e `is_active`, columnas que no existen, sin que nada lo detectara. **Contrastar
+contra `db/01_schema.sql` y los modelos antes de escribir cualquier mapeo.**
+
+**Los tests pueden ser vacuos.** Romper a proposito lo que un test dice
+proteger y confirmar que falla. Se hizo con las dos propiedades de seguridad de
+Clerk y con la del webhook.
+
+**PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
+funcionan en la terminal. Un comando por linea.
+
+## Verificacion
+
+```bash
+npm run spec:check                      # los 4 artefactos de cada cambio
+cd apps/api && python -m pytest         # 57 tests
+cd apps/web && npx vitest run           # 190 tests
+bash db/run.sh --with-tests             # 9 comprobaciones del esquema
+```
+
