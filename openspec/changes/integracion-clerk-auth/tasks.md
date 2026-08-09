@@ -123,21 +123,32 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 3 — Frontend: `@clerk/nextjs` y proteccion de rutas
 
-- [ ] Instalar `@clerk/nextjs` en `apps/web`
-- [ ] Crear `apps/web/middleware.ts`:
-  - [ ] `clerkMiddleware` con `createRouteMatcher`
-  - [ ] Rutas publicas: `/login(.*)`, `/signup(.*)`, `/api/webhook/clerk(.*)`
-  - [ ] Todo lo demas: `auth.protect()` → redirect a `/login`
-- [ ] Envolver `app/layout.tsx` con `<ClerkProvider>`
-- [ ] Refactorizar `app/(auth)/login/page.tsx`:
-  - [ ] Si `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` → `<SignIn />` con redirect a `/dashboard`
-  - [ ] Si no → `<DevRoleSwitcher />` (fallback dev)
-- [ ] Crear `app/(auth)/signup/page.tsx` con `<SignUp />`
-- [ ] Reemplazar avatar estatico del sidebar por `<UserButton />` (condicional a Clerk)
+- [x] Instalar `@clerk/nextjs` en `apps/web` (v6.39.6 + `@clerk/localizations`;
+      obligo a subir Next 14.2.15 → 14.2.35, ver design §6.0)
+- [x] Crear `apps/web/middleware.ts`:
+  - [x] `clerkMiddleware` con `createRouteMatcher`
+  - [x] Rutas publicas: `/login(.*)`, `/signup(.*)`, `/acceso-invitado(.*)`,
+        `/crear-ticket(.*)`. **No** `/api/webhook/clerk`: ese endpoint vive en
+        FastAPI (Fase 2), no en Next, asi que el matcher de acá no lo alcanza
+  - [x] Todo lo demas: `auth.protect()` → redirect a `/login`
+  - [x] Sin llave el middleware deja pasar todo: `clerkMiddleware()` tambien
+        falla sin `publishableKey`, no se puede llamar incondicionalmente
+- [x] Envolver `app/layout.tsx` con `<ClerkProvider>` — via `AuthProvider`,
+      que lo hace condicional (design §6.2 decia que sin llave no rompia; si
+      rompe, corregido)
+- [x] Refactorizar `app/(auth)/login/page.tsx`:
+  - [x] Si `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` → `<SignIn />` con redirect a `/dashboard`
+  - [x] Si no → `<DevRoleSwitcher />` (fallback dev)
+- [x] Crear `app/(auth)/signup/page.tsx` con `<SignUp />`
+- [x] Reemplazar avatar estatico por `<UserButton />` (condicional a Clerk).
+      Estaba en `AppHeader`, no en el sidebar; se reemplazo el boton de cerrar
+      sesion, que con proveedor real tiene que invalidar la sesion en Clerk
 - [ ] Verificar:
-  - [ ] Sin sesion + ruta protegida → redirect a `/login`
-  - [ ] Con sesion → acceso normal
-  - [ ] Sin `CLERK_PUBLISHABLE_KEY` → DevRoleSwitcher funciona como antes
+  - [ ] Sin sesion + ruta protegida → redirect a `/login` — **bloqueado**: no
+        hay cuenta de Clerk todavia (decision abierta del equipo)
+  - [ ] Con sesion → acceso normal — **bloqueado**, mismo motivo
+  - [x] Sin `CLERK_PUBLISHABLE_KEY` → DevRoleSwitcher funciona como antes
+        (tsc 0, lint 0, 190 tests, build 0, tablero al 40% en el navegador)
 
 ## Fase 4 — Frontend: api-client con Bearer token
 

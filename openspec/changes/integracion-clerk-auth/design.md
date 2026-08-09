@@ -242,6 +242,31 @@ pasa como opcion. Esto mantiene el api-client testeable sin mock de Clerk.
 
 ## 6. Cambios en el frontend
 
+### 6.0 Version de `@clerk/nextjs` y el salto de Next (decidido 09-ago-2026)
+
+El diseño decia "instalar `@clerk/nextjs`" sin version, dando por hecho que
+cualquiera sirve. No es asi: el paquete declara `next` como peer dependency y
+el proyecto esta en **14.2.15**.
+
+| Version de Clerk | `next` que exige | ¿Sirve hoy? |
+|---|---|---|
+| 7.7.1 (ultima) | `^15.2.8 \|\| ^16` | No. Exigiria migrar a Next 15 |
+| 6.39.6 | `^13.5.7 \|\| ^14.2.25 \|\| ^15.2.3 \|\| ^16` | Casi: falta un parche |
+| 5.7.6 | `^13.5.4 \|\| ^14.0.3` | Si, pero es de 2024 |
+
+**Decision: subir Next a 14.2.35 y usar Clerk 6.x.**
+
+Es un salto de **parche dentro del mismo minor** (14.2.15 → 14.2.35), no un
+cambio de major: no hay migracion de App Router ni de React. A cambio se entra
+a una linea de Clerk mantenida en vez de quedarse en la de hace un año.
+
+Lo que se descarta y por que: **Clerk 5** funcionaria sin tocar nada, pero
+adoptar hoy una dependencia de autenticacion que ya lleva un año sin ser la
+linea principal significa migrar igual dentro de poco, con la diferencia de que
+para entonces habra codigo escrito encima. **Next 15** es la otra punta: un
+major con cambios en el App Router, y este cambio es de autenticacion, no de
+framework.
+
 ### 6.1 Middleware de Next.js
 
 ```ts
@@ -259,14 +284,29 @@ pasa como opcion. Esto mantiene el api-client testeable sin mock de Clerk.
 esta deprecado en `@clerk/nextjs` v5+. `clerkMiddleware` con `createRouteMatcher`
 es la API actual y soporta proteccion condicional por ruta.
 
-### 6.2 Layout raiz
+### 6.2 Layout raiz — el provider va condicionado
+
+**Correccion (09-ago-2026).** La v1 de este diseño decia que sin la variable
+"ClerkProvider no inicializa (no rompe)". **Es falso.** Clerk lanza
+`Missing publishableKey` y la aplicacion no monta.
+
+Eso invalidaria el modo de desarrollo sin cuenta, que es el punto de todo el
+fallback: un desarrollador que clona el repo y corre `docker compose up` no
+tiene cuenta de Clerk, y con el provider incondicional no veria ni el login.
 
 ```ts
-// apps/web/app/layout.tsx
-// Envolver el children en <ClerkProvider>
-// ClerkProvider lee NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY del entorno
-// Si la variable no existe, ClerkProvider no inicializa (no rompe)
+// apps/web/components/organisms/AuthProvider — componente nuevo
+// Si hay NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY -> <ClerkProvider>{children}</ClerkProvider>
+// Si no                                    -> {children} tal cual
 ```
+
+Un componente y no un `if` suelto en el layout, porque el layout es un Server
+Component y `ClerkProvider` necesita ser cliente.
+
+**Lo mismo vale para el middleware.** `clerkMiddleware()` sin llave falla
+igual, asi que `middleware.ts` deja pasar la peticion sin tocarla cuando la
+variable no esta. Sin proveedor no hay sesion que proteger, y las pantallas
+siguen cubiertas por los guards que ya existen en el cliente.
 
 ### 6.3 Pagina de login — condicional
 

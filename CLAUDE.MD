@@ -177,7 +177,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | API | 95 endpoints. Backend de auth completo (Clerk fases 1 y 2) |
 | Tablero S-06/S-07 | **Conectado a datos reales** y verificado contra Postgres |
 | Resto del frontend | 20 pantallas **con datos de ejemplo**, no con la API |
-| Auth en el frontend | **NO existe.** Sigue el DevRoleSwitcher. No desplegar asi |
+| Auth en el frontend | Cableado (Clerk fase 3), **inactivo sin llave**: sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher. Falta el token en las llamadas (fase 4) |
 | worker · ai-service | Sin implementar |
 
 **Lo unico que consume la API de verdad es el tablero.** Cualquier otra

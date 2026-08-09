@@ -115,6 +115,13 @@ services:
       # El navegador resuelve esta URL, asi que es localhost del HOST —
       # no el nombre de servicio de Compose.
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      # Clerk (ADR-006). Vacia por defecto: sin llave el frontend no monta el
+      # ClerkProvider ni el middleware, y sigue el DevRoleSwitcher.
+      #
+      # Funciona porque este servicio corre `next dev`, que lee las
+      # NEXT_PUBLIC_* en runtime. En la imagen de produccion hay que pasarla
+      # como build arg: `next build` las incrusta en el bundle (Fase 6).
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
       # Los eventos inotify no cruzan del host Windows al contenedor, asi que
       # webpack debe hacer polling para ver los cambios.
       WATCHPACK_POLLING: 'true'

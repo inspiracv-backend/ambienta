@@ -3,7 +3,9 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Bell, LogOut, Menu } from 'lucide-react';
+import { UserButton } from '@clerk/nextjs';
 import { Avatar, Button } from '@/components/atoms';
+import { CLERK_HABILITADO } from '@/lib/clerk-config';
 import { useSession } from '@/lib/session';
 import { useNotifications } from '@/lib/notifications-store';
 import { ROLE_LABEL } from '@/lib/roles';
@@ -82,9 +84,16 @@ export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
             <Avatar nombre={user.nombre} avatarUrl={user.avatarUrl} size="sm" />
             <span className="hidden text-sm text-slate-700 sm:inline">{user.nombre}</span>
           </Link>
-          <Button variant="ghost" size="md" onClick={handleLogout} aria-label="Cerrar sesión">
-            <LogOut className="h-4 w-4" aria-hidden />
-          </Button>
+          {/* Con proveedor real, el menú de cuenta lo maneja él: cerrar sesión
+              tiene que invalidar la sesión en Clerk, no solo limpiar el estado
+              local. Sin proveedor queda el botón de siempre. */}
+          {CLERK_HABILITADO ? (
+            <UserButton afterSignOutUrl="/login" />
+          ) : (
+            <Button variant="ghost" size="md" onClick={handleLogout} aria-label="Cerrar sesión">
+              <LogOut className="h-4 w-4" aria-hidden />
+            </Button>
+          )}
         </div>
       )}
     </header>
