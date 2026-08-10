@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.audit import crud_action_plan, crud_audit, crud_nonconformity
 from ..deps import get_tenant_db, get_tenant_id
+from ._comun import borrar_o_404
 from ..schemas.audit import (
     ActionPlanCreate,
     ActionPlanRead,
@@ -157,3 +158,25 @@ def verify_plan(
         return obj
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.delete("/{audit_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_audit(audit_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Retira una auditoria. Sus hallazgos y no conformidades no se tocan:
+    una no conformidad sobrevive a la auditoria que la origino."""
+    borrar_o_404(crud_audit, db, audit_id, recurso="Audit")
+
+
+@router.delete("/nonconformities/{nc_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["nonconformities"])
+def delete_nonconformity(nc_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Retira una no conformidad registrada por error.
+
+    Cerrarla es otra cosa y va por `/nonconformities/{id}/close`: cerrar
+    significa que se resolvio, esto que no debio existir.
+    """
+    borrar_o_404(crud_nonconformity, db, nc_id, recurso="Nonconformity")
+
+
+@router.delete("/action-plans/{plan_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["action-plans"])
+def delete_action_plan(plan_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_action_plan, db, plan_id, recurso="ActionPlan")

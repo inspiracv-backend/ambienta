@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.iso14001 import crud_environmental_aspect, crud_regulated_equipment, crud_risk_opportunity
 from ..deps import get_tenant_db, get_tenant_id
+from ._comun import borrar_o_404
 from ..schemas.iso14001 import (
     EnvironmentalAspectCreate,
     EnvironmentalAspectRead,
@@ -96,3 +97,20 @@ def update_equipment(equipment_id: UUID, data: RegulatedEquipmentUpdate, db: Ses
     obj = crud_regulated_equipment.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
+
+
+@router.delete("/aspects/{aspect_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_aspect(aspect_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_environmental_aspect, db, aspect_id, recurso="EnvironmentalAspect")
+
+
+@router.delete("/risks/{risk_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_risk(risk_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_risk_opportunity, db, risk_id, recurso="RiskOpportunity")
+
+
+@router.delete("/equipment/{equipment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_equipment(equipment_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Da de baja un equipo regulado. Sus operadores certificados quedan
+    asociados: la certificacion de una persona es suya, no del equipo."""
+    borrar_o_404(crud_regulated_equipment, db, equipment_id, recurso="RegulatedEquipment")

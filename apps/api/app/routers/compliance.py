@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.compliance import crud_article_compliance, crud_matrix, crud_matrix_norm
 from ..deps import get_tenant_db, get_tenant_id
+from ._comun import borrar_o_404
 from ..schemas.compliance import (
     ArticleComplianceCreate,
     ArticleComplianceRead,
@@ -132,3 +133,21 @@ def evaluate(
         return obj
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.delete("/matrices/{matrix_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_matrix(matrix_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Retira una matriz legal de un periodo. Las evaluaciones por articulo
+    quedan: son el historial de cumplimiento, no un detalle de la matriz."""
+    borrar_o_404(crud_matrix, db, matrix_id, recurso="Matrix")
+
+
+@router.delete("/matrix-norms/{mn_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_matrix_norm(mn_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Saca una norma de la matriz: deja de aplicarle a la empresa."""
+    borrar_o_404(crud_matrix_norm, db, mn_id, recurso="MatrixNorm")
+
+
+@router.delete("/article-compliance/{ac_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_article_compliance(ac_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_article_compliance, db, ac_id, recurso="ArticleCompliance")

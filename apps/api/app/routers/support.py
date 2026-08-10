@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.support import crud_chatbot_conversation, crud_support_ticket
 from ..deps import get_tenant_db, get_tenant_id
+from ._comun import borrar_o_404
 from ..schemas.support import (
     ChatbotConversationCreate,
     ChatbotConversationRead,
@@ -120,3 +121,10 @@ def create_chatbot_message(
     db.refresh(obj)
     db.commit()
     return obj
+
+
+@router.delete("/tickets/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ticket(ticket_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Retira un ticket. Sus mensajes no se exponen para borrado: son la
+    conversacion con el cliente y borrar uno suelto la volveria enganosa."""
+    borrar_o_404(crud_support_ticket, db, ticket_id, recurso="SupportTicket")

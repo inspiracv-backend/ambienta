@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.organization import crud_facility
 from ..deps import get_tenant_db, get_tenant_id
+from ._comun import borrar_o_404
 from ..schemas.organization import FacilityCreate, FacilityRead, FacilityUpdate
 
 router = APIRouter(prefix="/facilities", tags=["facilities"])
@@ -50,3 +51,10 @@ def update_facility(
     obj = crud_facility.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
+
+
+@router.delete("/{facility_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_facility(facility_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Da de baja una instalacion. Borrado logico: sus obligaciones y
+    evaluaciones siguen referenciandola en el historial."""
+    borrar_o_404(crud_facility, db, facility_id, recurso="Facility")

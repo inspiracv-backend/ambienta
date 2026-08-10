@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.documents import crud_document
 from ..deps import get_tenant_db, get_tenant_id
+from ._comun import borrar_o_404
 from ..schemas.documents import (
     DocumentCreate,
     DocumentRead,
@@ -74,3 +75,11 @@ def create_version(
     db.refresh(obj)
     db.commit()
     return obj
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document(document_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Retira un documento. Sus versiones no se exponen para borrado: son la
+    evidencia que respalda el cumplimiento, y eliminarlas dejaria sin sustento
+    a las evaluaciones que las citan."""
+    borrar_o_404(crud_document, db, document_id, recurso="Document")

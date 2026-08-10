@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.organization import crud_user
 from ..deps import get_tenant_db, get_tenant_id
+from ._comun import borrar_o_404
 from ..schemas.organization import UserCreate, UserRead, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -42,3 +43,15 @@ def update_user(user_id: UUID, data: UserUpdate, db: Session = Depends(get_tenan
     obj = crud_user.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Saca a la persona de la empresa.
+
+    Distinto de `status`: bloquear o deshabilitar es suspender —la persona
+    sigue en la nomina y se puede revertir—, mientras que esto la retira. Su
+    rastro en el registro de auditoria se conserva, que es lo que impide
+    borrar la fila de verdad.
+    """
+    borrar_o_404(crud_user, db, user_id, recurso="User")
