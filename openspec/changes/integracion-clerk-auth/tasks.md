@@ -32,8 +32,8 @@ Plan de implementacion de [`proposal.md`](./proposal.md) / [`design.md`](./desig
 
 Sin esto, las fases siguientes se construyen sobre supuestos.
 
-- [ ] **Crear cuenta de Clerk** (gratis para desarrollo). Obtener `PUBLISHABLE_KEY`, dominio y JWKS URL
-- [ ] **Configurar JWT Template** en el dashboard de Clerk para inyectar `publicMetadata.tenant_id` como claim `tenant_id` en el JWT. Verificar que el JWT resultante trae el claim
+- [x] **Crear cuenta de Clerk** (gratis para desarrollo). Obtener `PUBLISHABLE_KEY`, dominio y JWKS URL — instancia `rapid-octopus-10`, 10-ago-2026
+- [x] **Configurar JWT Template** que inyecta `publicMetadata.tenant_id` como claim `tenant_id`. Template `default`. Verificado: el token del template trae el claim, el de sesion **no** (design §2.2)
 - [ ] **Verificar la calidad del SSO con Microsoft/Entra ID** con una cuenta real de Azure. ADR-006 lo dejo como pendiente. Si falla, Microsoft SSO se pospone y no bloquea el resto
 - [ ] **Decidir si se deshabilita signup publico** en Clerk (ver supuesto S-9 y decision abierta #4 de la propuesta)
 
@@ -152,25 +152,42 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 4 — Frontend: api-client con Bearer token
 
-- [ ] Actualizar `RequestOptions` en `api-client.ts`: agregar campo `token`
-- [ ] Actualizar `request()`: logica de prioridad (token > tenantId > sin auth)
-- [ ] Manejo de 401: redirect a `/login`, sin reintento
-- [ ] Crear hook `useApiToken()` que encapsula `useAuth().getToken()`
-- [ ] Actualizar los 13 stores para pasar `token` en las llamadas:
-  - [ ] `plants-store`
-  - [ ] `areas-store`
-  - [ ] `declarations-store`
-  - [ ] `audits-store`
-  - [ ] `non-conformities-store`
-  - [ ] `action-plans-store`
-  - [ ] `risks-store`
-  - [ ] `documents-store`
-  - [ ] `obligations-store`
-  - [ ] `normativas-store`
-  - [ ] `users-store`
-  - [ ] `kpis-store`
-  - [ ] `notifications-store`
-- [ ] Verificar que la carga de datos funciona end-to-end con JWT real
+> **La forma cambio, y por eso los checkboxes no calzan uno a uno con lo
+> hecho.** El token de Clerk dura **60 segundos**, asi que pasarlo como valor
+> por llamada obliga a re-pedirlo antes de cada request en 20 sitios. Se
+> registra un *getter* una sola vez y `request()` lo consulta. Ver design §5 y
+> §7, corregidos.
+
+- [x] ~~Agregar campo `token` a `RequestOptions`~~ → `registrarProveedorDeToken()`
+      a nivel de modulo. Ningun sitio de llamada cambia
+- [x] `request()`: prioridad token > tenantId > sin auth
+- [x] Manejo de 401 sin reintento. **Con un matiz que no estaba previsto**: solo
+      redirige si Clerk dice que ya no hay sesion. Un 401 con sesion viva es
+      template mal configurado, y redirigir ahi arma un bucle
+- [x] ~~Hook `useApiToken()`~~ → `<ClerkApiBridge/>`, dentro del provider,
+      registra `getToken({ template })`. **Con `template`, no pelado**: el token
+      de sesion estandar no lleva `tenant_id` (design §2.2)
+- [x] Cerrar la carrera entre el registro del token y el fetch de los stores
+- [x] Los 13 stores: **no hubo que tocarlos**, salvo `users-store`, que con
+      Clerk ya no enumera tenants (el JWT acota por RLS)
+- [x] Verificar la carga de datos end-to-end con JWT real:
+  - [x] `/users/` y `/dashboard/metrics` → 200, tablero al 40% con datos reales
+  - [x] Token del tenant 1 + `X-Tenant-Id` del tenant 2 → sigue devolviendo
+        solo el tenant 1. El header no cruza empresas
+  - [x] Sin llave: DevRoleSwitcher intacto y listando usuarios de la API
+
+### Lo que aparecio al conectar la instancia real (10-ago-2026)
+
+- [x] `/login` convertida en ruta catch-all `[[...rest]]`. `<SignIn/>` navega a
+      subrutas propias y sin catch-all da 404 y aborta
+- [x] `auth.protect({ unauthenticatedUrl })`. Sin eso manda al Account Portal
+      alojado, el navegador lo bloquea por origen y queda un bucle
+- [x] `CLERK_SECRET_KEY` al servicio `web`: `clerkMiddleware()` corre en el
+      servidor de Next y falla con "Missing secretKey"
+- [x] `NEXT_PUBLIC_CLERK_JWT_TEMPLATE` en compose y `.env.example`
+- [ ] **Webhook inalcanzable en local**: Clerk no llega a `localhost:8000`, asi
+      que el alta de usuarios locales es un INSERT a mano (design §7.1).
+      Pendiente decidir tunel (ngrok) o probarlo recien en el VPS
 
 ## Fase 5 — Configuracion SSO (sin codigo)
 

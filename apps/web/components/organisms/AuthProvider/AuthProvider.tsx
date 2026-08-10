@@ -3,6 +3,7 @@
 import { ClerkProvider } from '@clerk/nextjs';
 import { esES } from '@clerk/localizations';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
+import { ClerkApiBridge } from './ClerkApiBridge';
 
 /**
  * Envuelve la app en el proveedor de identidad, pero solo si hay uno.
@@ -25,6 +26,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUpUrl="/signup"
       afterSignOutUrl="/login"
     >
+      <ClerkApiBridge />
       {children}
     </ClerkProvider>
   );

@@ -69,6 +69,22 @@ un JWT Template que lo mapee a un claim de primer nivel. Si no se configura el
 template, el JWT no trae `tenant_id` y la API rechaza con 401. Es un paso
 manual en el dashboard de Clerk que hay que documentar.
 
+**Configurar el template no alcanza: hay que pedirlo por nombre**
+(comprobado el 10-ago-2026 contra la instancia real, y costo una tarde). Hay
+dos tokens distintos y solo uno sirve:
+
+| Llamada | Claims |
+|---|---|
+| `getToken()` | `azp, exp, fva, iat, iss, nbf, sid, sts, sub, v` — **sin `tenant_id`** |
+| `getToken({ template: 'default' })` | `azp, exp, iat, iss, jti, nbf, sub, **tenant_id**` |
+
+El primero es el token de sesion estandar, que ignora los JWT Templates. Que
+el template se llame `default` **no** lo vuelve el predeterminado: es solo su
+nombre. Con `getToken()` pelado, `auth.py` registra
+`JWT de Clerk sin claims requeridos (sub=True, tenant_id=False)` y devuelve
+401 en todos los endpoints — el sintoma es una app que autentica bien y no
+muestra ningun dato.
+
 **Por que no se usa un claim estandar como `org_id`.** Clerk usa `org_id` para
 sus Organizations, que decidimos no usar (ver proposal.md, decision
 estructural). Usar el mismo nombre causaria confusion cuando Clerk lo rellene
@@ -215,28 +231,44 @@ autentico el usuario.
 
 ## 5. Cambios en `api-client.ts`
 
+> **Corregido el 10-ago-2026 contra la instancia real.** Este apartado decia
+> que el token viajaba como parametro en `RequestOptions`. Es inviable: ver
+> abajo. Se deja lo que decia porque explica por que el codigo no se parece a
+> las tareas de la Fase 4.
+
 ```ts
-// Contrato del request actualizado
-RequestOptions {
-  // ... campos existentes ...
-  token?: string              // JWT de Clerk. Nuevo.
-  tenantId?: string           // Solo para fallback de desarrollo. Existente.
-}
+// Lo que se registra es un GETTER, una sola vez, no un token por llamada.
+registrarProveedorDeToken(() => getToken({ template: CLERK_JWT_TEMPLATE }))
 
 // Regla de prioridad en request():
-// 1. Si hay token → Authorization: Bearer <token>
+// 1. Si el getter devuelve token → Authorization: Bearer <token>
 // 2. Si no hay token pero hay tenantId → X-Tenant-Id: <tenantId> (dev)
-// 3. Si no hay ninguno → la request se envia sin auth (401 en prod)
-
-// Manejo de 401:
-// Si la API responde 401 → redirigir a /login
-// No reintentar: el token expiro o es invalido, hay que re-autenticar
+// 3. Si no hay ninguno → la request sale sin auth (401 con Clerk activo)
 ```
 
-**Por que el token se pasa como parametro y no se lee directo del hook de
-Clerk.** El api-client es una funcion pura, no un componente React. No puede
-llamar `useAuth()`. El token se obtiene en el store o componente que llama y se
-pasa como opcion. Esto mantiene el api-client testeable sin mock de Clerk.
+**Por que un getter y no un parametro `token`.** El diseño original proponia
+pasar el token en cada llamada. No funciona: **el JWT Template emite tokens de
+60 segundos** (verificado: `exp - iat = 60`). Un string capturado en un store y
+pasado como opcion queda vencido al minuto de tener la pantalla abierta, y
+habria que re-obtenerlo antes de cada request en los 20 sitios de llamada.
+`getToken()` de Clerk ya renueva por dentro, asi que lo que hay que conservar
+es **la funcion**, registrada una vez desde dentro del provider.
+
+Efecto secundario bueno: las 20 llamadas existentes no se tocan. El api-client
+sigue siendo testeable sin mock de Clerk — sin proveedor registrado se comporta
+igual que antes.
+
+**Hay una carrera y esta cerrada explicitamente.** Los stores piden datos en un
+`useEffect` y el puente registra el token en otro; Clerk arranca con
+`isLoaded: false`. Sin sincronizacion, el primer request sale sin token, cobra
+401 y el store cae a los mocks para siempre. `request()` espera una promesa que
+se cumple cuando la identidad quedo resuelta — con getter o con `null`, ambas
+son respuestas definitivas.
+
+**El 401 no siempre manda al login.** Solo se redirige si Clerk dice que ya no
+hay sesion. Un 401 con sesion viva de Clerk significa template mal configurado,
+y mandar a `/login` ahi arma un bucle: `<SignIn />` ve al usuario dentro y lo
+devuelve al tablero. En ese caso se registra el error y se corta.
 
 ---
 
@@ -283,6 +315,27 @@ framework.
 **Por que se usa `clerkMiddleware` y no `authMiddleware`.** `authMiddleware`
 esta deprecado en `@clerk/nextjs` v5+. `clerkMiddleware` con `createRouteMatcher`
 es la API actual y soporta proteccion condicional por ruta.
+
+**`auth.protect()` pelado NO manda a `/login`** (10-ago-2026). Manda al
+Account Portal alojado de Clerk (`<slug>.accounts.dev/sign-in`), y en
+desarrollo el navegador bloquea ese salto por cambio de origen:
+
+```
+Unsafe attempt to load URL https://rapid-octopus-10.accounts.dev/sign-in
+from frame with URL http://localhost:3000/dashboard.
+Domains, protocols and ports must match.
+```
+
+El resultado es un bucle entre el portal y `/dashboard` que termina en
+`Throttling navigation to prevent the browser from hanging`. Hay que pasar
+`unauthenticatedUrl` explicito. Poner `signInUrl` en el `ClerkProvider` **no
+alcanza**: el provider vive en el cliente y el middleware corre antes.
+
+**`/login` tiene que ser ruta catch-all.** `<SignIn />` navega a subrutas
+propias (`/login/factor-two`, `/login/SignIn_clerk_catchall_check_<ts>`); con
+`app/(auth)/login/page.tsx` esas dan 404 y Clerk aborta con
+"The `<SignIn/>` component is not configured correctly". El archivo va en
+`app/(auth)/login/[[...rest]]/page.tsx`.
 
 ### 6.2 Layout raiz — el provider va condicionado
 
@@ -339,21 +392,68 @@ lo cual es aceptable: no es un toggle que cambie en produccion.
 Hoy los 13 stores llaman `api.plants.list()`, `api.audits.list()`, etc. sin
 pasar token. Despues de Clerk, cada llamada necesita el JWT.
 
+> **Invertido el 10-ago-2026.** Este apartado descartaba el interceptor global
+> y proponia pasar el token store por store. Se implemento al reves, y con
+> razon. Se deja el texto original abajo porque el argumento que lo tumba es
+> util.
+
+```ts
+// Lo implementado: ningun store cambia.
+// 1. <ClerkApiBridge/>, dentro del ClerkProvider, registra el getter una vez
+// 2. request() lo consulta en cada llamada y renueva solo
+```
+
+**Por que se invirtio.** El argumento contra el interceptor era "problemas de
+refresh". Es exactamente al reves: **los tokens duran 60 segundos**, asi que
+pasarlos como valor es lo que crea el problema de refresh — cada store tendria
+que re-pedirlo antes de cada llamada, y basta olvidarlo en uno para tener un
+401 intermitente imposible de reproducir. El getter renueva por dentro.
+
+Sobre "necesitaria acceso al token fuera de React": correcto, y por eso el
+puente **si** es un componente React —vive bajo el `ClerkProvider` y usa
+`useAuth()` como manda la libreria— que solo deja registrada la funcion. No
+hay token en estado global; hay una referencia a `getToken`.
+
+Lo que si cambio en `users-store`: con Clerk **no se enumeran tenants**. El
+JWT ya acota `/users/` por RLS, y recorrer `/tenants/` pediria N veces la
+misma lista porque la API ignora `X-Tenant-Id` cuando hay token. Sin Clerk se
+sigue enumerando, que es lo que permite cambiar de rol con el DevRoleSwitcher.
+
+<details><summary>Texto original (descartado)</summary>
+
 ```ts
 // Patron para cada store:
 // 1. En el componente que monta el store, obtener token via useAuth().getToken()
 // 2. Pasar token al store como parametro de la funcion de carga
 // 3. El store lo pasa a api.* como opts.token
-
-// Alternativa: crear un hook useApiToken() que encapsula useAuth().getToken()
-// y lo expone con la misma interfaz que el tenantId actual del DevRoleSwitcher.
-// Asi el cambio en cada store es minimo: reemplazar tenantId por token.
 ```
 
 **Por que no se crea un interceptor global.** Un interceptor en el api-client
 necesitaria acceso al token fuera de React. La forma idiomatica de `@clerk/nextjs`
 es obtener el token en el componente con `useAuth()` y pasarlo. Forzar un
 singleton de token introduce estado global y problemas de refresh.
+
+</details>
+
+### 7.1 De que Clerk conozca a alguien no se sigue que Ambienta lo conozca
+
+`useSession().user` sale de emparejar el **email** de Clerk contra `users`.
+Se usa el email y no `clerk_id` porque esa columna solo se llena cuando el
+webhook procesa el alta, y una persona que ya estaba en la base no lo tiene —
+es el mismo criterio de `clerk_sync.adoptar_por_email`.
+
+**En desarrollo local el webhook no corre.** Clerk no puede alcanzar
+`localhost:8000`, asi que cada usuario creado en el dashboard queda sin fila
+en la base y entra a una app vacia. Hasta que haya un tunel (ngrok) o un
+entorno desplegado, el alta local es un `INSERT` a mano:
+
+```sql
+INSERT INTO users (tenant_id, email, full_name, user_type, status)
+VALUES ('<uuid-del-tenant>', '<email en Clerk>', '<nombre>', 'tenant_admin', 'active');
+```
+
+El `tenant_id` de esa fila y el del `publicMetadata` en Clerk **tienen que
+coincidir**: uno decide que datos ve, el otro quien es.
 
 ---
 

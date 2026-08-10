@@ -14,7 +14,15 @@ const esPublica = createRouteMatcher([
 ]);
 
 const conClerk = clerkMiddleware(async (auth, req) => {
-  if (!esPublica(req)) await auth.protect();
+  if (esPublica(req)) return;
+
+  // `unauthenticatedUrl` explicito. Sin el, `auth.protect()` manda al Account
+  // Portal alojado de Clerk (`<slug>.accounts.dev/sign-in`), que en desarrollo
+  // el navegador bloquea por cambio de origen y deja un bucle de redirecciones
+  // entre el portal y /dashboard. Nuestro login es una pantalla nuestra.
+  await auth.protect({
+    unauthenticatedUrl: new URL('/login', req.url).toString(),
+  });
 });
 
 /**
