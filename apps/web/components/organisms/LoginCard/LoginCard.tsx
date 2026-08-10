@@ -2,10 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ShieldCheck } from 'lucide-react';
 import { BrandMark } from '@/components/atoms';
 import { SSOButton } from '@/components/molecules';
+import { AccesoInvitadoAviso } from '@/components/organisms/AccesoInvitadoAviso';
 import { useSession } from '@/lib/session';
 import { rutaInicialParaRol } from '@/lib/navigation';
 import { mockUsers } from '@/mocks/users';
@@ -99,20 +99,7 @@ export function LoginCard() {
         </p>
       </div>
 
-      {/* Camino del Cliente Invitado (A3, RF-02): es otro rol, no una nota al pie. */}
-      <div className="mt-4 rounded-card border border-slate-200 bg-slate-50/70 p-4">
-        <h2 className="text-sm font-semibold text-slate-800">¿Vienes a hacer una solicitud?</h2>
-        <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          Si eres cliente o contratista y solo necesitas enviar un requerimiento, no hace falta que tengas cuenta.
-        </p>
-        <Link
-          href="/acceso-invitado"
-          className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
-        >
-          Acceder como invitado
-          <ArrowRight className="h-4 w-4" aria-hidden />
-        </Link>
-      </div>
+      <AccesoInvitadoAviso />
     </div>
   );
 }

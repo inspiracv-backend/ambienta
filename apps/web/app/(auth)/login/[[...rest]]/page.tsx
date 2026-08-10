@@ -1,5 +1,5 @@
 import { SignIn } from '@clerk/nextjs';
-import { DevRoleSwitcher, LoginCard } from '@/components/organisms';
+import { AccesoInvitadoAviso, DevRoleSwitcher, LoginCard } from '@/components/organisms';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
 
 /**
@@ -8,6 +8,10 @@ import { CLERK_HABILITADO } from '@/lib/clerk-config';
  * `LoginCard` es el mock de los botones SSO: se muestra solo en el camino sin
  * Clerk. Dejarlo junto a `<SignIn />` daría dos formularios de ingreso en la
  * misma pantalla, uno de ellos falso.
+ *
+ * El aviso de invitado va **en los dos caminos**: es el acceso de otro rol
+ * (RF-02), no una variante del ingreso con cuenta. Venía dentro de `LoginCard`
+ * y al montar `<SignIn />` en su lugar quedó sin entrada visible.
  */
 export default function LoginPage() {
   if (!CLERK_HABILITADO) {
@@ -21,9 +25,12 @@ export default function LoginPage() {
   }
 
   return (
-    <SignIn
-      forceRedirectUrl="/dashboard"
-      appearance={{ elements: { rootBox: 'mx-auto' } }}
-    />
+    <div className="mx-auto w-full max-w-[25rem]">
+      <SignIn
+        forceRedirectUrl="/dashboard"
+        appearance={{ elements: { rootBox: 'mx-auto' } }}
+      />
+      <AccesoInvitadoAviso />
+    </div>
   );
 }
