@@ -87,3 +87,33 @@ class NotificationRead(OrmBase):
     context: dict
     created_at: datetime
     updated_at: datetime
+
+
+class NotificationTemplateUpdate(BaseModel):
+    """Lo editable de una plantilla. `code` no esta: es su identificador de
+    negocio y lo referencian las reglas por nombre."""
+
+    name: str | None = None
+    subject_template: str | None = None
+    body_template: str | None = None
+    locale: str | None = None
+    active: bool | None = None
+
+
+class NotificationRuleUpdate(BaseModel):
+    """Cuando y a quien avisar. `event_type` no cambia: una regla para otro
+    evento es otra regla."""
+
+    channel: str | None = None
+    lead_minutes: int | None = None
+    recipient_rule: dict | None = None
+    template_code: str | None = None
+    active: bool | None = None
+
+
+class NotificationUpdate(BaseModel):
+    """Un aviso ya emitido casi no se edita: lo que cambia es su estado y la
+    marca de lectura, que es como se vacia la bandeja."""
+
+    status: str | None = None
+    read_at: datetime | None = None

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.compliance import crud_article_compliance, crud_matrix, crud_matrix_norm
 from ..deps import get_tenant_db, get_tenant_id
-from ._comun import borrar_o_404
+from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.compliance import (
     ArticleComplianceCreate,
     ArticleComplianceRead,
@@ -151,3 +151,13 @@ def delete_matrix_norm(mn_id: UUID, db: Session = Depends(get_tenant_db)):
 @router.delete("/article-compliance/{ac_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_article_compliance(ac_id: UUID, db: Session = Depends(get_tenant_db)):
     borrar_o_404(crud_article_compliance, db, ac_id, recurso="ArticleCompliance")
+
+
+@router.get("/matrix-norms/{mn_id}", response_model=MatrixNormRead)
+def get_matrix_norm(mn_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_matrix_norm, db, mn_id, recurso="MatrixNorm")
+
+
+@router.get("/article-compliance/{ac_id}", response_model=ArticleComplianceRead)
+def get_article_compliance(ac_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_article_compliance, db, ac_id, recurso="ArticleCompliance")

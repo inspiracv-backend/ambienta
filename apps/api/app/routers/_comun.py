@@ -11,6 +11,22 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 
+def obtener_o_404(crud: Any, db: Session, id: Any, *, recurso: str) -> Any:
+    """Una fila por id, o 404.
+
+    `crud.get()` ya excluye lo borrado, asi que un recurso dado de baja
+    responde 404 y no una fila fantasma. Un recurso de otra empresa tambien
+    responde 404: Row Level Security hace que ni siquiera se vea, de modo que
+    la API nunca confirma que ese identificador exista en otro lado.
+    """
+    obj = crud.get(db, id)
+    if obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"{recurso} not found"
+        )
+    return obj
+
+
 def borrar_o_404(crud: Any, db: Session, id: Any, *, recurso: str) -> None:
     """Borra por id. 404 si no habia nada que borrar.
 

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.audit import crud_action_plan, crud_audit, crud_nonconformity
 from ..deps import get_tenant_db, get_tenant_id
-from ._comun import borrar_o_404
+from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.audit import (
     ActionPlanCreate,
     ActionPlanRead,
@@ -180,3 +180,13 @@ def delete_nonconformity(nc_id: UUID, db: Session = Depends(get_tenant_db)):
 @router.delete("/action-plans/{plan_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["action-plans"])
 def delete_action_plan(plan_id: UUID, db: Session = Depends(get_tenant_db)):
     borrar_o_404(crud_action_plan, db, plan_id, recurso="ActionPlan")
+
+
+@router.get("/nonconformities/{nc_id}", response_model=NonconformityRead, tags=["nonconformities"])
+def get_nonconformity(nc_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_nonconformity, db, nc_id, recurso="Nonconformity")
+
+
+@router.get("/action-plans/{plan_id}", response_model=ActionPlanRead, tags=["action-plans"])
+def get_action_plan(plan_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_action_plan, db, plan_id, recurso="ActionPlan")

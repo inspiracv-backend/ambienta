@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.iso14001 import crud_environmental_aspect, crud_regulated_equipment, crud_risk_opportunity
 from ..deps import get_tenant_db, get_tenant_id
-from ._comun import borrar_o_404
+from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.iso14001 import (
     EnvironmentalAspectCreate,
     EnvironmentalAspectRead,
@@ -114,3 +114,18 @@ def delete_equipment(equipment_id: UUID, db: Session = Depends(get_tenant_db)):
     """Da de baja un equipo regulado. Sus operadores certificados quedan
     asociados: la certificacion de una persona es suya, no del equipo."""
     borrar_o_404(crud_regulated_equipment, db, equipment_id, recurso="RegulatedEquipment")
+
+
+@router.get("/aspects/{aspect_id}", response_model=EnvironmentalAspectRead)
+def get_aspect(aspect_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_environmental_aspect, db, aspect_id, recurso="EnvironmentalAspect")
+
+
+@router.get("/risks/{risk_id}", response_model=RiskOpportunityRead)
+def get_risk(risk_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_risk_opportunity, db, risk_id, recurso="RiskOpportunity")
+
+
+@router.get("/equipment/{equipment_id}", response_model=RegulatedEquipmentRead)
+def get_equipment(equipment_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_regulated_equipment, db, equipment_id, recurso="RegulatedEquipment")
