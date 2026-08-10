@@ -101,10 +101,26 @@ el ciclo completo.
 - Validación automática desde el contrato (Pydantic en la API; Zod en el frontend).
 
 ### 4. Seguridad Multi-Tenant (Crítica)
-- Toda consulta debe filtrar por `tenant_id`.
-- Row Level Security (RLS) en PostgreSQL como segunda barrera.
+
+**Hoy RLS no es la segunda barrera: es la única.** Medido el 10-ago-2026,
+ninguna consulta de la aplicación filtra por `tenant_id` — ni `CRUDBase` ni un
+solo router. Lo que separa a una empresa de otra es enteramente PostgreSQL.
+
+Y RLS sólo se aplica si la transacción corre como `ambienta_app`. La API se
+conecta como `ambienta`, que es **superusuario con BYPASSRLS**, así que todo
+depende de que `SET LOCAL ROLE ambienta_app` se ejecute en cada transacción —
+lo hace `get_tenant_db`, y sólo él.
+
+- Usar **siempre** `get_tenant_db` para datos de empresa. `get_db` corre sin
+  ninguna barrera: sirve para el catálogo global (que no tiene `tenant_id`) y
+  para los health checks, nada más.
+- **No consultar después de `db.commit()`.** El commit cierra la transacción y
+  con ella se van el rol y el tenant: lo que venga después ve todas las
+  empresas. Verificado — se pasa de 4 usuarios visibles a 6.
 - RBAC verificado siempre en la API (nunca solo en frontend).
 - Admin Global NO puede editar contenido de tenants.
+
+Lo protegen `apps/api/tests/test_aislamiento.py` y el smoke test de `db/`.
 
 ### 5. Roles
 - **Admin Global**: Dueño del software (gestión de tenants, catálogo maestro).
@@ -204,6 +220,12 @@ contra `db/01_schema.sql` y los modelos antes de escribir cualquier mapeo.**
 **Los tests pueden ser vacuos.** Romper a proposito lo que un test dice
 proteger y confirmar que falla. Se hizo con las dos propiedades de seguridad de
 Clerk y con la del webhook.
+
+**El aislamiento no avisa cuando se rompe.** Es la trampa mas cara de todas.
+Un endpoint escrito con `get_db` en vez de `get_tenant_db`, o una consulta
+puesta despues de un `db.commit()`, no falla: devuelve datos de todas las
+empresas con normalidad. No hay excepcion, ni log, ni test que se ponga rojo
+salvo los de `test_aislamiento.py`. Ver §4.
 
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
