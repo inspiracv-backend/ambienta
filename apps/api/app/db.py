@@ -21,10 +21,25 @@ datos entre clientes.
 ## Dos condiciones para que RLS realmente proteja
 
 1. Conectarse con un rol que NO sea superusuario. Un superusuario ignora RLS
-   por completo, aunque las policies esten ahi. El esquema crea `ambienta_app`
-   justo para esto.
+   por completo, aunque las policies esten ahi.
 2. El SET LOCAL vive en la transaccion, asi que la sesion debe usar una
-   transaccion explicita — de ahi el `begin()` en `get_tenant_db`.
+   transaccion explicita.
+
+La condicion 1 estuvo incumplida hasta el 10-ago-2026: la API se conectaba con
+el dueno de la base, superusuario con BYPASSRLS, y lo unico que protegia era el
+`SET LOCAL ROLE ambienta_app` de cada transaccion. Se perdia en cada commit.
+Ahora la barrera vive en la conexion: aunque alguien olvide el SET LOCAL, las
+policies se evaluan igual.
+
+## Por que hay dos motores
+
+`engine` usa `ambienta_app`, que **no** puede saltarse RLS. Es el de todos los
+requests.
+
+`engine_admin` usa el dueno de la base. Existe para lo que legitimamente cruza
+empresas —el webhook de Clerk, que recibe un alta y todavia no sabe de que
+empresa es hasta leer el payload— y para el health check del esquema. Es una
+excepcion nombrada y greppable, en vez de que todo corra sin barrera.
 """
 from collections.abc import Generator
 
@@ -59,6 +74,24 @@ engine = create_engine(
 # lo advierta. Verificado: tras `commit()` se pasa de 4 usuarios visibles a 6.
 SessionLocal = sessionmaker(
     bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+)
+
+# Conexion con el dueno de la base. Salta RLS, asi que se usa solo donde
+# cruzar empresas es el proposito: ver `get_admin_db` en deps.py.
+#
+# Si no hay una URL de administracion configurada cae a la de la aplicacion.
+# Eso degrada el webhook —fallara al escribir usuarios— en vez de degradar el
+# aislamiento, que es el orden correcto para equivocarse.
+engine_admin = create_engine(
+    settings.database_admin_url or settings.database_url,
+    pool_pre_ping=True,
+    pool_size=2,
+    max_overflow=2,
+    echo=settings.sql_echo,
+)
+
+AdminSessionLocal = sessionmaker(
+    bind=engine_admin, autoflush=False, autocommit=False, expire_on_commit=False
 )
 
 

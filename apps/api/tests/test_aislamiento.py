@@ -2,15 +2,18 @@
 
 Ninguna consulta de la aplicacion filtra por `tenant_id`: ni `CRUDBase` ni un
 solo router. Se comprobo sobre el codigo. O sea que Row Level Security no es la
-"segunda barrera" que dice CLAUDE.md — **es la unica**.
+"segunda barrera" — **es la unica**, y por eso conviene que sea solida.
 
-Y RLS solo se aplica si la transaccion corre como `ambienta_app`. La API se
-conecta como `ambienta`, que es superusuario con BYPASSRLS, asi que todo
-depende de que `SET LOCAL ROLE ambienta_app` se ejecute en cada transaccion
-(`get_tenant_db`). Si esa linea desaparece, no falla nada: simplemente se
-empiezan a ver los datos de todas las empresas.
+Hasta el 10-ago-2026 la API se conectaba con el dueno de la base, superusuario
+con BYPASSRLS, y lo unico que la protegia era el `SET LOCAL ROLE ambienta_app`
+de cada transaccion. Se perdia en cada commit. Medido entonces:
 
-Estas pruebas fijan las tres propiedades que sostienen el invariante.
+    conexion            olvidando todo   con tenant   tras commit
+    dueno (superusuario)        6              4            6
+    rol de aplicacion           0              4            0
+
+Ahora la conexion usa el rol acotado, asi que el modo de fallo se invirtio: de
+"ve todo" a "no ve nada". Estas pruebas fijan esa propiedad.
 """
 from __future__ import annotations
 
@@ -22,9 +25,11 @@ from sqlalchemy.orm import Session
 
 TENANT_1 = "a0000000-0000-0000-0000-000000000001"
 TENANT_2 = "a0000000-0000-0000-0000-000000000002"
+# El rol de la aplicacion, el mismo con el que se conecta la API. Probar con el
+# dueno de la base daria falsos verdes: es superusuario y salta RLS.
 URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta",
+    "postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta",
 )
 
 
@@ -81,25 +86,31 @@ def test_sin_declarar_tenant_no_se_ve_nada(db: Session) -> None:
     assert _usuarios(db) == 0
 
 
-def test_el_cambio_de_rol_es_lo_que_activa_rls(db: Session) -> None:
-    """La prueba que explica por que `SET LOCAL ROLE` no se puede omitir.
+def test_la_conexion_por_si_sola_ya_aisla(db: Session) -> None:
+    """La propiedad que se gano al dejar de conectarse con un superusuario.
 
-    Con el mismo tenant declarado, la diferencia entre ver 4 filas y verlas
-    todas es unicamente el rol. Documenta que la API se conecta con un
-    superusuario y que la proteccion la da esa linea, no la conexion.
+    Sin `SET LOCAL ROLE` y sin declarar tenant —un endpoint mal escrito, o una
+    consulta puesta despues de un commit— la respuesta es cero filas. Antes era
+    todas las empresas, y sin ningun aviso.
     """
-    db.execute(
-        text("SELECT set_config('ambienta.tenant_id', :t, true)"), {"t": TENANT_1}
+    assert _usuarios(db) == 0, (
+        "La conexion vio filas sin declarar tenant. Revisar que DATABASE_URL "
+        "use `ambienta_app` y que ese rol no sea superusuario ni tenga "
+        "BYPASSRLS: si puede saltarse RLS, no hay aislamiento."
     )
-    sin_cambio_de_rol = _usuarios(db)
 
-    db.execute(text("SET LOCAL ROLE ambienta_app"))
-    con_cambio_de_rol = _usuarios(db)
 
-    assert sin_cambio_de_rol > con_cambio_de_rol, (
-        "Se esperaba que el superusuario viera mas filas que el rol de "
-        "aplicacion. Si son iguales, o la API ya no se conecta como "
-        "superusuario (bien) o RLS dejo de aplicar (grave)."
+def test_el_rol_de_la_conexion_no_puede_saltarse_rls(db: Session) -> None:
+    """Lo que hace cierto a todo lo demas. Si esto cambia, nada protege."""
+    fila = db.execute(
+        text(
+            "SELECT rolsuper OR rolbypassrls FROM pg_roles "
+            "WHERE rolname = current_user"
+        )
+    ).scalar_one()
+    assert fila is False, (
+        "La API se conecta con un rol que ignora Row Level Security. "
+        "Las policies existen pero no se evaluan."
     )
 
 

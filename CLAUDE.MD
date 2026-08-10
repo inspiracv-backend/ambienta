@@ -102,21 +102,31 @@ el ciclo completo.
 
 ### 4. Seguridad Multi-Tenant (Crítica)
 
-**Hoy RLS no es la segunda barrera: es la única.** Medido el 10-ago-2026,
-ninguna consulta de la aplicación filtra por `tenant_id` — ni `CRUDBase` ni un
-solo router. Lo que separa a una empresa de otra es enteramente PostgreSQL.
+**RLS no es la segunda barrera: es la única.** Ninguna consulta de la
+aplicación filtra por `tenant_id` — ni `CRUDBase` ni un solo router. Lo que
+separa a una empresa de otra es enteramente PostgreSQL, así que conviene que
+sea sólido.
 
-Y RLS sólo se aplica si la transacción corre como `ambienta_app`. La API se
-conecta como `ambienta`, que es **superusuario con BYPASSRLS**, así que todo
-depende de que `SET LOCAL ROLE ambienta_app` se ejecute en cada transacción —
-lo hace `get_tenant_db`, y sólo él.
+La API se conecta con **`ambienta_app`, que no puede saltarse RLS**. Eso pone
+la barrera en la conexión: un endpoint mal escrito devuelve cero filas en vez
+de todas las empresas. Hasta el 10-ago-2026 se conectaba con el dueño de la
+base —superusuario con `BYPASSRLS`— y todo dependía de un `SET LOCAL ROLE` por
+transacción que se perdía en cada `commit`:
 
-- Usar **siempre** `get_tenant_db` para datos de empresa. `get_db` corre sin
-  ninguna barrera: sirve para el catálogo global (que no tiene `tenant_id`) y
-  para los health checks, nada más.
+| conexión | olvidando todo | con tenant | tras commit |
+|---|---|---|---|
+| dueño (antes) | **6** = todas las empresas | 4 | **6** |
+| `ambienta_app` (ahora) | 0 | 4 | 0 |
+
+- Usar **siempre** `get_tenant_db` para datos de empresa. `get_db` sí tiene la
+  barrera —usa el mismo rol— pero no declara tenant, así que sobre una tabla de
+  empresa devuelve cero filas. Sirve para el catálogo global y para `tenants`,
+  que no llevan `tenant_id`.
 - **No consultar después de `db.commit()`.** El commit cierra la transacción y
-  con ella se van el rol y el tenant: lo que venga después ve todas las
-  empresas. Verificado — se pasa de 4 usuarios visibles a 6.
+  con ella se va el tenant declarado: lo que venga después ve cero filas.
+  Molesto, pero ya no peligroso.
+- `get_admin_db` **sí** cruza empresas. Sólo el webhook de Clerk y el health
+  del esquema. Cualquier uso nuevo hay que justificarlo.
 - RBAC verificado siempre en la API (nunca solo en frontend).
 - Admin Global NO puede editar contenido de tenants.
 
@@ -221,11 +231,10 @@ contra `db/01_schema.sql` y los modelos antes de escribir cualquier mapeo.**
 proteger y confirmar que falla. Se hizo con las dos propiedades de seguridad de
 Clerk y con la del webhook.
 
-**El aislamiento no avisa cuando se rompe.** Es la trampa mas cara de todas.
-Un endpoint escrito con `get_db` en vez de `get_tenant_db`, o una consulta
-puesta despues de un `db.commit()`, no falla: devuelve datos de todas las
-empresas con normalidad. No hay excepcion, ni log, ni test que se ponga rojo
-salvo los de `test_aislamiento.py`. Ver §4.
+**El aislamiento falla en silencio, pero ahora falla cerrado.** Un endpoint
+escrito con `get_db` en vez de `get_tenant_db`, o una consulta puesta despues
+de un `db.commit()`, no lanza ninguna excepcion: devuelve **cero filas**. Da
+una pantalla vacia inexplicable, no una fuga. Antes daba lo contrario. Ver §4.
 
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.

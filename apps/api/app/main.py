@@ -16,7 +16,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .db import check_database, get_db
+from .db import check_database
+from .deps import get_admin_db
 from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .routers import (
     audits, catalog, compliance, dashboard, documents, facilities,
@@ -58,7 +59,7 @@ def health() -> dict:
 
 
 @app.get("/health/db", tags=["health"])
-def health_db(response: Response, db: Session = Depends(get_db)) -> dict:
+def health_db(response: Response, db: Session = Depends(get_admin_db)) -> dict:
     """Readiness: la base responde y el esquema esta cargado."""
     try:
         db.execute(text("SELECT 1"))
