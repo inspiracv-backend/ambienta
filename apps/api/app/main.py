@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import check_database, get_db
+from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .routers import (
     audits, catalog, compliance, dashboard, documents, facilities,
     iso14001, notifications, obligations, support, system, tenants, users,
@@ -28,8 +29,14 @@ settings = get_settings()
 app = FastAPI(
     title="Ambienta API",
     version="0.1.0",
-    description="Backend de gestion de cumplimiento ambiental.",
+    description=DESCRIPCION,
+    openapi_tags=TAGS_METADATA,
 )
+
+# El contrato se arma en `openapi.py`: FastAPI describe los caminos felices y
+# calla los errores, y un contrato que no dice como falla obliga a descubrirlo
+# probando.
+app.openapi = lambda: construir_esquema(app)
 
 app.add_middleware(
     CORSMiddleware,
