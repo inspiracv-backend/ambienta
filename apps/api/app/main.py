@@ -13,10 +13,12 @@ ORM no genera. SQLAlchemy se usa para consultar, no para definir el esquema.
 from fastapi import Depends, FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import check_database
+from .errores import manejar_error_de_integridad
 from .deps import get_admin_db
 from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .routers import (
@@ -39,6 +41,10 @@ app = FastAPI(
 # calla los errores, y un contrato que no dice como falla obliga a descubrirlo
 # probando.
 app.openapi = lambda: construir_esquema(app)
+
+# Una restriccion violada es un dato malo del cliente, no una falla del
+# servidor. Sin este manejador sale 500 y quien llama no sabe que corregir.
+app.add_exception_handler(IntegrityError, manejar_error_de_integridad)
 
 app.add_middleware(
     CORSMiddleware,
