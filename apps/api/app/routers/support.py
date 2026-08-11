@@ -6,11 +6,19 @@ from sqlalchemy.orm import Session
 
 from ..auth import CurrentUser
 from ..models.organization import User
-from ..crud.support import crud_chatbot_conversation, crud_support_ticket
+from ..crud.support import (
+    crud_chatbot_conversation,
+    crud_chatbot_message,
+    crud_support_ticket,
+    crud_ticket_message,
+)
 from ..deps import get_current_user, get_tenant_db, get_tenant_id
-from ._comun import borrar_o_404, obtener_o_404
+from ._comun import borrar_o_404, obtener_o_404, verificar_padre
 from ..schemas.support import (
     ChatbotConversationCreate,
+    ChatbotConversationUpdate,
+    ChatbotMessageUpdate,
+    SupportTicketMessageUpdate,
     ChatbotConversationRead,
     ChatbotMessageCreate,
     ChatbotMessageRead,
@@ -173,3 +181,62 @@ def delete_ticket(ticket_id: UUID, db: Session = Depends(get_tenant_db)):
 @router.get("/chatbot/{conversation_id}", response_model=ChatbotConversationRead)
 def get_chatbot_conversation(conversation_id: UUID, db: Session = Depends(get_tenant_db)):
     return obtener_o_404(crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation")
+
+
+@router.patch("/chatbot/{conversation_id}", response_model=ChatbotConversationRead)
+def update_conversation(conversation_id: UUID, data: ChatbotConversationUpdate, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation")
+    obj = crud_chatbot_conversation.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/chatbot/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(conversation_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation")
+
+
+@router.get("/tickets/{ticket_id}/messages/{mensaje_id}", response_model=SupportTicketMessageRead)
+def get_ticket_message(ticket_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+    return verificar_padre(obj, ticket_id, campo="ticket_id")
+
+
+@router.patch("/tickets/{ticket_id}/messages/{mensaje_id}", response_model=SupportTicketMessageRead)
+def update_ticket_message(ticket_id: UUID, mensaje_id: int, data: SupportTicketMessageUpdate, db: Session = Depends(get_tenant_db)):
+    """Corrige el texto. El autor no cambia: editar quien dijo algo seria
+    falsificar la conversacion con el cliente."""
+    obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+    verificar_padre(obj, ticket_id, campo="ticket_id")
+    obj = crud_ticket_message.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/tickets/{ticket_id}/messages/{mensaje_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ticket_message(ticket_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+    verificar_padre(obj, ticket_id, campo="ticket_id")
+    borrar_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+
+
+@router.get("/chatbot/{conversation_id}/messages/{mensaje_id}", response_model=ChatbotMessageRead)
+def get_chatbot_message(conversation_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")
+    return verificar_padre(obj, conversation_id, campo="conversation_id")
+
+
+@router.patch("/chatbot/{conversation_id}/messages/{mensaje_id}", response_model=ChatbotMessageRead)
+def update_chatbot_message(conversation_id: UUID, mensaje_id: int, data: ChatbotMessageUpdate, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")
+    verificar_padre(obj, conversation_id, campo="conversation_id")
+    obj = crud_chatbot_message.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/chatbot/{conversation_id}/messages/{mensaje_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chatbot_message(conversation_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")
+    verificar_padre(obj, conversation_id, campo="conversation_id")
+    borrar_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..crud.obligations import crud_obligation, crud_task
 from ..deps import get_tenant_db, get_tenant_id
-from ._comun import borrar_o_404
+from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.obligations import (
     ObligationCreate,
     ObligationRead,
@@ -155,3 +155,8 @@ def delete_obligation(obligation_id: UUID, db: Session = Depends(get_tenant_db))
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_task(task_id: UUID, db: Session = Depends(get_tenant_db)):
     borrar_o_404(crud_task, db, task_id, recurso="Task")
+
+
+@router.get("/tasks/{task_id}", response_model=TaskRead)
+def get_task(task_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_task, db, task_id, recurso="Task")

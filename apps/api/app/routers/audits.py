@@ -3,12 +3,28 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..crud.audit import crud_action_plan, crud_audit, crud_nonconformity
+from ..crud.audit import (
+    crud_action_plan,
+    crud_audit,
+    crud_audit_item,
+    crud_nonconformity,
+)
 from ..deps import get_tenant_db, get_tenant_id
 from ..crud.organization import crud_user
-from ..models.audit import AuditParticipant
-from ._comun import CRUDAsociacion, borrar_o_404, obtener_o_404, validar_visible
+from ..models.audit import AuditItem, AuditParticipant
+from ._comun import (
+    CRUDAsociacion,
+    borrar_o_404,
+    listar_por_padre,
+    obtener_o_404,
+    validar_visible,
+    verificar_padre,
+)
 from ..schemas.audit import (
+    AuditItemUpdate,
+    AuditItemRead,
+    AuditItemCreate,
+    AuditItemCreateAnidado,
     ActionPlanCreate,
     AuditParticipantCreateAnidado,
     AuditParticipantRead,
@@ -260,3 +276,50 @@ def get_participant(audit_id: UUID, user_id: UUID, db: Session = Depends(get_ten
     if obj is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
     return obj
+
+
+# ── Hallazgos de una auditoria ─────────────────────────────────────────────
+
+@router.get("/{audit_id}/items", response_model=list[AuditItemRead], tags=["audits"])
+def list_audit_items(audit_id: UUID, db: Session = Depends(get_tenant_db)):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    return listar_por_padre(AuditItem, db, audit_id, campo="audit_id")
+
+
+@router.post("/{audit_id}/items", response_model=AuditItemRead, status_code=status.HTTP_201_CREATED, tags=["audits"])
+def create_audit_item(
+    audit_id: UUID,
+    data: AuditItemCreateAnidado,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    datos = data.model_dump()
+    datos["audit_id"] = audit_id
+    obj = crud_audit_item.create(db, obj_in=AuditItemCreate(**datos), tenant_id=tenant_id)
+    db.commit()
+    return obj
+
+
+@router.get("/{audit_id}/items/{item_id}", response_model=AuditItemRead, tags=["audits"])
+def get_audit_item(audit_id: UUID, item_id: UUID, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
+    return verificar_padre(obj, audit_id, campo="audit_id")
+
+
+@router.patch("/{audit_id}/items/{item_id}", response_model=AuditItemRead, tags=["audits"])
+def update_audit_item(audit_id: UUID, item_id: UUID, data: AuditItemUpdate, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
+    verificar_padre(obj, audit_id, campo="audit_id")
+    obj = crud_audit_item.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/{audit_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["audits"])
+def delete_audit_item(audit_id: UUID, item_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Retira un hallazgo registrado por error. Las no conformidades que haya
+    originado no se tocan: viven mas alla del hallazgo."""
+    obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
+    verificar_padre(obj, audit_id, campo="audit_id")
+    borrar_o_404(crud_audit_item, db, item_id, recurso="AuditItem")

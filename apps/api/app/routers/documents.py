@@ -3,12 +3,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..crud.documents import crud_document, crud_entity_document
+from ..crud.documents import (
+    crud_document,
+    crud_document_version,
+    crud_entity_document,
+)
 from ..deps import get_tenant_db, get_tenant_id
 from ..models.documents import EntityDocument
 from ._comun import borrar_o_404, listar_por_padre, obtener_o_404, verificar_padre
 from ..schemas.documents import (
     DocumentCreate,
+    DocumentVersionUpdate,
     EntityDocumentCreate,
     EntityDocumentCreateAnidado,
     EntityDocumentRead,
@@ -144,3 +149,35 @@ def delete_entity_document(document_id: UUID, vinculo_id: int, db: Session = Dep
 def get_entity_document(document_id: UUID, vinculo_id: int, db: Session = Depends(get_tenant_db)):
     obj = obtener_o_404(crud_entity_document, db, vinculo_id, recurso="EntityDocument")
     return verificar_padre(obj, document_id, campo="document_id")
+
+
+@router.get("/{document_id}/versions/{version_id}", response_model=DocumentVersionRead)
+def get_document_version(document_id: UUID, version_id: UUID, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_document_version, db, version_id, recurso="DocumentVersion")
+    return verificar_padre(obj, document_id, campo="document_id")
+
+
+@router.patch("/{document_id}/versions/{version_id}", response_model=DocumentVersionRead)
+def update_document_version(
+    document_id: UUID, version_id: UUID, data: DocumentVersionUpdate, db: Session = Depends(get_tenant_db)
+):
+    """Corrige los metadatos de una version. El archivo no se reemplaza."""
+    obj = obtener_o_404(crud_document_version, db, version_id, recurso="DocumentVersion")
+    verificar_padre(obj, document_id, campo="document_id")
+    obj = crud_document_version.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/{document_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_document_version(document_id: UUID, version_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Retira una version.
+
+    Va contra el criterio inicial —era evidencia y estaba fuera del borrado—
+    pero se expone porque una version subida por error tambien es un caso real.
+    El borrado es logico: la fila queda y las evaluaciones que la citaban
+    siguen teniendo a que apuntar.
+    """
+    obj = obtener_o_404(crud_document_version, db, version_id, recurso="DocumentVersion")
+    verificar_padre(obj, document_id, campo="document_id")
+    borrar_o_404(crud_document_version, db, version_id, recurso="DocumentVersion")

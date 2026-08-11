@@ -162,3 +162,54 @@ class DeclarationSubmissionUpdate(BaseModel):
     status: str | None = None
     submission_data: dict | None = None
     external_folio: str | None = None
+
+
+class ObligationTemplateCreate(BaseModel):
+    """Plantilla de obligacion del catalogo **global**.
+
+    No lleva `tenant_id`: lo que se cree aca lo ven todas las empresas. Por eso
+    el endpoint exige Admin Global.
+    """
+
+    country_id: int
+    code: str
+    name: str
+    authority: str | None = None
+    frequency_rule: str | None = None
+    default_lead_days: int = Field(default=30, ge=0, le=365)
+    template_config: dict = Field(default_factory=dict)
+
+
+class ObligationTemplateUpdate(BaseModel):
+    """`code` no esta: es la clave natural, UNIQUE global, y el seed la usa
+    como destino de `ON CONFLICT`. Cambiarla romperia esa sincronizacion."""
+
+    name: str | None = None
+    authority: str | None = None
+    frequency_rule: str | None = None
+    default_lead_days: int | None = Field(default=None, ge=0, le=365)
+    template_config: dict | None = None
+    active: bool | None = None
+
+
+class DeclarationTemplateCreate(BaseModel):
+    """Plantilla de declaracion del catalogo **global**."""
+
+    country_id: int
+    system_code: str
+    name: str
+    version: str
+    valid_from: date | None = None
+    valid_to: date | None = None
+    schema_definition: dict = Field(default_factory=dict)
+
+
+class DeclarationTemplateUpdate(BaseModel):
+    """`system_code` y `version` forman la unicidad: otra version es otra
+    plantilla, no una edicion de esta."""
+
+    name: str | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+    schema_definition: dict | None = None
+    active: bool | None = None

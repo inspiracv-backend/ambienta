@@ -247,3 +247,29 @@ class FacilityNormAssignmentCreateAnidado(BaseModel):
     assigned_version_id: UUID | None = None
     assignment_status: str = "pending_review"
     applicability_reason: str | None = None
+
+
+class LegalSourceCreate(BaseModel):
+    code: str
+    name: str
+    base_url: str | None = None
+
+
+class LegalSourceUpdate(BaseModel):
+    """`code` es la clave natural que usan los sincronizadores."""
+
+    name: str | None = None
+    base_url: str | None = None
+    active: bool | None = None
+
+
+class SectorCreate(BaseModel):
+    code: str
+    name: str
+    parent_sector_id: int | None = None
+
+
+class SectorUpdate(BaseModel):
+    name: str | None = None
+    parent_sector_id: int | None = None
+    active: bool | None = None

@@ -121,3 +121,11 @@ class EntityDocumentCreateAnidado(BaseModel):
     is_required: bool = False
     valid_from: date | None = None
     valid_to: date | None = None
+
+
+class DocumentVersionUpdate(BaseModel):
+    """Metadatos de una version. El archivo en si no se reemplaza: subir otro
+    contenido es otra version, y por eso existe el versionado."""
+
+    change_note: str | None = None
+    checksum: str | None = None

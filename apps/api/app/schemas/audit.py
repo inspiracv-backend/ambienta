@@ -238,3 +238,14 @@ class AuditParticipantCreateAnidado(BaseModel):
     external_name: str | None = None
     external_email: str | None = None
     notes: str | None = None
+
+
+class AuditItemCreateAnidado(BaseModel):
+    """Cuerpo de `POST /audits/{audit_id}/items`. La auditoria viene del path."""
+
+    sequence: int
+    question: str
+    clause_reference: str | None = None
+    article_id: UUID | None = None
+    result: str | None = None
+    evidence_note: str | None = None

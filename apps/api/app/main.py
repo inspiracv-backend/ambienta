@@ -22,9 +22,11 @@ from .errores import manejar_error_de_integridad
 from .deps import get_admin_db
 from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .routers import (
-    audits, catalog, compliance, dashboard, departments, documents, facilities,
+    audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
+    documents,
+    facilities,
     integraciones, iso14001, notifications, obligations, processes, support, system,
-    tenants,
+    plantillas, tenants,
     users, webhooks,
 )
 
@@ -83,11 +85,14 @@ app.include_router(webhooks.router, prefix=api_v1_prefix)
 app.include_router(dashboard.router, prefix=api_v1_prefix)
 app.include_router(tenants.router, prefix=api_v1_prefix)
 app.include_router(facilities.router, prefix=api_v1_prefix)
+app.include_router(contratos.router, prefix=api_v1_prefix)
 app.include_router(users.router, prefix=api_v1_prefix)
 app.include_router(departments.router, prefix=api_v1_prefix)
 app.include_router(processes.router, prefix=api_v1_prefix)
 app.include_router(integraciones.router, prefix=api_v1_prefix)
 app.include_router(obligations.router, prefix=api_v1_prefix)
+app.include_router(declaraciones.router, prefix=api_v1_prefix)
+app.include_router(plantillas.router, prefix=api_v1_prefix)
 app.include_router(audits.router, prefix=api_v1_prefix)
 app.include_router(catalog.router, prefix=api_v1_prefix)
 app.include_router(compliance.router, prefix=api_v1_prefix)

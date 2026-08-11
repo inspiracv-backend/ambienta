@@ -115,12 +115,28 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "contracts",
+        "description": (
+            "Contratos entre una consultora y su empresa cliente. La gestora "
+            "la fija el servidor con el tenant de la sesion; el "
+            "consentimiento de la contraparte todavia no se modela."
+        ),
+    },
+    {
         "name": "catalog",
         "description": (
             "Catalogo normativo **compartido entre todas las empresas**: "
             "fuentes, sectores, normas y articulado. No lleva `tenant_id` "
             "porque la ley es la misma para todos. Solo lectura: se "
             "sincroniza desde la fuente oficial, no se edita a mano."
+        ),
+    },
+    {
+        "name": "templates",
+        "description": (
+            "Plantillas de obligacion y declaracion. Son catalogo **global**, "
+            "sin `tenant_id`: lo que se cree aca lo ven todas las empresas. "
+            "Leer, cualquiera; escribir, solo Admin Global."
         ),
     },
     {
@@ -136,6 +152,13 @@ TAGS_METADATA: list[dict[str, Any]] = [
         "description": (
             "Obligaciones con vencimiento, sus tareas y las declaraciones "
             "que las cumplen."
+        ),
+    },
+    {
+        "name": "declarations",
+        "description": (
+            "Declaraciones enviadas a la autoridad. Es lo que cierra una "
+            "obligacion: el envio concreto, con su folio y su comprobante."
         ),
     },
     {
