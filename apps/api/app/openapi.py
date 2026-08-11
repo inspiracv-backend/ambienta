@@ -92,6 +92,29 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "departments",
+        "description": (
+            "Departamentos de la empresa. `facility_id` es opcional: hay "
+            "departamentos transversales que no cuelgan de ninguna planta."
+        ),
+    },
+    {
+        "name": "processes",
+        "description": (
+            "Mapa de procesos. Es de donde cuelgan los aspectos ambientales: "
+            "sin procesos no hay donde registrar que impacto genera cada "
+            "actividad."
+        ),
+    },
+    {
+        "name": "integrations",
+        "description": (
+            "Cuentas de integracion con sistemas externos. Guardan con quien "
+            "esta conectada la empresa y con que alcance, **no** la "
+            "credencial: el puntero al secreto nunca se devuelve."
+        ),
+    },
+    {
         "name": "catalog",
         "description": (
             "Catalogo normativo **compartido entre todas las empresas**: "
