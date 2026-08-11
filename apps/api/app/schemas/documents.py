@@ -92,3 +92,40 @@ class EntityDocumentRead(OrmBase):
     valid_to: date | None
     created_at: datetime
     updated_at: datetime
+
+
+class EntityDocumentUpdate(BaseModel):
+    """Lo editable de un vinculo documento-entidad.
+
+    `document_id`, `entity_type` y `entity_id` no estan: son lo que el vinculo
+    **es**. Cambiarlos no lo edita, lo convierte en otro vinculo — y dejaria la
+    ruta anidada mintiendo sobre a que documento pertenece.
+    """
+
+    purpose: str | None = None
+    is_required: bool | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+
+
+class EntityDocumentCreateAnidado(BaseModel):
+    """Cuerpo de `POST /documents/{document_id}/entities`.
+
+    `document_id` viene del path. `entity_type` y `entity_id` se quedan: son
+    el destino del vinculo, no el origen.
+    """
+
+    entity_type: str
+    entity_id: UUID
+    purpose: str
+    is_required: bool = False
+    valid_from: date | None = None
+    valid_to: date | None = None
+
+
+class DocumentVersionUpdate(BaseModel):
+    """Metadatos de una version. El archivo en si no se reemplaza: subir otro
+    contenido es otra version, y por eso existe el versionado."""
+
+    change_note: str | None = None
+    checksum: str | None = None

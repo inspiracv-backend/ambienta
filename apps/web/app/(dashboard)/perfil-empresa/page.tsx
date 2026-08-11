@@ -12,14 +12,14 @@ import { useUsers } from '@/lib/users-store';
 /** RF-10 a RF-12 (v1.7): flujo obligatorio de Perfil Empresa del Admin Empresa. */
 export default function PerfilEmpresaPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants, updateDatosBasicos, updateLogo, addPlant, completarPerfilEmpresa } = useTenants();
   const { departamentos, addDepartamento } = useDepartamentos();
   const { users } = useUsers();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

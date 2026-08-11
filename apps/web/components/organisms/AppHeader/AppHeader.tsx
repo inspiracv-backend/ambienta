@@ -3,12 +3,14 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Bell, LogOut, Menu } from 'lucide-react';
+import { UserButton } from '@clerk/nextjs';
 import { Avatar, Button } from '@/components/atoms';
+import { CLERK_HABILITADO } from '@/lib/clerk-config';
 import { useSession } from '@/lib/session';
 import { useNotifications } from '@/lib/notifications-store';
 import { ROLE_LABEL } from '@/lib/roles';
 import { navItemsParaRol } from '@/lib/navigation';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 interface AppHeaderProps {
   onOpenMobileNav: () => void;
@@ -21,9 +23,10 @@ interface AppHeaderProps {
 export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
   const router = useRouter();
   const { user, logout } = useSession();
+  const { tenants } = useTenants();
   const { notifications } = useNotifications();
 
-  const tenant = mockTenants.find((t) => t.id === user?.tenantId);
+  const tenant = tenants.find((t) => t.id === user?.tenantId);
   const noLeidas = user ? notifications.filter((n) => n.userId === user.id && !n.leida).length : 0;
 
   // La campana se deriva del propio menú del rol para no duplicar el criterio:
@@ -82,9 +85,16 @@ export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
             <Avatar nombre={user.nombre} avatarUrl={user.avatarUrl} size="sm" />
             <span className="hidden text-sm text-slate-700 sm:inline">{user.nombre}</span>
           </Link>
-          <Button variant="ghost" size="md" onClick={handleLogout} aria-label="Cerrar sesión">
-            <LogOut className="h-4 w-4" aria-hidden />
-          </Button>
+          {/* Con proveedor real, el menú de cuenta lo maneja él: cerrar sesión
+              tiene que invalidar la sesión en Clerk, no solo limpiar el estado
+              local. Sin proveedor queda el botón de siempre. */}
+          {CLERK_HABILITADO ? (
+            <UserButton afterSignOutUrl="/login" />
+          ) : (
+            <Button variant="ghost" size="md" onClick={handleLogout} aria-label="Cerrar sesión">
+              <LogOut className="h-4 w-4" aria-hidden />
+            </Button>
+          )}
         </div>
       )}
     </header>

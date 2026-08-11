@@ -5,6 +5,7 @@ import type { DescriptorCargo, Permiso, Role, User, UserEstado } from '@ambienta
 import { PERMISOS_POR_DEFECTO } from '@ambienta/shared';
 import { mockUsers } from '@/mocks/users';
 import { api } from '@/lib/api-client';
+import { CLERK_HABILITADO } from '@/lib/clerk-config';
 
 interface UsersContextValue {
   users: User[];
@@ -63,26 +64,47 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
+    /**
+     * Con Clerk el tenant lo fija el JWT, asi que `/users/` ya viene acotado
+     * por RLS a la empresa de quien pregunta y **no hay que recorrer tenants**:
+     * hacerlo pediria N veces la misma lista, porque la API ignora
+     * X-Tenant-Id cuando hay token (apps/api/app/deps.py).
+     *
+     * Sin Clerk no existe sesion que declare un tenant, asi que se enumeran
+     * todos para poder cambiar de rol con el DevRoleSwitcher.
+     */
+    async function fetchUsuariosDelTenant() {
+      const data = await api.get<Record<string, unknown>[]>('/users/');
+      return data.map(mapApiUser).filter((u): u is User => u !== null);
+    }
+
+    async function fetchUsuariosDeTodosLosTenants() {
+      const tenants = await api.get<{ id: string }[]>('/tenants/');
+      const seen = new Set<string>();
+      const allUsers: User[] = [];
+      for (const tenant of tenants) {
+        try {
+          const data = await api.get<Record<string, unknown>[]>('/users/', { tenantId: tenant.id });
+          const mapped = data.map(mapApiUser).filter((u): u is User => u !== null);
+          for (const u of mapped) {
+            if (!seen.has(u.id)) {
+              seen.add(u.id);
+              allUsers.push(u);
+            }
+          }
+        } catch {
+          // skip tenant if users fail
+        }
+      }
+      return allUsers;
+    }
+
     async function fetchAllUsers() {
       try {
-        const tenants = await api.get<{ id: string }[]>('/tenants/');
-        const seen = new Set<string>();
-        const allUsers: User[] = [];
-        for (const tenant of tenants) {
-          try {
-            const data = await api.get<Record<string, unknown>[]>('/users/', { tenantId: tenant.id });
-            const mapped = data.map(mapApiUser).filter((u): u is User => u !== null);
-            for (const u of mapped) {
-              if (!seen.has(u.id)) {
-                seen.add(u.id);
-                allUsers.push(u);
-              }
-            }
-          } catch {
-            // skip tenant if users fail
-          }
-        }
-        if (!cancelled && allUsers.length > 0) setUsers(allUsers);
+        const cargados = CLERK_HABILITADO
+          ? await fetchUsuariosDelTenant()
+          : await fetchUsuariosDeTodosLosTenants();
+        if (!cancelled && cargados.length > 0) setUsers(cargados);
       } catch {
         // Fallback a mocks
       } finally {

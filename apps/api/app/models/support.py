@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    FetchedValue,
     ForeignKey,
     String,
     Text,
@@ -29,8 +30,11 @@ class SupportTicket(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
+    # Lo genera la base con una secuencia (db/06_ticket_number.sql). El marcador
+    # es lo que hace que SQLAlchemy lo omita del INSERT y lo lea de vuelta: sin
+    # el manda `ticket_number: None` explicito y el DEFAULT nunca se aplica.
     ticket_number: Mapped[str] = mapped_column(
-        String(40), unique=True, nullable=False
+        String(40), unique=True, nullable=False, server_default=FetchedValue()
     )
     created_by_user_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")

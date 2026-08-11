@@ -32,28 +32,76 @@ interface ObligationsContextValue {
 
 const ObligationsContext = createContext<ObligationsContextValue | null>(null);
 
-function mapStatusFromApi(status: string): ObligationStatus {
-  const map: Record<string, ObligationStatus> = {
-    open: 'vigente',
-    upcoming: 'por_vencer',
-    overdue: 'vencida',
-    fulfilled: 'vigente',
-  };
-  return map[status] ?? 'vigente';
+const DIAS_PARA_AVISAR = 30;
+
+/**
+ * Traduce el estado de la API al de la pantalla.
+ *
+ * El mapa anterior traducía cuatro valores y **dos no existían**: `upcoming` y
+ * `fulfilled` no están en el CHECK de `obligations.status`, que admite `draft`,
+ * `open`, `in_progress`, `submitted`, `accepted`, `rejected`, `overdue` y
+ * `closed`. Como el mapa caía a 'vigente' por defecto, seis de los ocho
+ * estados reales se mostraban como vigentes — incluida una obligación
+ * rechazada.
+ *
+ * `por_vencer` no viene de la API porque no es un estado, es una cuenta de
+ * días: se deriva de la fecha, con el mismo umbral que usa el tablero.
+ */
+function mapEstado(status: string, vencimiento: string): ObligationStatus {
+  if (status === 'overdue') return 'vencida';
+  // Sin enviar todavía, o rechazada y hay que rehacerla.
+  if (status === 'draft' || status === 'rejected') return 'sin_evidencia';
+
+  const dias = Math.ceil(
+    (new Date(vencimiento).getTime() - Date.now()) / 86_400_000,
+  );
+  if (dias < 0) return 'vencida';
+  const resuelta = status === 'accepted' || status === 'closed';
+  if (!resuelta && dias <= DIAS_PARA_AVISAR) return 'por_vencer';
+  return 'vigente';
+}
+
+/**
+ * El sistema de declaración sale del código, que lo lleva embebido
+ * (`OBL-SIDREP-2026S1`). No hay columna propia en la base: el catálogo lo
+ * modela como plantilla, y la obligación solo guarda su código.
+ */
+function mapSistema(code: string): SistemaDeclaracion {
+  const conocidos: SistemaDeclaracion[] = ['RETC', 'SINADER', 'SIDREP', 'DAE'];
+  const encontrado = conocidos.find((s) => code.toUpperCase().includes(s));
+  if (encontrado) return encontrado;
+  return code.toUpperCase().includes('REP') ? 'Ley REP' : 'RETC';
+}
+
+function mapPeriodo(inicio: unknown, fin: unknown): string {
+  if (!inicio || !fin) return '';
+  const anio = String(inicio).slice(0, 4);
+  const mesInicio = Number(String(inicio).slice(5, 7));
+  const mesFin = Number(String(fin).slice(5, 7));
+  if (mesInicio === 1 && mesFin === 12) return anio;
+  return `${anio} · ${mesInicio <= 6 ? '1er' : '2do'} semestre`;
 }
 
 function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
   try {
+    // `due_at` y `owner_user_id`, no `due_date` ni `assigned_user_id`: esos dos
+    // nombres no existen en la API y por eso toda obligación mostraba la fecha
+    // de hoy como vencimiento y ningún responsable.
+    const vencimiento = raw.due_at
+      ? String(raw.due_at)
+      : new Date().toISOString();
+    const code = String(raw.code ?? '');
+
     return {
       id: String(raw.id),
       tenantId: String(raw.tenant_id ?? ''),
       plantId: String(raw.facility_id ?? ''),
-      sistema: 'RETC' as SistemaDeclaracion,
-      nombre: String(raw.title ?? raw.description ?? ''),
-      periodo: '',
-      estado: mapStatusFromApi(String(raw.status ?? 'open')),
-      proximoVencimiento: raw.due_date ? String(raw.due_date) : new Date().toISOString(),
-      responsableId: raw.assigned_user_id ? String(raw.assigned_user_id) : undefined,
+      sistema: mapSistema(code),
+      nombre: String(raw.title ?? code),
+      periodo: mapPeriodo(raw.period_start, raw.period_end),
+      estado: mapEstado(String(raw.status ?? 'draft'), vencimiento),
+      proximoVencimiento: vencimiento,
+      responsableId: raw.owner_user_id ? String(raw.owner_user_id) : '',
       tasks: [],
     };
   } catch {

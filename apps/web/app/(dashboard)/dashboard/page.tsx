@@ -20,7 +20,7 @@ import {
   type ApiDashboardMetrics,
   type DashboardViewModel,
 } from '@/lib/dashboard-metrics';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 import { mockObligations } from '@/mocks/obligations';
 import { mockNonConformities } from '@/mocks/audits';
 
@@ -33,7 +33,8 @@ import { mockNonConformities } from '@/mocks/audits';
  */
 export default function DashboardPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando: cargandoSesion } = useSession();
+  const { tenants } = useTenants();
 
   const [metrics, setMetrics] = useState<DashboardViewModel | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -41,11 +42,8 @@ export default function DashboardPage() {
   const [reintento, setReintento] = useState(0);
 
   useEffect(() => {
-    if (user === null) {
-      const stillChecking = window.localStorage.getItem('ambienta.mockUserId');
-      if (!stillChecking) router.replace('/login');
-    }
-  }, [user, router]);
+    if (!cargandoSesion && user === null) router.replace('/login');
+  }, [cargandoSesion, user, router]);
 
   useEffect(() => {
     if (!user?.tenantId) return;
@@ -84,7 +82,7 @@ export default function DashboardPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   // El Gestor es A1 + módulo Gestores: le corresponde la misma vista ejecutiva
   // que al Admin Empresa, más su bloque de cartera.
   const isVistaSimplificada = user.role === 'admin_empresa' || user.role === 'gestor';

@@ -211,3 +211,41 @@ class EntityStatusHistoryRead(OrmBase):
     changed_at: datetime
     changed_by: UUID | None
     reason: str | None
+
+
+class AuditParticipantUpdate(BaseModel):
+    """Lo editable de un participante.
+
+    `audit_id` y `user_id` no estan: son la clave compuesta, o sea la
+    identidad de la fila. Cambiarlos no es editar, es otro participante.
+    """
+
+    participant_role: str | None = None
+    attendance_status: str | None = None
+    external_name: str | None = None
+    external_email: str | None = None
+    notes: str | None = None
+
+
+class AuditParticipantCreateAnidado(BaseModel):
+    """Cuerpo de `POST /audits/{audit_id}/participants/{user_id}`.
+
+    La auditoria y la persona vienen del path: son la clave compuesta.
+    """
+
+    participant_role: str
+    attendance_status: str = "invited"
+    external_name: str | None = None
+    external_email: str | None = None
+    notes: str | None = None
+
+
+class AuditItemCreateAnidado(BaseModel):
+    """Cuerpo de `POST /audits/{audit_id}/items`. La auditoria viene del path."""
+
+    sequence: int
+    question: str
+    clause_reference: str | None = None
+    article_id: UUID | None = None
+    result: str | None = None
+    evidence_note: str | None = None

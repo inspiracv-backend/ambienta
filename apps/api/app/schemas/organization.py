@@ -325,3 +325,30 @@ class ContractUpdate(BaseModel):
     status: str | None = None
     end_date: date | None = None
     scope: dict | None = None
+
+
+class FacilityProcessUpdate(BaseModel):
+    """Vigencia y alcance de un proceso dentro de una planta.
+
+    `facility_id` y `process_id` son la clave compuesta y salen del path.
+    """
+
+    is_primary: bool | None = None
+    scope_notes: str | None = None
+    active_from: date | None = None
+    active_to: date | None = None
+
+
+class FacilityProcessCreateAnidado(BaseModel):
+    """Cuerpo de `POST /facilities/{facility_id}/processes/{process_id}`.
+
+    Sin `facility_id` ni `process_id`: vienen del path. No se hacen opcionales
+    sino que se omiten, porque aceptarlos permitiria enviar un valor que
+    contradice la URL — y entonces habria que decidir cual gana, que es una
+    ambiguedad que no hace falta tener.
+    """
+
+    is_primary: bool = False
+    scope_notes: str | None = None
+    active_from: date | None = None
+    active_to: date | None = None

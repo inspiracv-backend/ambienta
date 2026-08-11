@@ -79,6 +79,24 @@ function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
   }
 }
 
+/**
+ * Instalacion de la API. `comuna` y `region` salen de los codigos que guarda
+ * la base; si no estan, se dejan vacios en vez de inventar un lugar.
+ */
+function mapApiPlant(raw: Record<string, unknown>): Plant | null {
+  try {
+    return {
+      id: String(raw.id),
+      tenantId: String(raw.tenant_id ?? ''),
+      nombre: String(raw.name ?? raw.code ?? ''),
+      comuna: raw.commune_code ? String(raw.commune_code) : '',
+      region: raw.region_code ? String(raw.region_code) : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function TenantsProvider({ children }: { children: ReactNode }) {
   const [tenants, setTenants] = useState<Tenant[]>(mockTenants);
   const [loading, setLoading] = useState(true);
@@ -86,12 +104,33 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .get<Record<string, unknown>[]>('/tenants/')
-      .then((data) => {
+    // Las instalaciones se piden junto con la empresa y no aparte porque
+    // `plants` venia siempre vacio, y **21 pantallas sacan de ahi su lista de
+    // plantas**. Con la lista vacia esas pantallas caian a `mockTenants`, cuyos
+    // identificadores son `planta-rancagua` mientras la API usa UUID: los datos
+    // reales llegaban y no cruzaban con nada, asi que las pantallas se veian
+    // vacias aunque la API respondiera bien.
+    Promise.all([
+      api.get<Record<string, unknown>[]>('/tenants/'),
+      api.get<Record<string, unknown>[]>('/facilities/').catch(() => []),
+    ])
+      .then(([datosTenants, datosPlantas]) => {
         if (cancelled) return;
-        const mapped = data.map(mapApiTenant).filter((t): t is Tenant => t !== null);
-        if (mapped.length > 0) setTenants(mapped);
+        const mapped = datosTenants.map(mapApiTenant).filter((t): t is Tenant => t !== null);
+        if (mapped.length === 0) return;
+
+        const plantasPorTenant = new Map<string, Plant[]>();
+        for (const cruda of datosPlantas) {
+          const planta = mapApiPlant(cruda);
+          if (!planta) continue;
+          const lista = plantasPorTenant.get(planta.tenantId) ?? [];
+          lista.push(planta);
+          plantasPorTenant.set(planta.tenantId, lista);
+        }
+
+        setTenants(
+          mapped.map((t) => ({ ...t, plants: plantasPorTenant.get(t.id) ?? [] })),
+        );
       })
       .catch(() => {
         // Fallback a mocks si la API no responde

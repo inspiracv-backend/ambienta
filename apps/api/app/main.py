@@ -13,14 +13,21 @@ ORM no genera. SQLAlchemy se usa para consultar, no para definir el esquema.
 from fastapi import Depends, FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .db import check_database, get_db
+from .db import check_database
+from .errores import manejar_error_de_integridad
+from .deps import get_admin_db
+from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .routers import (
-    audits, catalog, compliance, dashboard, documents, facilities,
-    iso14001, notifications, obligations, support, system, tenants, users,
-    webhooks,
+    audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
+    documents,
+    facilities,
+    integraciones, iso14001, notifications, obligations, processes, support, system,
+    plantillas, tenants,
+    users, webhooks,
 )
 
 settings = get_settings()
@@ -28,8 +35,18 @@ settings = get_settings()
 app = FastAPI(
     title="Ambienta API",
     version="0.1.0",
-    description="Backend de gestion de cumplimiento ambiental.",
+    description=DESCRIPCION,
+    openapi_tags=TAGS_METADATA,
 )
+
+# El contrato se arma en `openapi.py`: FastAPI describe los caminos felices y
+# calla los errores, y un contrato que no dice como falla obliga a descubrirlo
+# probando.
+app.openapi = lambda: construir_esquema(app)
+
+# Una restriccion violada es un dato malo del cliente, no una falla del
+# servidor. Sin este manejador sale 500 y quien llama no sabe que corregir.
+app.add_exception_handler(IntegrityError, manejar_error_de_integridad)
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,7 +68,7 @@ def health() -> dict:
 
 
 @app.get("/health/db", tags=["health"])
-def health_db(response: Response, db: Session = Depends(get_db)) -> dict:
+def health_db(response: Response, db: Session = Depends(get_admin_db)) -> dict:
     """Readiness: la base responde y el esquema esta cargado."""
     try:
         db.execute(text("SELECT 1"))
@@ -68,8 +85,14 @@ app.include_router(webhooks.router, prefix=api_v1_prefix)
 app.include_router(dashboard.router, prefix=api_v1_prefix)
 app.include_router(tenants.router, prefix=api_v1_prefix)
 app.include_router(facilities.router, prefix=api_v1_prefix)
+app.include_router(contratos.router, prefix=api_v1_prefix)
 app.include_router(users.router, prefix=api_v1_prefix)
+app.include_router(departments.router, prefix=api_v1_prefix)
+app.include_router(processes.router, prefix=api_v1_prefix)
+app.include_router(integraciones.router, prefix=api_v1_prefix)
 app.include_router(obligations.router, prefix=api_v1_prefix)
+app.include_router(declaraciones.router, prefix=api_v1_prefix)
+app.include_router(plantillas.router, prefix=api_v1_prefix)
 app.include_router(audits.router, prefix=api_v1_prefix)
 app.include_router(catalog.router, prefix=api_v1_prefix)
 app.include_router(compliance.router, prefix=api_v1_prefix)

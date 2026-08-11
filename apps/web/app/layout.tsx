@@ -5,7 +5,7 @@ import { SessionProvider } from '@/lib/session';
 import { SupportTicketsProvider } from '@/lib/support-tickets-store';
 import { ToastProvider } from '@/lib/toast-store';
 import { UsersProvider } from '@/lib/users-store';
-import { ToastViewport } from '@/components/organisms';
+import { AuthProvider, ToastViewport } from '@/components/organisms';
 
 export const metadata: Metadata = {
   title: 'Ambienta — Cumplimiento ambiental',
@@ -40,16 +40,21 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body>
-        <ToastProvider>
-          <AuditLogProvider>
-            <UsersProvider>
-              <SessionProvider>
-                <SupportTicketsProvider>{children}</SupportTicketsProvider>
-              </SessionProvider>
-            </UsersProvider>
-          </AuditLogProvider>
-          <ToastViewport />
-        </ToastProvider>
+        {/* AuthProvider va por fuera de todo: la identidad antecede a la
+            sesión y a cualquier store que dependa de ella. Si Clerk no está
+            configurado se comporta como si no existiera. */}
+        <AuthProvider>
+          <ToastProvider>
+            <AuditLogProvider>
+              <UsersProvider>
+                <SessionProvider>
+                  <SupportTicketsProvider>{children}</SupportTicketsProvider>
+                </SessionProvider>
+              </UsersProvider>
+            </AuditLogProvider>
+            <ToastViewport />
+          </ToastProvider>
+        </AuthProvider>
       </body>
     </html>
   );

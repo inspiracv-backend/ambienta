@@ -39,7 +39,7 @@ Después, en orden. El orden importa: `04` y `05` alteran tablas que crea `01`, 
 psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1 \
   -f db/01_schema.sql \
   -f db/04_clerk_auth.sql \
-  -f db/05_user_permissions.sql \
+  -f db/05_user_permissions.sql   -f db/06_ticket_number.sql   -f db/07_rol_aplicacion.sql \
   -f db/03_seed_catalogos.sql \
   -f db/02_seed.sql
 ```
@@ -65,6 +65,8 @@ bash db/run.sh
 | `03_seed_catalogos.sql` | Países, fuentes normativas, 39 permisos, sectores CIIU y plantillas de declaración. Idempotente |
 | `04_clerk_auth.sql` | Columna `clerk_id` en `users` con UNIQUE, para vincular con Clerk (ADR-006). Idempotente |
 | `05_user_permissions.sql` | Tabla `user_permissions` (RF-12) y dos unicidades que tratan los NULL como iguales. Crea su propia política RLS y sus permisos: una tabla nacida en una migración no hereda el `GRANT ON ALL TABLES` ni el bucle de políticas de `01_schema`. Idempotente |
+| `06_ticket_number.sql` | Secuencia que genera `support_tickets.ticket_number`. Lo hace la base y no Python porque la unicidad es global: calcular `max()+1` en la aplicación abre una carrera entre peticiones de tenants distintos. Incluye el `GRANT` sobre la secuencia, que no se hereda. Idempotente |
+| `07_rol_aplicacion.sql` | Da `LOGIN` a `ambienta_app` para que la API se conecte con un rol que **no** puede saltarse RLS. Antes se conectaba con el dueño (superusuario con `BYPASSRLS`) y el aislamiento dependía de un `SET LOCAL ROLE` por transacción, que se perdía en cada `commit`. Idempotente |
 | `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
 `02_smoke_test.sql` no es parte del despliegue — es la verificación. Corrélo después de cualquier cambio al esquema.

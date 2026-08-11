@@ -6,20 +6,25 @@ import { Spinner } from '@/components/atoms';
 import { ObligationsListTable } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useObligations } from '@/lib/obligations-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /**
- * S-13 Listado de Obligaciones. Fetching real: reemplazar por
- * GET /tenants/:id/obligations cuando exista spec aprobada (RF-14/RF-15).
+ * S-13 Listado de Obligaciones.
+ *
+ * La lista de plantas sale de `useTenants()` y **no de `mockTenants`**. Con la
+ * lista fija, los identificadores eran `planta-rancagua` mientras las
+ * obligaciones llegaban de la API con UUID: el filtro por planta no cruzaba
+ * con ninguna y la pantalla se veia vacia aunque los datos estuvieran ahi.
  */
 export default function ObligacionesPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { obligations } = useObligations();
+  const { tenants } = useTenants();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (
@@ -29,7 +34,7 @@ export default function ObligacionesPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const isVistaSimplificada = user.role === 'admin_empresa';
   const scopedPlants =
     !isVistaSimplificada && user.plantIds.length > 0

@@ -101,10 +101,36 @@ el ciclo completo.
 - Validación automática desde el contrato (Pydantic en la API; Zod en el frontend).
 
 ### 4. Seguridad Multi-Tenant (Crítica)
-- Toda consulta debe filtrar por `tenant_id`.
-- Row Level Security (RLS) en PostgreSQL como segunda barrera.
+
+**RLS no es la segunda barrera: es la única.** Ninguna consulta de la
+aplicación filtra por `tenant_id` — ni `CRUDBase` ni un solo router. Lo que
+separa a una empresa de otra es enteramente PostgreSQL, así que conviene que
+sea sólido.
+
+La API se conecta con **`ambienta_app`, que no puede saltarse RLS**. Eso pone
+la barrera en la conexión: un endpoint mal escrito devuelve cero filas en vez
+de todas las empresas. Hasta el 10-ago-2026 se conectaba con el dueño de la
+base —superusuario con `BYPASSRLS`— y todo dependía de un `SET LOCAL ROLE` por
+transacción que se perdía en cada `commit`:
+
+| conexión | olvidando todo | con tenant | tras commit |
+|---|---|---|---|
+| dueño (antes) | **6** = todas las empresas | 4 | **6** |
+| `ambienta_app` (ahora) | 0 | 4 | 0 |
+
+- Usar **siempre** `get_tenant_db` para datos de empresa. `get_db` sí tiene la
+  barrera —usa el mismo rol— pero no declara tenant, así que sobre una tabla de
+  empresa devuelve cero filas. Sirve para el catálogo global y para `tenants`,
+  que no llevan `tenant_id`.
+- **No consultar después de `db.commit()`.** El commit cierra la transacción y
+  con ella se va el tenant declarado: lo que venga después ve cero filas.
+  Molesto, pero ya no peligroso.
+- `get_admin_db` **sí** cruza empresas. Sólo el webhook de Clerk y el health
+  del esquema. Cualquier uso nuevo hay que justificarlo.
 - RBAC verificado siempre en la API (nunca solo en frontend).
 - Admin Global NO puede editar contenido de tenants.
+
+Lo protegen `apps/api/tests/test_aislamiento.py` y el smoke test de `db/`.
 
 ### 5. Roles
 - **Admin Global**: Dueño del software (gestión de tenants, catálogo maestro).
@@ -177,7 +203,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | API | 95 endpoints. Backend de auth completo (Clerk fases 1 y 2) |
 | Tablero S-06/S-07 | **Conectado a datos reales** y verificado contra Postgres |
 | Resto del frontend | 20 pantallas **con datos de ejemplo**, no con la API |
-| Auth en el frontend | **NO existe.** Sigue el DevRoleSwitcher. No desplegar asi |
+| Auth en el frontend | Cableado (Clerk fase 3), **inactivo sin llave**: sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher. Falta el token en las llamadas (fase 4) |
 | worker · ai-service | Sin implementar |
 
 **Lo unico que consume la API de verdad es el tablero.** Cualquier otra
@@ -204,6 +230,11 @@ contra `db/01_schema.sql` y los modelos antes de escribir cualquier mapeo.**
 **Los tests pueden ser vacuos.** Romper a proposito lo que un test dice
 proteger y confirmar que falla. Se hizo con las dos propiedades de seguridad de
 Clerk y con la del webhook.
+
+**El aislamiento falla en silencio, pero ahora falla cerrado.** Un endpoint
+escrito con `get_db` en vez de `get_tenant_db`, o una consulta puesta despues
+de un `db.commit()`, no lanza ninguna excepcion: devuelve **cero filas**. Da
+una pantalla vacia inexplicable, no una fuga. Antes daba lo contrario. Ver §4.
 
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.

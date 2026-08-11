@@ -16,9 +16,17 @@ class Settings(BaseSettings):
     #
     # El driver va explicito (`postgresql+psycopg`) para que SQLAlchemy use
     # psycopg 3 y no intente cargar psycopg2, que no esta instalado.
+    # Rol de la aplicacion. NO es superusuario y NO puede saltarse RLS: es lo
+    # que hace que el aislamiento entre empresas viva en la conexion y no en
+    # que alguien se acuerde de cambiar de rol en cada transaccion.
     database_url: str = (
-        "postgresql+psycopg://ambienta:ambienta_dev@postgres:5432/ambienta"
+        "postgresql+psycopg://ambienta_app:ambienta_app_dev@postgres:5432/ambienta"
     )
+
+    # Conexion con el dueno de la base, que SI salta RLS. Solo para lo que
+    # cruza empresas por diseno: el webhook de Clerk y el health del esquema.
+    # Vacia por defecto para que usarla sea una decision, no un descuido.
+    database_admin_url: str = ""
 
     # Origenes permitidos por CORS, separados por coma.
     cors_origins: str = "http://localhost:3000"

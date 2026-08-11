@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
 
 from ..config import get_settings
-from ..deps import get_db
+from ..deps import get_admin_db
 from ..services.clerk_sync import DatosDeClerkInvalidos, procesar_evento
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
 @router.post("/clerk", status_code=status.HTTP_200_OK)
-async def clerk_webhook(request: Request, db: Session = Depends(get_db)) -> dict:
+async def clerk_webhook(request: Request, db: Session = Depends(get_admin_db)) -> dict:
     """Recibe eventos de usuario de Clerk y los refleja en `users`."""
     settings = get_settings()
 

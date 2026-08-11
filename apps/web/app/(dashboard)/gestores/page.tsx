@@ -6,17 +6,18 @@ import { Spinner } from '@/components/atoms';
 import { SubTenantsListTable } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useGestores } from '@/lib/gestores-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-27 Listado de Clientes (Sub-tenants) del Gestor. */
 export default function GestoresPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
+  const { tenants } = useTenants();
   const { subTenants } = useGestores();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (
@@ -26,7 +27,7 @@ export default function GestoresPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const visibleSubTenants = subTenants.filter((s) => s.gestorTenantId === user.tenantId);
 
   return (

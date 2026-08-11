@@ -1,12 +1,24 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..crud.support import crud_chatbot_conversation, crud_support_ticket
-from ..deps import get_tenant_db, get_tenant_id
+from ..auth import CurrentUser
+from ..models.organization import User
+from ..crud.support import (
+    crud_chatbot_conversation,
+    crud_chatbot_message,
+    crud_support_ticket,
+    crud_ticket_message,
+)
+from ..deps import get_current_user, get_tenant_db, get_tenant_id
+from ._comun import borrar_o_404, obtener_o_404, verificar_padre
 from ..schemas.support import (
     ChatbotConversationCreate,
+    ChatbotConversationUpdate,
+    ChatbotMessageUpdate,
+    SupportTicketMessageUpdate,
     ChatbotConversationRead,
     ChatbotMessageCreate,
     ChatbotMessageRead,
@@ -36,10 +48,47 @@ def get_ticket(ticket_id: UUID, db: Session = Depends(get_tenant_db)):
 @router.post("/tickets", response_model=SupportTicketRead, status_code=status.HTTP_201_CREATED)
 def create_ticket(
     data: SupportTicketCreate,
+    user: CurrentUser = Depends(get_current_user),
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
-    obj = crud_support_ticket.create(db, obj_in=data, tenant_id=tenant_id)
+    """Crea una solicitud de soporte.
+
+    El numero de ticket lo pone la base (secuencia), no el cliente.
+
+    **El autor tampoco lo elige quien llama.** Sale de la sesion: si el
+    esquema aceptara `created_by_user_id` del cuerpo, cualquiera podria
+    atribuirle una solicitud a otra persona. El campo existe en el esquema por
+    compatibilidad, pero se ignora.
+
+    La base exige autor —`created_by_user_id` o `guest_email`, por CHECK—
+    porque un ticket sin quien lo pide no se puede responder. Si la sesion no
+    identifica a nadie, que es lo que pasa con el fallback de desarrollo y con
+    el Cliente Invitado, hace falta el correo de contacto.
+    """
+    autor = db.scalar(select(User).where(User.clerk_id == user.user_id)) if user.user_id else None
+
+    datos = data.model_copy(update={"created_by_user_id": autor.id if autor else None})
+    if autor is None and not datos.guest_email:
+        # Se distinguen dos causas porque piden cosas distintas. Decirle
+        # "inicia sesion" a alguien que ya la inicio manda a buscar el problema
+        # donde no esta.
+        if user.user_id:
+            detalle = (
+                "La sesion es valida pero ese usuario no esta vinculado a "
+                "ninguna persona de la empresa. Ocurre cuando el webhook de "
+                "alta no llego a procesarse: falta `clerk_id` en la fila."
+            )
+        else:
+            detalle = (
+                "Un ticket necesita autor: iniciar sesion, o indicar "
+                "guest_email para el seguimiento."
+            )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detalle
+        )
+
+    obj = crud_support_ticket.create(db, obj_in=datos, tenant_id=tenant_id)
     db.commit()
     return obj
 
@@ -120,3 +169,74 @@ def create_chatbot_message(
     db.refresh(obj)
     db.commit()
     return obj
+
+
+@router.delete("/tickets/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ticket(ticket_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Retira un ticket. Sus mensajes no se exponen para borrado: son la
+    conversacion con el cliente y borrar uno suelto la volveria enganosa."""
+    borrar_o_404(crud_support_ticket, db, ticket_id, recurso="SupportTicket")
+
+
+@router.get("/chatbot/{conversation_id}", response_model=ChatbotConversationRead)
+def get_chatbot_conversation(conversation_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation")
+
+
+@router.patch("/chatbot/{conversation_id}", response_model=ChatbotConversationRead)
+def update_conversation(conversation_id: UUID, data: ChatbotConversationUpdate, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation")
+    obj = crud_chatbot_conversation.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/chatbot/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(conversation_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation")
+
+
+@router.get("/tickets/{ticket_id}/messages/{mensaje_id}", response_model=SupportTicketMessageRead)
+def get_ticket_message(ticket_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+    return verificar_padre(obj, ticket_id, campo="ticket_id")
+
+
+@router.patch("/tickets/{ticket_id}/messages/{mensaje_id}", response_model=SupportTicketMessageRead)
+def update_ticket_message(ticket_id: UUID, mensaje_id: int, data: SupportTicketMessageUpdate, db: Session = Depends(get_tenant_db)):
+    """Corrige el texto. El autor no cambia: editar quien dijo algo seria
+    falsificar la conversacion con el cliente."""
+    obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+    verificar_padre(obj, ticket_id, campo="ticket_id")
+    obj = crud_ticket_message.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/tickets/{ticket_id}/messages/{mensaje_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ticket_message(ticket_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+    verificar_padre(obj, ticket_id, campo="ticket_id")
+    borrar_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+
+
+@router.get("/chatbot/{conversation_id}/messages/{mensaje_id}", response_model=ChatbotMessageRead)
+def get_chatbot_message(conversation_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")
+    return verificar_padre(obj, conversation_id, campo="conversation_id")
+
+
+@router.patch("/chatbot/{conversation_id}/messages/{mensaje_id}", response_model=ChatbotMessageRead)
+def update_chatbot_message(conversation_id: UUID, mensaje_id: int, data: ChatbotMessageUpdate, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")
+    verificar_padre(obj, conversation_id, campo="conversation_id")
+    obj = crud_chatbot_message.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/chatbot/{conversation_id}/messages/{mensaje_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_chatbot_message(conversation_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")
+    verificar_padre(obj, conversation_id, campo="conversation_id")
+    borrar_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")

@@ -114,3 +114,24 @@ class ChatbotMessageRead(OrmBase):
     token_usage: dict
     feedback: dict
     created_at: datetime
+
+
+class SupportTicketMessageUpdate(BaseModel):
+    """Correccion del texto de un mensaje. `ticket_id` y el autor no cambian:
+    editar quien dijo algo seria falsificar la conversacion."""
+
+    body: str | None = None
+    is_internal: bool | None = None
+
+
+class ChatbotConversationUpdate(BaseModel):
+    """Estado y titulo de una conversacion."""
+
+    title: str | None = None
+    status: str | None = None
+
+
+class ChatbotMessageUpdate(BaseModel):
+    """Solo las citas: el contenido del mensaje es lo que se dijo."""
+
+    citations: dict | None = None

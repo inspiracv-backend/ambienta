@@ -9,7 +9,7 @@ import { useSession } from '@/lib/session';
 import { useUsers } from '@/lib/users-store';
 import { useDepartamentos } from '@/lib/departamentos-store';
 import { navItemsParaRol, rutaInicialParaRol } from '@/lib/navigation';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /**
  * S-41 Gestión de Usuarios y Roles (RF-08).
@@ -22,7 +22,8 @@ import { mockTenants } from '@/mocks/tenants';
  */
 export default function UsuariosPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
+  const { tenants } = useTenants();
   const { users } = useUsers();
   const { departamentos } = useDepartamentos();
 
@@ -31,9 +32,9 @@ export default function UsuariosPage() {
     : false;
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
+    if (!cargando && user === null) router.replace('/login');
     else if (user && !puedeGestionarUsuarios) router.replace(rutaInicialParaRol(user.role));
-  }, [user, puedeGestionarUsuarios, router]);
+  }, [cargando, user, puedeGestionarUsuarios, router]);
 
   if (!user || !puedeGestionarUsuarios) {
     return (
@@ -43,7 +44,7 @@ export default function UsuariosPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const tenantUsers = users.filter((u) => u.tenantId === user.tenantId);
   const tenantDepartamentos = departamentos.filter((d) => d.tenantId === user.tenantId);
 

@@ -7,17 +7,18 @@ import { AssignNormsToPlant } from '@/components/organisms';
 import { Spinner } from '@/components/atoms';
 import { useSession } from '@/lib/session';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-26 Definir Normas Aplicables por Planta. */
 export default function AsignarNormasPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
+  const { tenants } = useTenants();
   const { norms } = useLegalMatrix();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (
@@ -27,7 +28,7 @@ export default function AsignarNormasPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const visibleNorms = norms.filter((n) => n.tenantId === null || n.tenantId === user.tenantId);
 
   return (

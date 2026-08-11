@@ -11,10 +11,11 @@ import {
   NonConformityDetailView,
 } from '@/components/organisms';
 import { useAudits } from '@/lib/audits-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 import { mockUsers } from '@/mocks/users';
 
 export default function NonConformityDetailPage({ params }: { params: { id: string } }) {
+  const { tenants } = useTenants();
   const { nonConformities } = useAudits();
   // Resultado de la Etapa de Seguimiento. Vive acá y no en cada componente
   // porque lo produce el panel de etapas y lo consume el bloque de Cierre.
@@ -23,7 +24,7 @@ export default function NonConformityDetailPage({ params }: { params: { id: stri
 
   if (!nc) return notFound();
 
-  const plant = mockTenants.flatMap((t) => t.plants).find((p) => p.id === nc.plantId);
+  const plant = tenants.flatMap((t) => t.plants).find((p) => p.id === nc.plantId);
   const responsableOptions = mockUsers.filter((u) => u.tenantId === nc.tenantId).map((u) => ({ id: u.id, nombre: u.nombre }));
 
   return (

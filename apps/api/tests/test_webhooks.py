@@ -20,7 +20,7 @@ from svix.webhooks import Webhook
 
 from app.config import get_settings
 from app.main import app
-from app.deps import get_db
+from app.deps import get_admin_db
 from app.services import clerk_sync
 from app.services.clerk_sync import DatosDeClerkInvalidos, procesar_evento
 
@@ -106,7 +106,7 @@ def cliente(monkeypatch):
     get_settings.cache_clear()
 
     sesion = SesionFalsa()
-    app.dependency_overrides[get_db] = lambda: sesion
+    app.dependency_overrides[get_admin_db] = lambda: sesion
     with TestClient(app) as c:
         c.sesion = sesion  # type: ignore[attr-defined]
         yield c
@@ -186,7 +186,7 @@ def test_sin_secreto_configurado_da_503(monkeypatch):
     monkeypatch.delenv("CLERK_WEBHOOK_SECRET", raising=False)
     get_settings.cache_clear()
     sesion = SesionFalsa()
-    app.dependency_overrides[get_db] = lambda: sesion
+    app.dependency_overrides[get_admin_db] = lambda: sesion
 
     with TestClient(app) as c:
         r = c.post(

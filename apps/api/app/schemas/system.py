@@ -57,3 +57,22 @@ class AuditLogRead(OrmBase):
     reason: str | None
     before_data: dict | None
     after_data: dict | None
+
+
+class IntegrationAccountUpdate(BaseModel):
+    """Lo editable de una cuenta de integracion.
+
+    `provider` no esta: cambiar el proveedor de una cuenta existente no es una
+    edicion, es otra cuenta — y dejaria `external_account_id`, `scopes` y el
+    secreto apuntando a un sistema que ya no es el suyo.
+
+    `secret_reference` si se puede cambiar, porque rotar credenciales es
+    operacion normal. Nunca sale en la lectura: `IntegrationAccountRead` no lo
+    incluye, y asi debe seguir.
+    """
+
+    external_account_id: str | None = None
+    display_name: str | None = None
+    status: str | None = None
+    scopes: list[str] | None = None
+    secret_reference: str | None = None

@@ -6,17 +6,18 @@ import { Spinner } from '@/components/atoms';
 import { SupportTicketsView } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useSupportTickets } from '@/lib/support-tickets-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-38 Soporte/Tickets internos (exclusivo Superadmin, ver AppSidebar). */
 export default function SoportePage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
+  const { tenants } = useTenants();
   const { tickets } = useSupportTickets();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (
@@ -34,7 +35,7 @@ export default function SoportePage() {
       </div>
       <SupportTicketsView
         tickets={tickets}
-        tenantNombre={(tenantId) => mockTenants.find((t) => t.id === tenantId)?.nombre ?? 'Sin empresa (invitado)'}
+        tenantNombre={(tenantId) => tenants.find((t) => t.id === tenantId)?.nombre ?? 'Sin empresa (invitado)'}
         currentUserId={user.id}
       />
     </div>

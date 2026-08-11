@@ -92,9 +92,33 @@ jobs:
           pip install mypy==1.14.0
           mypy app/ --ignore-missing-imports --no-error-summary || true
 
+      # El esquema va ANTES de los tests, no despues.
+      #
+      # Estaba al reves, y no se notaba mientras ninguna prueba tocaba la base.
+      # Al entrar las de aislamiento y borrado logico, pytest corria contra una
+      # base vacia y sin el rol de aplicacion: `Role "ambienta_app" does not
+      # exist`.
+      #
+      # Se aplican TODOS los scripts, en el mismo orden que `db/run.sh`. Con
+      # solo 01 y 03 faltaban el rol de aplicacion (07), la secuencia de
+      # tickets (06) y los permisos individuales (05) — o sea que CI daba verde
+      # sobre un esquema que no es el que corre en ningun lado.
+      - name: Init database schema
+        run: |
+          for f in 01_schema 04_clerk_auth 05_user_permissions 06_ticket_number \
+                   07_rol_aplicacion 03_seed_catalogos 02_seed; do
+            echo "→ $f"
+            PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
+              -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"
+          done
+
       # El guard permite que este workflow entre antes que la suite de tests:
       # sin el, pytest sale con codigo 5 ("no tests collected") y tumba el job.
       - name: Test (pytest)
+        env:
+          # El mismo rol acotado con el que corre la API: probar con el dueno
+          # de la base daria falsos verdes, porque es superusuario y salta RLS.
+          DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
         run: |
           if [ -d tests ]; then
             pip install pytest==8.3.4
@@ -103,14 +127,10 @@ jobs:
             echo "apps/api todavia no tiene tests/ — se omite."
           fi
 
-      - name: Init database schema
-        run: |
-          PGPASSWORD=ambienta_dev psql -h localhost -U ambienta -d ambienta -f ../../db/01_schema.sql
-          PGPASSWORD=ambienta_dev psql -h localhost -U ambienta -d ambienta -f ../../db/03_seed_catalogos.sql
-
       - name: Health check
         env:
-          DATABASE_URL: postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta
+          DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
+          DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta
           ENVIRONMENT: test
         run: |
           uvicorn app.main:app --host 0.0.0.0 --port 8000 &
