@@ -17,6 +17,16 @@ import { CLERK_HABILITADO } from '@/lib/clerk-config';
  */
 interface SessionContextValue {
   user: User | null;
+  /**
+   * La sesión todavía se está resolviendo.
+   *
+   * Existe porque `user === null` significaba dos cosas distintas —"no hay
+   * sesión" y "todavía no sé"— y las pantallas las trataban igual: 24 páginas
+   * hacían `if (user === null) router.replace('/login')`. Con Clerk eso
+   * rebotaba **toda** carga directa por URL, porque el usuario tarda un
+   * instante en resolverse contra la lista de la API.
+   */
+  cargando: boolean;
   login: (userId: string) => void;
   logout: () => void;
 }
@@ -34,7 +44,7 @@ const STORAGE_KEY = 'ambienta.mockUserId';
  * cuenta no da acceso por si solo (RF-03). Aca no se inventa un usuario.
  */
 function SessionDesdeClerk({ children }: { children: ReactNode }) {
-  const { users } = useUsers();
+  const { users, loading: cargandoUsuarios } = useUsers();
   const { user: clerkUser, isLoaded } = useUser();
   const { signOut } = useClerk();
 
@@ -42,11 +52,17 @@ function SessionDesdeClerk({ children }: { children: ReactNode }) {
   const user =
     isLoaded && email ? (users.find((u) => u.email.toLowerCase() === email) ?? null) : null;
 
+  // Dos esperas, no una: primero Clerk resuelve quien entro, despues hay que
+  // encontrar a esa persona en la lista de la empresa. Hasta que las dos
+  // terminen, `user === null` no significa "no hay sesion".
+  const cargando = !isLoaded || (email !== null && cargandoUsuarios);
+
   // `login` no existe con proveedor real: la pantalla de ingreso es de Clerk.
   // Queda como no-op en vez de lanzar, para que ningun componente tenga que
   // conocer los dos caminos.
   const value: SessionContextValue = {
     user,
+    cargando,
     login: () => {},
     logout: () => void signOut({ redirectUrl: '/login' }),
   };
@@ -58,10 +74,14 @@ function SessionDesdeClerk({ children }: { children: ReactNode }) {
 function SessionMock({ children }: { children: ReactNode }) {
   const { users } = useUsers();
   const [userId, setUserId] = useState<string | null>(null);
+  // El id vive en localStorage, que solo se puede leer despues de montar. Ese
+  // primer render tambien es "todavia no se", igual que con Clerk.
+  const [leido, setLeido] = useState(false);
 
   useEffect(() => {
     const storedId = window.localStorage.getItem(STORAGE_KEY);
     if (storedId) setUserId(storedId);
+    setLeido(true);
   }, []);
 
   const user = users.find((u) => u.id === userId) ?? null;
@@ -82,7 +102,11 @@ function SessionMock({ children }: { children: ReactNode }) {
     window.localStorage.removeItem(STORAGE_KEY);
   }
 
-  return <SessionContext.Provider value={{ user, login, logout }}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={{ user, cargando: !leido, login, logout }}>
+      {children}
+    </SessionContext.Provider>
+  );
 }
 
 /**

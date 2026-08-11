@@ -33,7 +33,7 @@ import { mockNonConformities } from '@/mocks/audits';
  */
 export default function DashboardPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando: cargandoSesion } = useSession();
   const { tenants } = useTenants();
 
   const [metrics, setMetrics] = useState<DashboardViewModel | null>(null);
@@ -42,11 +42,8 @@ export default function DashboardPage() {
   const [reintento, setReintento] = useState(0);
 
   useEffect(() => {
-    if (user === null) {
-      const stillChecking = window.localStorage.getItem('ambienta.mockUserId');
-      if (!stillChecking) router.replace('/login');
-    }
-  }, [user, router]);
+    if (!cargandoSesion && user === null) router.replace('/login');
+  }, [cargandoSesion, user, router]);
 
   useEffect(() => {
     if (!user?.tenantId) return;

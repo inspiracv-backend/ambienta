@@ -13,13 +13,13 @@ import { useTenants } from '@/lib/tenants-store';
 /** S-25 Catálogo Normativo (3 capas). Fetching real: reemplazar por GET /catalog + agente BCN cuando exista spec aprobada (RF-42/RF-45). */
 export default function CatalogoNormativoPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants } = useTenants();
   const { norms, setNormPlants } = useLegalMatrix();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

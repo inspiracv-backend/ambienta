@@ -16,14 +16,14 @@ import { rutaInicialParaRol } from '@/lib/navigation';
  */
 export default function EquipoPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
 
   const esSuperadmin = user?.role === 'superadmin';
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
+    if (!cargando && user === null) router.replace('/login');
     else if (user && !esSuperadmin) router.replace(rutaInicialParaRol(user.role));
-  }, [user, esSuperadmin, router]);
+  }, [cargando, user, esSuperadmin, router]);
 
   if (!user || !esSuperadmin) {
     return (

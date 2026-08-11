@@ -22,7 +22,7 @@ import { useTenants } from '@/lib/tenants-store';
  */
 export default function UsuariosPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants } = useTenants();
   const { users } = useUsers();
   const { departamentos } = useDepartamentos();
@@ -32,9 +32,9 @@ export default function UsuariosPage() {
     : false;
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
+    if (!cargando && user === null) router.replace('/login');
     else if (user && !puedeGestionarUsuarios) router.replace(rutaInicialParaRol(user.role));
-  }, [user, puedeGestionarUsuarios, router]);
+  }, [cargando, user, puedeGestionarUsuarios, router]);
 
   if (!user || !puedeGestionarUsuarios) {
     return (

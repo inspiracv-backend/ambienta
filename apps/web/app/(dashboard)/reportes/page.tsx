@@ -13,15 +13,15 @@ import { useTenants } from '@/lib/tenants-store';
 /** S-39 Reportes + S-40 Exportación de Carpeta de Auditoría (RF-50). */
 export default function ReportesPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { obligations } = useObligations();
   const { norms } = useLegalMatrix();
   const { audits, nonConformities } = useAudits();
   const { tenants } = useTenants();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

@@ -17,11 +17,11 @@ import { useSession } from '@/lib/session';
  */
 export default function HistorialPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

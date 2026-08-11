@@ -11,13 +11,13 @@ import { mockAspectosAmbientales } from '@/mocks/aspectos-ambientales';
 
 export default function AspectosAmbientalesPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants } = useTenants();
 
   useEffect(() => {
     if (!FEATURE_FLAGS.matricesIso) router.replace('/dashboard');
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

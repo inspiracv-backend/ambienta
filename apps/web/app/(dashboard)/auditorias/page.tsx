@@ -11,13 +11,13 @@ import { useTenants } from '@/lib/tenants-store';
 /** S-20 Listado de Auditorías. */
 export default function AuditoriasPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants } = useTenants();
   const { audits } = useAudits();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

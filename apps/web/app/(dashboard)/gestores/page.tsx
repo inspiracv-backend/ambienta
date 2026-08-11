@@ -11,13 +11,13 @@ import { useTenants } from '@/lib/tenants-store';
 /** S-27 Listado de Clientes (Sub-tenants) del Gestor. */
 export default function GestoresPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants } = useTenants();
   const { subTenants } = useGestores();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

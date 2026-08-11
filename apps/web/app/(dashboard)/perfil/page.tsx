@@ -11,13 +11,13 @@ import { useTenants } from '@/lib/tenants-store';
 /** S-42 Perfil de Usuario (todos los roles). */
 export default function PerfilPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants } = useTenants();
   const { updateNombre } = useUsers();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

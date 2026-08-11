@@ -13,11 +13,11 @@ const PRIVILEGED_EXAMPLES = ['¿Cuántos tenants hay?', '¿Cuántos gestores hay
 /** S-34/S-35 Chatbot IA — mismo organismo, distinta base de conocimiento según rol (RF-52/RF-53). */
 export default function ChatbotPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

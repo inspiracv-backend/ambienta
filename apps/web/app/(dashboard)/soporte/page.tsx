@@ -11,13 +11,13 @@ import { useTenants } from '@/lib/tenants-store';
 /** S-38 Soporte/Tickets internos (exclusivo Superadmin, ver AppSidebar). */
 export default function SoportePage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants } = useTenants();
   const { tickets } = useSupportTickets();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

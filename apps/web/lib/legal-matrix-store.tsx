@@ -89,7 +89,9 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [user?.tenantId]);
+  // `user` completo y no solo su tenantId: el efecto lo usa adentro para las
+  // peticiones anidadas, y depender de una parte deja la otra vieja.
+  }, [user]);
 
   function updateArticulo(normId: string, articuloId: string, updates: Partial<Articulo>) {
     const norm = norms.find((n) => n.id === normId);

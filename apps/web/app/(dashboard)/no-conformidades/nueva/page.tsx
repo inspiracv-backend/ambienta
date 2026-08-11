@@ -34,12 +34,12 @@ export default function NuevaNoConformidadPage() {
 function NuevaNoConformidadContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { tenants } = useTenants();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (

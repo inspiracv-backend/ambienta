@@ -11,12 +11,12 @@ import { useNotifications } from '@/lib/notifications-store';
 /** S-32 Configuración de Notificaciones. */
 export default function ConfiguracionNotificacionesPage() {
   const router = useRouter();
-  const { user } = useSession();
+  const { user, cargando } = useSession();
   const { preferences } = useNotifications();
 
   useEffect(() => {
-    if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
-  }, [user, router]);
+    if (!cargando && user === null) router.replace('/login');
+  }, [cargando, user, router]);
 
   if (!user) {
     return (
