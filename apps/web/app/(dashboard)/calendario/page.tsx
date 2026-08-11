@@ -14,7 +14,7 @@ import {
 } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useObligations } from '@/lib/obligations-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 import { mockUsers } from '@/mocks/users';
 
 type ViewMode = 'calendario' | 'gantt' | 'kanban';
@@ -33,6 +33,7 @@ const VIEWS: { value: ViewMode; label: string; icon: typeof CalendarDays }[] = [
 export default function CalendarioPage() {
   const router = useRouter();
   const { user } = useSession();
+  const { tenants } = useTenants();
   const { obligations } = useObligations();
   const [view, setView] = useState<ViewMode>('calendario');
   const [selected, setSelected] = useState<TicketRef | null>(null);
@@ -41,7 +42,7 @@ export default function CalendarioPage() {
     if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
   }, [user, router]);
 
-  const tenant = mockTenants.find((t) => t.id === user?.tenantId);
+  const tenant = tenants.find((t) => t.id === user?.tenantId);
   const isVistaSimplificada = user?.role === 'admin_empresa';
 
   const scopedPlants = useMemo(() => {

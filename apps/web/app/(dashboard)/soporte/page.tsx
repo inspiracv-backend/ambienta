@@ -6,12 +6,13 @@ import { Spinner } from '@/components/atoms';
 import { SupportTicketsView } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useSupportTickets } from '@/lib/support-tickets-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-38 Soporte/Tickets internos (exclusivo Superadmin, ver AppSidebar). */
 export default function SoportePage() {
   const router = useRouter();
   const { user } = useSession();
+  const { tenants } = useTenants();
   const { tickets } = useSupportTickets();
 
   useEffect(() => {
@@ -34,7 +35,7 @@ export default function SoportePage() {
       </div>
       <SupportTicketsView
         tickets={tickets}
-        tenantNombre={(tenantId) => mockTenants.find((t) => t.id === tenantId)?.nombre ?? 'Sin empresa (invitado)'}
+        tenantNombre={(tenantId) => tenants.find((t) => t.id === tenantId)?.nombre ?? 'Sin empresa (invitado)'}
         currentUserId={user.id}
       />
     </div>

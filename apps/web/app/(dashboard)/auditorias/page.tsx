@@ -6,12 +6,13 @@ import { Spinner } from '@/components/atoms';
 import { AuditsListTable } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useAudits } from '@/lib/audits-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-20 Listado de Auditorías. */
 export default function AuditoriasPage() {
   const router = useRouter();
   const { user } = useSession();
+  const { tenants } = useTenants();
   const { audits } = useAudits();
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function AuditoriasPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const isVistaSimplificada = user.role === 'admin_empresa';
   const scopedPlants =
     !isVistaSimplificada && user.plantIds.length > 0

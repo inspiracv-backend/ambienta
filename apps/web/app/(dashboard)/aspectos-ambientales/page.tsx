@@ -6,12 +6,13 @@ import { FEATURE_FLAGS } from '@ambienta/shared';
 import { Spinner } from '@/components/atoms';
 import { AspectosAmbientalesTable } from '@/components/organisms';
 import { useSession } from '@/lib/session';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 import { mockAspectosAmbientales } from '@/mocks/aspectos-ambientales';
 
 export default function AspectosAmbientalesPage() {
   const router = useRouter();
   const { user } = useSession();
+  const { tenants } = useTenants();
 
   useEffect(() => {
     if (!FEATURE_FLAGS.matricesIso) router.replace('/dashboard');
@@ -26,7 +27,7 @@ export default function AspectosAmbientalesPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const plants = tenant?.plants ?? [];
   const aspectos = mockAspectosAmbientales.filter((a) => a.tenantId === user.tenantId);
 

@@ -10,7 +10,7 @@ import { useSession } from '@/lib/session';
 import { useNotifications } from '@/lib/notifications-store';
 import { ROLE_LABEL } from '@/lib/roles';
 import { navItemsParaRol } from '@/lib/navigation';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 interface AppHeaderProps {
   onOpenMobileNav: () => void;
@@ -23,9 +23,10 @@ interface AppHeaderProps {
 export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
   const router = useRouter();
   const { user, logout } = useSession();
+  const { tenants } = useTenants();
   const { notifications } = useNotifications();
 
-  const tenant = mockTenants.find((t) => t.id === user?.tenantId);
+  const tenant = tenants.find((t) => t.id === user?.tenantId);
   const noLeidas = user ? notifications.filter((n) => n.userId === user.id && !n.leida).length : 0;
 
   // La campana se deriva del propio menú del rol para no duplicar el criterio:

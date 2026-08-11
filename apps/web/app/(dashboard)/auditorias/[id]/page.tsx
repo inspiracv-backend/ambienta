@@ -4,16 +4,17 @@ import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
 import { AuditDetailView, HistorialTimeline } from '@/components/organisms';
 import { useAudits } from '@/lib/audits-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 import { mockLegalNorms } from '@/mocks/catalog';
 
 export default function AuditDetailPage({ params }: { params: { id: string } }) {
+  const { tenants } = useTenants();
   const { audits, nonConformities } = useAudits();
   const audit = audits.find((a) => a.id === params.id);
 
   if (!audit) return notFound();
 
-  const plant = mockTenants.flatMap((t) => t.plants).find((p) => p.id === audit.plantId);
+  const plant = tenants.flatMap((t) => t.plants).find((p) => p.id === audit.plantId);
   const normativas = mockLegalNorms.filter((n) => audit.normativaIds.includes(n.id));
   const hallazgos = nonConformities.filter((nc) => nc.auditId === audit.id);
 

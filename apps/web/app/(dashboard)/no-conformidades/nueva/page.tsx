@@ -6,7 +6,7 @@ import { Breadcrumbs } from '@/components/molecules';
 import { RegisterFindingForm } from '@/components/organisms';
 import { Spinner } from '@/components/atoms';
 import { useSession } from '@/lib/session';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 import { mockUsers } from '@/mocks/users';
 
 /**
@@ -35,6 +35,7 @@ function NuevaNoConformidadContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useSession();
+  const { tenants } = useTenants();
 
   useEffect(() => {
     if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
@@ -48,7 +49,7 @@ function NuevaNoConformidadContent() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const responsableOptions = mockUsers.filter((u) => u.tenantId === user.tenantId).map((u) => ({ id: u.id, nombre: u.nombre }));
 
   return (

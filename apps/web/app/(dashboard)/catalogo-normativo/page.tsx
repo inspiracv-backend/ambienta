@@ -8,12 +8,13 @@ import { Spinner } from '@/components/atoms';
 import { CatalogNormsTable } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-25 Catálogo Normativo (3 capas). Fetching real: reemplazar por GET /catalog + agente BCN cuando exista spec aprobada (RF-42/RF-45). */
 export default function CatalogoNormativoPage() {
   const router = useRouter();
   const { user } = useSession();
+  const { tenants } = useTenants();
   const { norms, setNormPlants } = useLegalMatrix();
 
   useEffect(() => {
@@ -28,7 +29,7 @@ export default function CatalogoNormativoPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const tenantPlantIds = (tenant?.plants ?? []).map((p) => p.id);
   const visibleNorms = norms.filter((n) => n.tenantId === null || n.tenantId === user.tenantId);
 

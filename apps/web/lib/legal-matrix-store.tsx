@@ -34,14 +34,51 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user?.tenantId) { setLoading(false); return; }
     let cancelled = false;
-    api
-      .get<Record<string, unknown>[]>('/catalog/norms')
-      .then((data) => {
+
+    /**
+     * Qué normas le aplican a cada instalación.
+     *
+     * `plantIds` venía siempre vacío, y la pantalla filtra las normas por
+     * `plantIds.some(...)`: con la lista vacía **ninguna norma cruzaba con
+     * ninguna planta** y la matriz se veía vacía aunque el catálogo cargara
+     * bien.
+     *
+     * Se pide una vez por instalación porque las asignaciones se exponen
+     * anidadas bajo su planta y no hay listado transversal. Son 3 o 4
+     * peticiones para una empresa típica; si algún día un cliente tiene
+     * decenas de faenas, hace falta un endpoint que las devuelva juntas.
+     */
+    async function plantasPorNorma(): Promise<Map<string, string[]>> {
+      const mapa = new Map<string, string[]>();
+      const plantas = await api
+        .get<Record<string, unknown>[]>('/facilities/', { tenantId: user!.tenantId })
+        .catch(() => []);
+      const asignaciones = await Promise.all(
+        plantas.map((p) =>
+          api
+            .get<Record<string, unknown>[]>(`/facilities/${p.id}/norms`, {
+              tenantId: user!.tenantId,
+            })
+            .then((filas) => filas.map((f) => ({ planta: String(p.id), norma: String(f.norm_id) })))
+            .catch(() => []),
+        ),
+      );
+      for (const { planta, norma } of asignaciones.flat()) {
+        mapa.set(norma, [...(mapa.get(norma) ?? []), planta]);
+      }
+      return mapa;
+    }
+
+    Promise.all([
+      api.get<Record<string, unknown>[]>('/catalog/norms'),
+      plantasPorNorma(),
+    ])
+      .then(([data, porNorma]) => {
         if (cancelled) return;
         const mapped: LegalNorm[] = data.map((raw) => ({
           id: String(raw.id),
           tenantId: user.tenantId!,
-          plantIds: [],
+          plantIds: porNorma.get(String(raw.id)) ?? [],
           tipoDocumento: 'ley' as TipoDocumento,
           nombre: String(raw.title ?? raw.norm_number ?? ''),
           fuente: 'RCA' as const,

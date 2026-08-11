@@ -6,12 +6,13 @@ import { Spinner } from '@/components/atoms';
 import { UserProfileView } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useUsers } from '@/lib/users-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-42 Perfil de Usuario (todos los roles). */
 export default function PerfilPage() {
   const router = useRouter();
   const { user } = useSession();
+  const { tenants } = useTenants();
   const { updateNombre } = useUsers();
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function PerfilPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
 
   return (
     <UserProfileView

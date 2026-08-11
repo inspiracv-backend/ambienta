@@ -6,11 +6,12 @@ import { Breadcrumbs } from '@/components/molecules';
 import { TenantNormsManager } from '@/components/organisms';
 import { Spinner } from '@/components/atoms';
 import { useSession } from '@/lib/session';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 export default function GestionNormasPage() {
   const router = useRouter();
   const { user } = useSession();
+  const { tenants } = useTenants();
 
   useEffect(() => {
     if (user === null && !window.localStorage.getItem('ambienta.mockUserId')) router.replace('/login');
@@ -24,7 +25,7 @@ export default function GestionNormasPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
 
   return (
     <div className="flex flex-col gap-4">

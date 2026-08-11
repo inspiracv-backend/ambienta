@@ -6,12 +6,13 @@ import { Spinner } from '@/components/atoms';
 import { NonConformitiesListTable } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useAudits } from '@/lib/audits-store';
-import { mockTenants } from '@/mocks/tenants';
+import { useTenants } from '@/lib/tenants-store';
 
 /** S-22 Listado de No Conformidades. */
 export default function NoConformidadesPage() {
   const router = useRouter();
   const { user } = useSession();
+  const { tenants } = useTenants();
   const { nonConformities } = useAudits();
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function NoConformidadesPage() {
     );
   }
 
-  const tenant = mockTenants.find((t) => t.id === user.tenantId);
+  const tenant = tenants.find((t) => t.id === user.tenantId);
   const isVistaSimplificada = user.role === 'admin_empresa';
   const scopedPlants =
     !isVistaSimplificada && user.plantIds.length > 0
