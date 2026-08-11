@@ -6,9 +6,149 @@ distinta —un 404 que no se lanza, un commit que falta— y esas diferencias no
 se ven leyendo un router aislado.
 """
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+
+class CRUDAsociacion:
+    """CRUD para tablas de union con clave compuesta.
+
+    `CRUDBase` direcciona por columna `id` simple y lanza `NotImplementedError`
+    sobre estas tablas — a proposito, para que nadie las conecte por accidente.
+    Pero `audit_participants`, `equipment_operators` y `facility_processes` si
+    necesitan API: son relaciones **con atributos propios** (el rol en la
+    auditoria, la certificacion del operador, la vigencia del proceso en la
+    planta), no simples enlaces.
+
+    Se exponen anidadas bajo su padre, que es lo que corresponde: un
+    participante no existe fuera de su auditoria. El padre sale del path y el
+    hijo del path o del cuerpo, asi que la clave compuesta nunca hay que
+    serializarla en una URL.
+
+    El borrado es logico, igual que en `CRUDBase`: estas tablas tambien tienen
+    `deleted_at` y su historial importa — quien participo en una auditoria es
+    parte del registro de esa auditoria.
+    """
+
+    def __init__(self, model: Any, campo_padre: str, campo_hijo: str):
+        self.model = model
+        self.campo_padre = campo_padre
+        self.campo_hijo = campo_hijo
+
+    def _visibles(self, padre_id: UUID):
+        return select(self.model).where(
+            getattr(self.model, self.campo_padre) == padre_id,
+            self.model.deleted_at.is_(None),
+        )
+
+    def listar(self, db: Session, padre_id: UUID) -> list[Any]:
+        return list(db.scalars(self._visibles(padre_id)).all())
+
+    def obtener(self, db: Session, padre_id: UUID, hijo_id: UUID) -> Any | None:
+        return db.scalar(
+            self._visibles(padre_id).where(
+                getattr(self.model, self.campo_hijo) == hijo_id
+            )
+        )
+
+    def _obtener_incluso_borrado(
+        self, db: Session, padre_id: UUID, hijo_id: UUID
+    ) -> Any | None:
+        return db.scalar(
+            select(self.model).where(
+                getattr(self.model, self.campo_padre) == padre_id,
+                getattr(self.model, self.campo_hijo) == hijo_id,
+            )
+        )
+
+    def crear(
+        self, db: Session, *, padre_id: UUID, hijo_id: UUID, datos: Any, tenant_id: UUID
+    ) -> Any:
+        """Agrega el vinculo, o **reinstala** uno que se habia quitado.
+
+        La clave primaria de estas tablas es `(padre, hijo)` y **no es parcial
+        sobre `deleted_at`**: una fila dada de baja sigue ocupando la clave.
+        Insertar de nuevo la misma pareja choca contra una fila que el usuario
+        no puede ver, y sale un 500 por violacion de unicidad.
+
+        Y volver a agregar algo que se quito no es un caso raro aca: es lo
+        normal. Una persona se reincorpora a una auditoria, un proceso vuelve a
+        una planta, un operador recupera su certificacion. Por eso se reinstala
+        la fila existente en vez de rechazar la operacion — y con los datos
+        nuevos, no los viejos: quien la vuelve a agregar esta declarando las
+        condiciones de ahora.
+        """
+        campos = datos.model_dump(exclude_unset=True)
+        # El padre y el hijo salen del path, nunca del cuerpo: si vinieran del
+        # cuerpo, la URL diria una cosa y la fila otra.
+        campos.pop(self.campo_padre, None)
+        campos.pop(self.campo_hijo, None)
+
+        previa = self._obtener_incluso_borrado(db, padre_id, hijo_id)
+        if previa is not None:
+            for campo, valor in campos.items():
+                setattr(previa, campo, valor)
+            previa.deleted_at = None
+            db.flush()
+            db.refresh(previa)
+            return previa
+
+        obj = self.model(
+            **campos,
+            **{self.campo_padre: padre_id, self.campo_hijo: hijo_id},
+            tenant_id=tenant_id,
+        )
+        db.add(obj)
+        db.flush()
+        db.refresh(obj)
+        return obj
+
+    def actualizar(self, db: Session, *, db_obj: Any, datos: Any) -> Any:
+        for campo, valor in datos.model_dump(exclude_unset=True).items():
+            setattr(db_obj, campo, valor)
+        db.flush()
+        db.refresh(db_obj)
+        return db_obj
+
+    def borrar(self, db: Session, *, padre_id: UUID, hijo_id: UUID) -> Any | None:
+        obj = self.obtener(db, padre_id, hijo_id)
+        if obj is None:
+            return None
+        obj.deleted_at = func.now()
+        db.flush()
+        return obj
+
+
+def listar_por_padre(model: Any, db: Session, padre_id: UUID, *, campo: str) -> list[Any]:
+    """Listado de hijos de un padre, excluyendo lo borrado.
+
+    Existe porque `CRUDBase.get_multi` no filtra por ninguna columna, asi que
+    cualquier listado acotado hay que escribirlo a mano — y ahi es facil
+    olvidar `deleted_at` y devolver filas dadas de baja.
+    """
+    stmt = select(model).where(
+        getattr(model, campo) == padre_id, model.deleted_at.is_(None)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def verificar_padre(obj: Any, padre_id: UUID, *, campo: str) -> Any:
+    """Comprueba que el hijo pertenezca al padre de la URL.
+
+    **Anidar la ruta no ata el hijo al padre.** `CRUDBase.get` resuelve por id
+    a secas, asi que `/documents/{A}/entidades/{X}` devolveria X aunque X
+    pertenezca al documento B. La jerarquia de la URL seria decorativa.
+
+    404 y no 403: bajo ese padre, ese hijo no existe.
+    """
+    if getattr(obj, campo) != padre_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
+        )
+    return obj
 
 
 def validar_visible(

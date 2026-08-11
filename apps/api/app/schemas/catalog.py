@@ -218,3 +218,32 @@ class FacilityNormAssignmentRead(OrmBase):
     source: str
     created_at: datetime
     updated_at: datetime
+
+
+class FacilityNormAssignmentUpdate(BaseModel):
+    """Lo editable de una asignacion de norma a instalacion.
+
+    `facility_id` y `norm_id` son la identidad del vinculo. `assigned_by` y
+    `assigned_at` los escribe el servidor al resolver la asignacion, nunca el
+    cuerpo: dicen quien decidio y cuando, y aceptarlos del cliente los volveria
+    declarativos en vez de probatorios.
+    """
+
+    assignment_status: str | None = None
+    assigned_version_id: UUID | None = None
+    applicability_reason: str | None = None
+
+
+class FacilityNormAssignmentCreateAnidado(BaseModel):
+    """Cuerpo de `POST /facilities/{facility_id}/norms`.
+
+    Sin `facility_id` (viene del path) ni `source`: lo que entra por este
+    endpoint lo decidio una persona, asi que el servidor lo fija en 'manual'.
+    Aceptarlo del cuerpo permitiria disfrazar una decision manual como si la
+    hubiera sugerido el sistema.
+    """
+
+    norm_id: UUID
+    assigned_version_id: UUID | None = None
+    assignment_status: str = "pending_review"
+    applicability_reason: str | None = None

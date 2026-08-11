@@ -3,11 +3,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..crud.documents import crud_document
+from ..crud.documents import crud_document, crud_entity_document
 from ..deps import get_tenant_db, get_tenant_id
-from ._comun import borrar_o_404
+from ..models.documents import EntityDocument
+from ._comun import borrar_o_404, listar_por_padre, obtener_o_404, verificar_padre
 from ..schemas.documents import (
     DocumentCreate,
+    EntityDocumentCreate,
+    EntityDocumentCreateAnidado,
+    EntityDocumentRead,
+    EntityDocumentUpdate,
     DocumentRead,
     DocumentUpdate,
     DocumentVersionCreate,
@@ -83,3 +88,59 @@ def delete_document(document_id: UUID, db: Session = Depends(get_tenant_db)):
     evidencia que respalda el cumplimiento, y eliminarlas dejaria sin sustento
     a las evaluaciones que las citan."""
     borrar_o_404(crud_document, db, document_id, recurso="Document")
+
+
+# ── Vinculos del documento con las entidades que respalda ──────────────────
+
+@router.get("/{document_id}/entities", response_model=list[EntityDocumentRead])
+def list_entity_documents(document_id: UUID, db: Session = Depends(get_tenant_db)):
+    """A que entidades respalda este documento."""
+    obtener_o_404(crud_document, db, document_id, recurso="Document")
+    return listar_por_padre(EntityDocument, db, document_id, campo="document_id")
+
+
+@router.post("/{document_id}/entities", response_model=EntityDocumentRead, status_code=status.HTTP_201_CREATED)
+def create_entity_document(
+    document_id: UUID,
+    data: EntityDocumentCreateAnidado,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    """Vincula el documento con la entidad que respalda.
+
+    `document_id` sale del path y se ignora del cuerpo: si viniera del cuerpo,
+    la URL podria decir un documento y la fila apuntar a otro.
+    """
+    obtener_o_404(crud_document, db, document_id, recurso="Document")
+    datos = data.model_dump()
+    datos["document_id"] = document_id
+    obj = crud_entity_document.create(
+        db, obj_in=EntityDocumentCreate(**datos), tenant_id=tenant_id
+    )
+    db.commit()
+    return obj
+
+
+@router.patch("/{document_id}/entities/{vinculo_id}", response_model=EntityDocumentRead)
+def update_entity_document(
+    document_id: UUID, vinculo_id: int, data: EntityDocumentUpdate, db: Session = Depends(get_tenant_db)
+):
+    obj = obtener_o_404(crud_entity_document, db, vinculo_id, recurso="EntityDocument")
+    verificar_padre(obj, document_id, campo="document_id")
+    obj = crud_entity_document.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/{document_id}/entities/{vinculo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_entity_document(document_id: UUID, vinculo_id: int, db: Session = Depends(get_tenant_db)):
+    """Desvincula el documento de esa entidad. El documento no se toca."""
+    obj = obtener_o_404(crud_entity_document, db, vinculo_id, recurso="EntityDocument")
+    verificar_padre(obj, document_id, campo="document_id")
+    borrar_o_404(crud_entity_document, db, vinculo_id, recurso="EntityDocument")
+
+
+@router.get("/{document_id}/entities/{vinculo_id}", response_model=EntityDocumentRead)
+def get_entity_document(document_id: UUID, vinculo_id: int, db: Session = Depends(get_tenant_db)):
+    obj = obtener_o_404(crud_entity_document, db, vinculo_id, recurso="EntityDocument")
+    return verificar_padre(obj, document_id, campo="document_id")

@@ -165,3 +165,25 @@ class EquipmentOperatorRead(OrmBase):
     is_primary: bool
     created_at: datetime
     updated_at: datetime
+
+
+class EquipmentOperatorUpdate(BaseModel):
+    """La certificacion de un operador sobre un equipo.
+
+    `equipment_id` y `user_id` forman la clave: reasignar la certificacion a
+    otra persona es darla de baja y crear la nueva, no editar esta.
+    """
+
+    certification_class: str | None = None
+    certification_number: str | None = None
+    certification_expires_at: date | None = None
+    is_primary: bool | None = None
+
+
+class EquipmentOperatorCreateAnidado(BaseModel):
+    """Cuerpo de `POST /iso14001/equipment/{equipment_id}/operators/{user_id}`."""
+
+    certification_class: str | None = None
+    certification_number: str | None = None
+    certification_expires_at: date | None = None
+    is_primary: bool = False

@@ -5,9 +5,14 @@ from sqlalchemy.orm import Session
 
 from ..crud.audit import crud_action_plan, crud_audit, crud_nonconformity
 from ..deps import get_tenant_db, get_tenant_id
-from ._comun import borrar_o_404, obtener_o_404
+from ..crud.organization import crud_user
+from ..models.audit import AuditParticipant
+from ._comun import CRUDAsociacion, borrar_o_404, obtener_o_404, validar_visible
 from ..schemas.audit import (
     ActionPlanCreate,
+    AuditParticipantCreateAnidado,
+    AuditParticipantRead,
+    AuditParticipantUpdate,
     ActionPlanRead,
     ActionPlanUpdate,
     AuditCreate,
@@ -190,3 +195,68 @@ def get_nonconformity(nc_id: UUID, db: Session = Depends(get_tenant_db)):
 @router.get("/action-plans/{plan_id}", response_model=ActionPlanRead, tags=["action-plans"])
 def get_action_plan(plan_id: UUID, db: Session = Depends(get_tenant_db)):
     return obtener_o_404(crud_action_plan, db, plan_id, recurso="ActionPlan")
+
+
+# ── Participantes de una auditoria (clave compuesta, anidada) ──────────────
+
+crud_participante = CRUDAsociacion(AuditParticipant, "audit_id", "user_id")
+
+
+@router.get("/{audit_id}/participants", response_model=list[AuditParticipantRead], tags=["audits"])
+def list_participants(audit_id: UUID, db: Session = Depends(get_tenant_db)):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    return crud_participante.listar(db, audit_id)
+
+
+@router.post("/{audit_id}/participants/{user_id}", response_model=AuditParticipantRead, status_code=status.HTTP_201_CREATED, tags=["audits"])
+def add_participant(
+    audit_id: UUID,
+    user_id: UUID,
+    data: AuditParticipantCreateAnidado,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    """Suma a alguien a la auditoria.
+
+    El usuario va en el path y no en el cuerpo para que la URL identifique por
+    completo la fila: la clave es (audit_id, user_id).
+    """
+    obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    validar_visible(crud_user, db, user_id, campo="user_id")
+    if crud_participante.obtener(db, audit_id, user_id) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esa persona ya participa en la auditoria.",
+        )
+    obj = crud_participante.crear(db, padre_id=audit_id, hijo_id=user_id, datos=data, tenant_id=tenant_id)
+    db.commit()
+    return obj
+
+
+@router.patch("/{audit_id}/participants/{user_id}", response_model=AuditParticipantRead, tags=["audits"])
+def update_participant(
+    audit_id: UUID, user_id: UUID, data: AuditParticipantUpdate, db: Session = Depends(get_tenant_db)
+):
+    obj = crud_participante.obtener(db, audit_id, user_id)
+    if obj is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
+    obj = crud_participante.actualizar(db, db_obj=obj, datos=data)
+    db.commit()
+    return obj
+
+
+@router.delete("/{audit_id}/participants/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["audits"])
+def remove_participant(audit_id: UUID, user_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Saca a alguien de la auditoria. Borrado logico: quien participo es
+    parte del registro de esa auditoria, aunque despues se le retire."""
+    if crud_participante.borrar(db, padre_id=audit_id, hijo_id=user_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
+    db.commit()
+
+
+@router.get("/{audit_id}/participants/{user_id}", response_model=AuditParticipantRead, tags=["audits"])
+def get_participant(audit_id: UUID, user_id: UUID, db: Session = Depends(get_tenant_db)):
+    obj = crud_participante.obtener(db, audit_id, user_id)
+    if obj is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found")
+    return obj

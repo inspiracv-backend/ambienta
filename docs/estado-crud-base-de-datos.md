@@ -147,10 +147,20 @@ antes de empezar:
 
 **20 de las 21 ya tenían su modelo escrito.** Solo faltaba `user_permissions`.
 
-### Entregado en esta tanda
+### Entregado
 
-`departments`, `processes` e `integration_accounts` — CRUD completo, verificado
-contra la API real: `201 / 200 / 200 / 204`, y `404` al releer lo borrado.
+**Ocho de las once**, todas con CRUD completo y verificadas contra la API real:
+
+| Recurso | Ruta | Nota |
+|---|---|---|
+| `departments` | `/departments` | Plana: `facility_id` es nullable |
+| `processes` | `/processes` | |
+| `integration_accounts` | `/integrations` | `secret_reference` nunca se devuelve |
+| `audit_participants` | `/audits/{id}/participants/{user_id}` | Clave compuesta |
+| `equipment_operators` | `/iso14001/equipment/{id}/operators/{user_id}` | Clave compuesta |
+| `facility_processes` | `/facilities/{id}/processes/{process_id}` | Clave compuesta |
+| `entity_documents` | `/documents/{id}/entities/{vinculo_id}` | Atadura hijo-padre |
+| `facility_norm_assignments` | `/facilities/{id}/norms/{asignacion_id}` | Atadura hijo-padre |
 
 Antes de escribir los routers se corrió un análisis con **revisión
 adversarial** sobre las 11 tablas. Encontró **30 problemas, 6 graves**. Dos
@@ -265,8 +275,10 @@ por test.
 
 ## Lo que falta para cubrir las 52 tablas
 
-- **6 tablas** de las 11 desbloqueadas: las tres de clave compuesta, las dos
-  plantillas y los dos vínculos que necesitan atadura hijo-padre
+- **2 tablas**: `obligation_templates` y `declaration_templates`. Son catálogo
+  **global sin `tenant_id`**: escribirlas afecta a todas las empresas, y el
+  guard de Admin Global resuelve el rol contra el tenant de la sesión. Necesitan
+  una autorización que no dependa de empresa
 - **`contracts`**: requiere decidir el flujo de consentimiento bilateral
 - **5 tablas de RBAC**: requieren que se apruebe `sistema-actores-roles-rbac`
 - **5 tablas** que no llevan CRUD por diseño
@@ -278,3 +290,36 @@ recursos de API.** Las de unión se administran desde su padre, las bitácoras l
 escribe el sistema, y los catálogos de referencia se consultan. Contarlas todas
 infla la estimación y después el número no cuadra con la realidad — que es
 exactamente lo que pasó con el "17 de 26".
+
+---
+
+## Apéndice · Dos trampas que aparecieron al implementar
+
+Ninguna estaba en el plan. Las dos las encontró el código al ejecutarse, no la
+lectura.
+
+### Las claves únicas no son parciales sobre `deleted_at`
+
+La clave primaria de una tabla de asociación es `(padre, hijo)`. **No excluye
+las filas borradas**, así que una fila dada de baja sigue ocupando la clave.
+Volver a insertar la misma pareja choca contra una fila que el usuario no puede
+ver, y como la API no tiene manejador de `IntegrityError`, sale **500**.
+
+Y en una tabla de asociación volver a agregar algo que se quitó **es lo
+normal**: una persona se reincorpora a una auditoría, un proceso vuelve a una
+planta. Por eso `CRUDAsociacion.crear()` reinstala la fila existente en vez de
+rechazar — y con los datos nuevos, porque quien la vuelve a agregar está
+declarando las condiciones de ahora.
+
+El mismo riesgo existe en `uq_departments_tenant_code` y otras únicas por
+código: borrar `DEP-MED` y volver a crearlo daría 500. Está sin resolver.
+
+### Anidar la ruta no ata el hijo al padre
+
+`CRUDBase.get` resuelve por id a secas. Sin una comprobación explícita,
+`/documents/{A}/entities/{X}` devuelve X **aunque X pertenezca al documento B**:
+la jerarquía de la URL sería decorativa. `verificar_padre()` compara y responde
+404 — bajo ese padre, ese hijo no existe.
+
+Verificado: pedir una asignación de norma bajo la planta equivocada devuelve
+404, no la fila.

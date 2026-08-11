@@ -49,7 +49,11 @@ def _cobertura(esquema: dict) -> dict[str, set[str]]:
         clave = base.replace("/{id}", "").rstrip("/")[len("/api/v1"):]
         if clave.endswith(SUFIJOS_DE_ACCION):
             continue
-        tiene_id = "{id}" in base
+        # Cuenta como "leer uno" solo si el ULTIMO segmento es el parametro.
+        # Un recurso anidado como `/audits/{id}/participants` lleva parametro
+        # del PADRE y aun asi es un listado; mirar si el path contiene `{id}`
+        # en cualquier posicion los clasificaba mal a todos.
+        tiene_id = base.rstrip("/").endswith("{id}")
         for metodo in metodos:
             letra = {
                 "get": "R" if tiene_id else "L",
