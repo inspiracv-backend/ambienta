@@ -194,20 +194,23 @@ No hace falta cuenta de Clerk: sin `CLERK_JWKS_URL` la API acepta el header
 
 ## Estado del proyecto
 
-**Actualizado 09-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
+**Actualizado 12-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
 de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 
 | Area | Estado |
 |---|---|
 | Base de datos | **Completa y verificada.** 52 tablas, 38 con RLS, 9 smoke tests en verde |
-| API | 95 endpoints. Backend de auth completo (Clerk fases 1 y 2) |
-| Tablero S-06/S-07 | **Conectado a datos reales** y verificado contra Postgres |
-| Resto del frontend | 20 pantallas **con datos de ejemplo**, no con la API |
-| Auth en el frontend | Cableado (Clerk fase 3), **inactivo sin llave**: sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher. Falta el token en las llamadas (fase 4) |
+| API | **95 rutas, 211 operaciones.** 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
+| Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
+| Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
+| Frontend — escrituras | **A medias.** Cuatro stores de negocio (`departamentos`, `gestores`, `legal-matrix`, `notifications`) actualizan solo estado local |
+| RBAC | **Sin empezar.** 0 de 33 tareas |
 | worker · ai-service | Sin implementar |
 
-**Lo unico que consume la API de verdad es el tablero.** Cualquier otra
-pantalla que se vea funcionando esta leyendo `apps/web/mocks/`.
+**Lo que hay que saber al tomar el repo:** las lecturas son reales, pero crear o
+editar desde varias pantallas **no llega a la base**. La API lo soporta; falta
+cablearlo. Es la trampa que mas rapido hace perder tiempo, porque la interfaz
+muestra el cambio y este desaparece al recargar.
 
 ## Trampas conocidas
 
@@ -243,7 +246,7 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 57 tests
+cd apps/api && python -m pytest         # 84 funciones de prueba, 10 archivos
 cd apps/web && npx vitest run           # 190 tests
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```

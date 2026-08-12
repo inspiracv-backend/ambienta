@@ -143,10 +143,12 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 - [x] Reemplazar avatar estatico por `<UserButton />` (condicional a Clerk).
       Estaba en `AppHeader`, no en el sidebar; se reemplazo el boton de cerrar
       sesion, que con proveedor real tiene que invalidar la sesion en Clerk
-- [ ] Verificar:
-  - [ ] Sin sesion + ruta protegida → redirect a `/login` — **bloqueado**: no
-        hay cuenta de Clerk todavia (decision abierta del equipo)
-  - [ ] Con sesion → acceso normal — **bloqueado**, mismo motivo
+- [x] Verificar: **desbloqueado el 10-ago-2026**, la cuenta de Clerk ya existe
+  - [x] Sin sesion + ruta protegida → redirect a `/login`. Necesito
+        `auth.protect({ unauthenticatedUrl })`: sin eso manda al Account Portal
+        alojado, el navegador lo bloquea por origen y queda un bucle
+  - [x] Con sesion → acceso normal. Verificado en el navegador con
+        `dev@abada.cl` contra la instancia `rapid-octopus-10`
   - [x] Sin `CLERK_PUBLISHABLE_KEY` → DevRoleSwitcher funciona como antes
         (tsc 0, lint 0, 190 tests, build 0, tablero al 40% en el navegador)
 
@@ -204,34 +206,55 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 6 — Entorno y documentacion
 
-- [ ] Agregar variables de Clerk a `docker-compose.yml` (servicios `web` y `api`)
-- [ ] Actualizar `.env.example`:
-  - [ ] Reemplazar seccion de `JWT_SECRET` por variables de Clerk
-  - [ ] Reemplazar seccion de OAuth directo (MICROSOFT_CLIENT_ID, etc.) por nota de que SSO se configura en Clerk
-  - [ ] 6 variables nuevas con placeholders y comentarios
-- [ ] Actualizar `docs/development/setup-local.md`: instrucciones de desarrollo con y sin Clerk
-- [ ] Actualizar `docs/development/entornos.md`: variables de Clerk en la tabla de entornos
-- [ ] GitHub Actions CI: las variables de Clerk son secretos; CI corre con fallback (sin Clerk)
+- [x] Agregar variables de Clerk a `docker-compose.yml` (servicios `web` y `api`)
+- [x] Actualizar `.env.example`:
+  - [x] Reemplazar seccion de `JWT_SECRET` por variables de Clerk. **No hay
+        secreto de firma que generar**: la API valida contra el JWKS publico,
+        no emite
+  - [x] Reemplazar seccion de OAuth directo (MICROSOFT_CLIENT_ID, etc.) por
+        nota de que SSO se configura en el panel de Clerk
+  - [x] 6 variables nuevas con placeholders y comentarios
+- [x] Actualizar `docs/development/setup-local.md`: instrucciones con y sin
+      Clerk. Decia "No hay auth real todavia", que dejo de ser cierto hace dias.
+      Documentadas las tres trampas: el JWT Template y el claim `tenant_id`,
+      `CLERK_SECRET_KEY` en el servicio `web`, y el webhook inalcanzable en local
+- [x] Actualizar `docs/development/entornos.md`: tabla de las 6 variables por
+      servicio, mas la advertencia de que la llave publica se hornea en el build
+- [x] GitHub Actions CI: documentado en `ci.yml` **por que** corre sin Clerk.
+      Atar cada PR a un servicio externo lo pone rojo por motivos ajenos al
+      cambio, y un CI asi deja de creerse. El camino con Clerk encendido va en
+      un job programado aparte (Fase 5 de `credenciales-de-acceso`)
 
 ## Fase 7 — Verificacion end-to-end
 
-- [ ] **Sin Clerk configurado** (desarrollo):
-  - [ ] DevRoleSwitcher funciona
-  - [ ] API acepta header `X-Tenant-Id`
-  - [ ] Todos los flujos existentes siguen funcionando
-- [ ] **Con Clerk configurado** (staging/produccion):
-  - [ ] Login muestra `<SignIn />`, DevRoleSwitcher no aparece
-  - [ ] Login con email+password → sesion real → dashboard con datos del tenant
-  - [ ] Login con Microsoft SSO → misma experiencia
-  - [ ] Login con Google SSO → misma experiencia
-  - [ ] `/dashboard` sin sesion → redirect a `/login`
-  - [ ] API con JWT valido → datos correctos del tenant
-  - [ ] API con JWT invalido → 401
-  - [ ] API con JWT de tenant 1 → no ve datos de tenant 2 (RLS verificado)
-  - [ ] Webhook `user.created` → usuario aparece en tabla `users`
-  - [ ] `<UserButton />` muestra nombre y foto del usuario
-  - [ ] Token expirado durante sesion → Clerk lo renueva automaticamente
-  - [ ] Logout → sesion destruida, redirect a `/login`
+Verificado en el navegador el **10-ago-2026** contra la instancia real, salvo
+lo marcado.
+
+- [x] **Sin Clerk configurado** (desarrollo):
+  - [x] DevRoleSwitcher funciona
+  - [x] API acepta header `X-Tenant-Id`
+  - [x] Todos los flujos existentes siguen funcionando
+- [x] **Con Clerk configurado**:
+  - [x] Login muestra `<SignIn />`, DevRoleSwitcher no aparece
+  - [x] Login con email+password → sesion real → dashboard con datos del tenant
+  - [ ] Login con Microsoft SSO → **no verificado**: necesita cuenta de Azure
+        (Fase 0, decision del equipo)
+  - [ ] Login con Google SSO → **no verificado**, mismo motivo
+  - [x] `/dashboard` sin sesion → redirect a `/login`
+  - [x] API con JWT valido → datos correctos del tenant (`/users/` y
+        `/dashboard/metrics` en 200, tablero al 40%)
+  - [x] API con JWT invalido → 401
+  - [x] API con JWT de tenant 1 → no ve datos de tenant 2. Probado ademas
+        mandando el header `X-Tenant-Id` del tenant 2 junto al token del 1: el
+        header no cruza empresas
+  - [ ] Webhook `user.created` → **no verificado en local**: Clerk no alcanza
+        `localhost:8000`. El alta se hizo con un UPDATE a mano sobre `clerk_id`.
+        Queda para el VPS o para un tunel
+  - [x] `<UserButton />` muestra nombre y foto del usuario
+  - [x] Token expirado durante sesion → Clerk lo renueva. El token dura **60
+        segundos** y la sesion de prueba duro bastante mas, asi que la
+        renovacion ocurrio; no se instrumento un caso dedicado
+  - [x] Logout → sesion destruida, redirect a `/login`
 
 ---
 

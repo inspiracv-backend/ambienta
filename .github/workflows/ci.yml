@@ -14,6 +14,16 @@ concurrency:
 
 jobs:
   # ── Frontend (Next.js) ────────────────────────────────────────────────
+  # CI corre DELIBERADAMENTE sin las variables de Clerk.
+  #
+  # Son secretos y dependen de un servicio externo: meterlas aca ataria cada PR
+  # a que la instancia de Clerk este arriba y a que la llave no haya rotado.
+  # Un CI que se pone rojo por algo ajeno al cambio deja de creerse.
+  #
+  # Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` el build cae al DevRoleSwitcher, que
+  # es el camino que igual tiene que seguir funcionando. Lo que esto NO cubre es
+  # el camino con Clerk encendido: eso va en un job aparte, programado y con
+  # secretos, no en el CI de cada PR. Ver Fase 5 de `credenciales-de-acceso`.
   web:
     name: Web — lint, typecheck, test, build
     runs-on: ubuntu-latest

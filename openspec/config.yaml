@@ -11,9 +11,16 @@ context: |
   Autenticacion: Clerk (ADR-006). Clerk autentica; los permisos y la
   pertenencia a la empresa son nuestros.
 
-  Aislamiento multi-tenant: dos barreras. La aplicacion filtra por tenant_id y
-  RLS en PostgreSQL existe para cuando la primera falle. 38 de 52 tablas lo
-  llevan; las otras 14 son catalogo compartido (la ley es igual para todos).
+  Aislamiento multi-tenant: RLS en PostgreSQL es la UNICA barrera. Ninguna
+  consulta de la aplicacion filtra por tenant_id — ni CRUDBase ni un solo
+  router. La API se conecta con el rol ambienta_app, que no puede saltarse
+  RLS, y declara la empresa por transaccion. 38 de 52 tablas llevan politica;
+  las otras 14 son catalogo compartido (la ley es igual para todos).
+
+  Consecuencia al disenar: un endpoint que olvide declarar la empresa devuelve
+  CERO filas, no todas. Falla cerrado, en silencio. Y las FK de Postgres NO
+  pasan por RLS, asi que cualquier referencia cruzada editable hay que
+  validarla leyendo el destino con la sesion del tenant.
 
   Idioma: la prosa va en espanol. Las palabras que el CLI parsea —SHALL,
   GIVEN, WHEN, THEN, los encabezados ADDED/MODIFIED/REMOVED— van en ingles.
