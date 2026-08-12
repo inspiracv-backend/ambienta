@@ -1,0 +1,23 @@
+# Dependencias de @ambienta/api (FastAPI).
+# Versiones ancladas para que el build sea reproducible.
+
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+# psycopg 3 con binario incluido: no requiere libpq del sistema en la imagen.
+psycopg[binary]==3.2.3
+sqlalchemy==2.0.36
+pydantic-settings==2.6.1
+
+# --- Autenticacion (ADR-006: Clerk) ------------------------------------------
+# Validacion local del JWT de Clerk contra su JWKS publica. No se usa el SDK de
+# Clerk a proposito: el SDK llama a la API de Clerk en cada request, mientras
+# que validar la firma RS256 localmente no depende de que Clerk este arriba.
+# Ver openspec/changes/integracion-clerk-auth/design.md §1.
+python-jose[cryptography]==3.3.0
+# Cliente HTTP para descargar la JWKS (se cachea en memoria, ver auth.py).
+httpx==0.28.1
+# Verificacion de firma de los webhooks de Clerk. Se usa la libreria del
+# proveedor del protocolo en vez de reimplementar el HMAC a mano: es
+# verificacion de firma, y ahi escribir criptografia propia es como se cuelan
+# los bugs que nadie ve hasta que alguien los explota.
+svix==1.42.0

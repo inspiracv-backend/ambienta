@@ -3,16 +3,30 @@
   "version": "0.0.1",
   "private": true,
   "packageManager": "npm@10.8.2",
- "scripts": {
-  "dev": "nest start --watch",
-  "build": "nest build",
-  "start": "node dist/main"
-},
+  "scripts": {
+    "dev": "docker compose up",
+    "dev:detached": "docker compose up -d",
+    "dev:down": "docker compose down",
+    "dev:logs": "docker compose logs -f",
+    "dev:web": "npm run dev --workspace @ambienta/web",
+    "dev:api": "docker compose up api",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "check-all": "turbo run build lint typecheck test",
+    "prod:up": "docker compose -f docker-compose.prod.yml up -d --build",
+    "prod:down": "docker compose -f docker-compose.prod.yml down",
+    "prod:logs": "docker compose -f docker-compose.prod.yml logs -f",
+    "spec": "openspec list",
+    "spec:check": "openspec validate --changes"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "devDependencies": {
+    "@fission-ai/openspec": "^1.8.0",
     "turbo": "^2.10.5"
   }
 }

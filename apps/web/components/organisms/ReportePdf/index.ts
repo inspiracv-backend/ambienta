@@ -1,0 +1,1 @@
+export { ReportePdf } from './ReportePdf';

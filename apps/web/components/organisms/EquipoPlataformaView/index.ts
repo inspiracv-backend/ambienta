@@ -1,0 +1,1 @@
+export { EquipoPlataformaView } from './EquipoPlataformaView';

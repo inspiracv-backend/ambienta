@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+#
+# Imagen de DESARROLLO de @ambienta/web — hot reload de Next.js (Fast Refresh).
+# No usar en producción.
+#
+# El código se copia a la imagen y docker-compose.yml monta encima los
+# directorios de código fuente (app/, components/, lib/, mocks/) para el
+# hot reload.
+
+FROM node:24-alpine
+WORKDIR /repo
+
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY package.json package-lock.json ./
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+
+RUN npm ci --workspace @ambienta/web --include-workspace-root
+
+# Código y configuración (next.config.js, tailwind.config.ts, tsconfig.json).
+COPY packages/shared ./packages/shared
+COPY apps/web ./apps/web
+
+EXPOSE 3000
+
+# `-H 0.0.0.0` es imprescindible: por defecto Next escucha solo en localhost
+# DENTRO del contenedor, y el puerto publicado quedaría inaccesible.
+CMD ["npm", "run", "dev", "--workspace", "@ambienta/web", "--", "-H", "0.0.0.0"]

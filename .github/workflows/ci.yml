@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: [main, '002-backend-api-stores-integracion']
+  # Sin filtro de rama a proposito: hoy los PRs se apilan unos sobre otros
+  # (feat/x → feat/y → 002-backend → main). Con una lista blanca de destinos,
+  # los PRs intermedios se quedan sin CI justo cuando mas falta hace.
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Frontend (Next.js) ────────────────────────────────────────────────
+  web:
+    name: Web — lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npx turbo run lint --filter=@ambienta/web
+
+      - name: Typecheck
+        run: npx turbo run typecheck --filter=@ambienta/web
+
+      - name: Test
+        run: npx turbo run test --filter=@ambienta/web
+
+      - name: Build
+        run: npx turbo run build --filter=@ambienta/web
+
+  # ── API (FastAPI) ─────────────────────────────────────────────────────
+  api:
+    name: API — lint, typecheck, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ambienta
+          POSTGRES_PASSWORD: ambienta_dev
+          POSTGRES_DB: ambienta
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ambienta -d ambienta"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      # Las versiones van ancladas y deben coincidir con requirements-dev.txt.
+      # Sin anclar, el CI se rompe solo cada vez que la herramienta publica una
+      # release con reglas nuevas: paso de 18 hallazgos en local a 171 en CI.
+      - name: Lint (ruff)
+        run: |
+          pip install ruff==0.8.4
+          # `.` y no `app/`: asi cubre tests/ en cuanto exista, sin tener que
+          # tocar el workflow. ruff respeta .gitignore, no entra a .venv.
+          ruff check .
+
+      # mypy es informativo por ahora (`|| true`): el codigo viene de la
+      # migracion desde NestJS y todavia no esta anotado. El nombre del paso lo
+      # dice para que nadie lea el check en verde como que los tipos estan bien.
+      - name: Typecheck (mypy, informativo — no bloquea)
+        run: |
+          pip install mypy==1.14.0
+          mypy app/ --ignore-missing-imports --no-error-summary || true
+
+      # El esquema va ANTES de los tests, no despues.
+      #
+      # Estaba al reves, y no se notaba mientras ninguna prueba tocaba la base.
+      # Al entrar las de aislamiento y borrado logico, pytest corria contra una
+      # base vacia y sin el rol de aplicacion: `Role "ambienta_app" does not
+      # exist`.
+      #
+      # Se aplican TODOS los scripts, en el mismo orden que `db/run.sh`. Con
+      # solo 01 y 03 faltaban el rol de aplicacion (07), la secuencia de
+      # tickets (06) y los permisos individuales (05) — o sea que CI daba verde
+      # sobre un esquema que no es el que corre en ningun lado.
+      - name: Init database schema
+        run: |
+          for f in 01_schema 04_clerk_auth 05_user_permissions 06_ticket_number \
+                   07_rol_aplicacion 03_seed_catalogos 02_seed; do
+            echo "→ $f"
+            PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
+              -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"
+          done
+
+      # El guard permite que este workflow entre antes que la suite de tests:
+      # sin el, pytest sale con codigo 5 ("no tests collected") y tumba el job.
+      - name: Test (pytest)
+        env:
+          # El mismo rol acotado con el que corre la API: probar con el dueno
+          # de la base daria falsos verdes, porque es superusuario y salta RLS.
+          DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
+        run: |
+          if [ -d tests ]; then
+            pip install pytest==8.3.4
+            python -m pytest
+          else
+            echo "apps/api todavia no tiene tests/ — se omite."
+          fi
+
+      - name: Health check
+        env:
+          DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
+          DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta
+          ENVIRONMENT: test
+        run: |
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          # Reintento en vez de `sleep 5`: un arranque lento no deberia pintar
+          # el build en rojo, y uno rapido no deberia costar 5 segundos.
+          for i in $(seq 1 20); do
+            if curl -fs http://localhost:8000/health > /dev/null; then
+              echo "API arriba tras ${i} intento(s)."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "La API no respondio en 20s."
+          exit 1
+
+  # ── Shared schemas ────────────────────────────────────────────────────
+  shared:
+    name: Shared — typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx turbo run typecheck --filter=@ambienta/shared

@@ -1,21 +1,156 @@
-version: '3.8'
+# Entorno de DESARROLLO de Ambienta — 3 servicios: Postgres, API (FastAPI) y Web.
+#
+#   docker compose up -d          → levanta todo
+#   docker compose logs -f api    → sigue los logs de la API
+#   docker compose down           → detiene (conserva los datos)
+#   docker compose down -v        → detiene Y BORRA la base de datos
+#
+# URLs una vez arriba:
+#   Web        http://localhost:3000
+#   API        http://localhost:8000
+#   Health     http://localhost:8000/health   ·   BD: /health/db
+#   Swagger    http://localhost:8000/docs
+#   Postgres   postgresql://ambienta:ambienta_dev@localhost:5432/ambienta
+#
+# La base se inicializa con el esquema completo (db/01_schema.sql) y los
+# catalogos (db/03_seed_catalogos.sql) la PRIMERA vez que se crea el volumen.
+# Para recargar el esquema tras cambiarlo: `docker compose down -v && up`.
+#
+# Las credenciales de este archivo son de DESARROLLO LOCAL unicamente y por eso
+# estan en texto plano: la base solo escucha en localhost y no contiene datos
+# reales. Produccion usa docker-compose.prod.yml, que exige un .env.
+#
+# Redis y el worker no estan aca: vuelven con la epica de Notificaciones/Worker.
+
+name: ambienta-dev
 
 services:
   postgres:
-    image: postgres:16
+    # pgvector/pgvector trae la extension ya compilada; la imagen oficial de
+    # postgres no la incluye y habria que compilarla en cada build.
+    image: pgvector/pgvector:pg16
+    container_name: ambienta-postgres-dev
+    restart: unless-stopped
     environment:
+      POSTGRES_USER: ambienta
+      POSTGRES_PASSWORD: ambienta_dev
       POSTGRES_DB: ambienta
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
     ports:
       - '5432:5432'
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
+      # Se montan los archivos por separado (no el directorio init/): en
+      # Docker Desktop Windows no se puede montar un archivo DENTRO de un
+      # directorio que a su vez es bind mount. Corren en orden alfabetico, solo
+      # al inicializar el volumen:
+      #   01-extensions → 02-schema (52 tablas + RLS) → 03-clerk (clerk_id)
+      #   → 04-permisos → 05-ticket-number → 06-rol-app → 07-catalogos
+      #   → 08-demo
+      #
+      # Todo cambio de esquema nuevo (db/NN_*.sql) tiene que agregarse aca, o
+      # existe solo en las bases donde alguien lo aplico a mano y una base
+      # recien creada arranca incompleta.
+      - ./infra/postgres/init/01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+      - ./db/01_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
+      - ./db/04_clerk_auth.sql:/docker-entrypoint-initdb.d/03-clerk.sql:ro
+      - ./db/05_user_permissions.sql:/docker-entrypoint-initdb.d/04-permisos.sql:ro
+      - ./db/06_ticket_number.sql:/docker-entrypoint-initdb.d/05-ticket-number.sql:ro
+      - ./db/07_rol_aplicacion.sql:/docker-entrypoint-initdb.d/06-rol-app.sql:ro
+      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
+      # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
+      # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —
+      # correctos, pero que no permiten ver si algo funciona.
+      - ./db/02_seed.sql:/docker-entrypoint-initdb.d/08-demo.sql:ro
+    healthcheck:
+      # `-d ambienta` es necesario: sin la base explicita, pg_isready responde
+      # OK antes de que la base de la aplicacion este realmente creada.
+      test: ['CMD-SHELL', 'pg_isready -U ambienta -d ambienta']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
-  redis:
-    image: redis:7
+  api:
+    build:
+      # Contexto en la raiz para poder copiar apps/api/ y (a futuro) packages/.
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    container_name: ambienta-api-dev
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: development
+      PORT: 8000
+      # Dentro de la red de Compose el host es el nombre del servicio
+      # (`postgres`), no localhost.
+      # Rol de la aplicacion: NO es superusuario y NO puede saltarse RLS. Es lo
+      # que hace que el aislamiento entre empresas viva en la conexion y no en
+      # que alguien recuerde cambiar de rol en cada transaccion.
+      DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@postgres:5432/ambienta
+      # Dueno de la base, que si salta RLS. Solo lo usan el webhook de Clerk
+      # —un `user.deleted` llega sin metadatos, hay que poder buscar en todas
+      # las empresas— y el health del esquema. Ver `get_admin_db`.
+      DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@postgres:5432/ambienta
+      CORS_ORIGINS: http://localhost:3000
+      # Clerk (ADR-006). Vacias por defecto: sin CLERK_JWKS_URL la API acepta
+      # el header X-Tenant-Id y se puede desarrollar sin cuenta del proveedor.
+      # Se toman del .env de la raiz si estan definidas.
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
+      CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET:-}
     ports:
-      - '6379:6379'
+      - '8000:8000'
+    volumes:
+      # Solo el paquete de codigo: uvicorn --reload observa app/ y recarga al
+      # editar en el host. Cambiar requirements.txt exige reconstruir
+      # (`docker compose up -d --build api`).
+      - ./apps/api/app:/repo/apps/api/app
+    healthcheck:
+      test: ['CMD-SHELL', 'python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(''http://localhost:8000/health'').status==200 else 1)"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    container_name: ambienta-web-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      # El navegador resuelve esta URL, asi que es localhost del HOST —
+      # no el nombre de servicio de Compose.
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      # Clerk (ADR-006). NEXT_PUBLIC_* van en el bundle; CLERK_SECRET_KEY es
+      # solo server-side (middleware.ts necesita validar).
+      #
+      # Vacías por defecto: sin llave el frontend no monta el ClerkProvider ni
+      # el middleware, y sigue el DevRoleSwitcher. En produccion NEXT_PUBLIC_*
+      # va como build arg (Fase 6); CLERK_SECRET_KEY siempre en runtime.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      # El token se pide por nombre de template; sin esto no viaja tenant_id.
+      NEXT_PUBLIC_CLERK_JWT_TEMPLATE: ${NEXT_PUBLIC_CLERK_JWT_TEMPLATE:-default}
+      # Los eventos inotify no cruzan del host Windows al contenedor, asi que
+      # webpack debe hacer polling para ver los cambios.
+      WATCHPACK_POLLING: 'true'
+    ports:
+      - '3000:3000'
+    volumes:
+      # Solo directorios de codigo fuente. Como no se monta sobre apps/web
+      # completo, `.next` queda en el contenedor (rapido) y no requiere volumen.
+      - ./apps/web/app:/repo/apps/web/app
+      - ./apps/web/components:/repo/apps/web/components
+      - ./apps/web/lib:/repo/apps/web/lib
+      - ./apps/web/mocks:/repo/apps/web/mocks
+      - ./packages/shared/src:/repo/packages/shared/src
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
-  postgres_data:
+  postgres-data:

@@ -1,0 +1,157 @@
+# Entorno de PRODUCCIÓN de Ambienta.
+#
+#   cp .env.example .env      → y completar con valores REALES
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Diferencias clave con el compose de desarrollo:
+#   · Imágenes construidas (no hot reload, no devDependencies, usuario no-root).
+#   · Postgres y Redis NO publican puertos al host: solo accesibles desde la red
+#     interna de Docker. Para conectarse a la base hay que hacer túnel SSH.
+#   · Caddy como reverse proxy con HTTPS automático (Let's Encrypt).
+#   · Todos los secretos vienen de .env — este archivo no contiene ninguno.
+#   · Redis con contraseña y persistencia AOF.
+#
+# Requisitos previos en el servidor:
+#   1. DNS: los dominios de DOMAIN_WEB y DOMAIN_API apuntando (registro A) a la
+#      IP pública del servidor — Let's Encrypt valida por HTTP y falla si no.
+#   2. Puertos 80 y 443 abiertos en el firewall.
+
+name: ambienta-prod
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?falta POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:?falta POSTGRES_DB en .env}
+    # Sin `ports`: la base NO se expone a internet. Acceso solo vía red interna
+    # o túnel SSH (`ssh -L 5432:localhost:5432 usuario@servidor`).
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Archivos por separado (no el directorio): ver nota en docker-compose.yml.
+      # Init en orden: extensiones → esquema (52 tablas + RLS) → clerk → permisos → catalogos.
+      #
+      # 04_clerk_auth NO es opcional: crea users.clerk_id, sin la cual el webhook
+      # que sincroniza usuarios desde Clerk falla contra su propio esquema.
+      # Debe estar en los tres lados — aca, en docker-compose.yml y en db/README.
+      #
+      # 02_seed (datos de demo) NO se monta a proposito: produccion arranca vacia.
+      - ./infra/postgres/init/01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+      - ./db/01_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
+      - ./db/04_clerk_auth.sql:/docker-entrypoint-initdb.d/03-clerk.sql:ro
+      - ./db/05_user_permissions.sql:/docker-entrypoint-initdb.d/04-permisos.sql:ro
+      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/05-catalogos.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - interna
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    # AOF para que las colas del worker sobrevivan un reinicio, y contraseña
+    # obligatoria (en dev no la lleva porque no está expuesto).
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?falta REDIS_PASSWORD en .env}
+      --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$${REDIS_PASSWORD}" ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - interna
+
+  api:
+    # Backend FastAPI (Python). El Dockerfile corre uvicorn como usuario no-root.
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: always
+    environment:
+      ENVIRONMENT: production
+      PORT: 8000
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CORS_ORIGINS: https://${DOMAIN_WEB:?falta DOMAIN_WEB en .env}
+      # Clerk (ADR-006). OBLIGATORIAS en produccion, y por eso van con `:?`.
+      #
+      # No es una preferencia de estilo: `clerk_configured` en apps/api/app/deps.py
+      # se deriva de CLERK_JWKS_URL. Si esta vacia, la API cae al fallback de
+      # desarrollo y acepta el header X-Tenant-Id — o sea, cualquiera declara el
+      # tenant que quiera y RLS le obedece. Fallar al arrancar es lo correcto.
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:?falta CLERK_JWKS_URL en .env — sin ella la API queda sin autenticacion}
+      CLERK_ISSUER: ${CLERK_ISSUER:?falta CLERK_ISSUER en .env}
+      CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET:?falta CLERK_WEBHOOK_SECRET en .env}
+      # Correo transaccional. Opcional hasta que existan las notificaciones.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+    # Sin `ports`: el único camino desde internet es a través de Caddy.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - interna
+      - publica
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Se hornean en el bundle del cliente en tiempo de build: cambiarlas
+        # exige reconstruir la imagen, no solo reiniciar el contenedor.
+        NEXT_PUBLIC_API_URL: https://${DOMAIN_API:?falta DOMAIN_API en .env}/api/v1
+        # Sin esta clave el frontend no puede iniciar sesion contra Clerk.
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?falta NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY en .env}
+    restart: always
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api
+    networks:
+      - publica
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN_WEB: ${DOMAIN_WEB}
+      DOMAIN_API: ${DOMAIN_API}
+      # Let's Encrypt usa este correo para avisar de certificados por expirar.
+      ACME_EMAIL: ${ACME_EMAIL:?falta ACME_EMAIL en .env}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persistir los certificados es CRÍTICO: sin esto, cada redeploy los pide
+      # de nuevo y Let's Encrypt aplica rate limit (5 por semana por dominio).
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+      - api
+    networks:
+      - publica
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  # Postgres y Redis viven solo aquí; ni Caddy ni la web los alcanzan.
+  interna:
+    internal: true
+  publica:

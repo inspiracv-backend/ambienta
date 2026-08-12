@@ -1,6 +1,25 @@
 node_modules
 .next
 dist
-.env
-.env.local
 .DS_Store
+*.tsbuildinfo
+
+# Python (apps/api). El bytecode y los entornos virtuales no se versionan.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secretos: se ignoran TODAS las variantes de .env excepto la plantilla.
+# El patrón amplio evita que un .env.production o .env.staging se cuele por
+# no estar listado explícitamente.
+.env
+.env.*
+!.env.example
+
+# Scripts sueltos de automatizacion puntual (creacion de epicas, migraciones
+# de tickets). Son de un solo uso y suelen llevar tokens o ids del entorno.
+add-epics.sh

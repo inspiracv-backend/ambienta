@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+#
+# Imagen de DESARROLLO de @ambienta/api (FastAPI) — hot reload via uvicorn --reload.
+# No usar en produccion (corre como root para escribir en el volumen montado).
+#
+# El codigo se copia a la imagen y docker-compose.yml monta apps/api/app encima,
+# de modo que editar en el host recargue dentro del contenedor.
+#
+# El contexto de build es la RAIZ del repo (context: . en el compose), por eso
+# las rutas COPY son apps/api/...
+
+FROM python:3.12-slim
+WORKDIR /repo/apps/api
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Manifest primero: Docker cachea la instalacion de dependencias mientras
+# requirements.txt no cambie.
+COPY apps/api/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Codigo. En runtime queda sobrescrito por el volumen del host (app/).
+COPY apps/api/app ./app
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
