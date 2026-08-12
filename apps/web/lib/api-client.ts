@@ -14,6 +14,42 @@ export class ApiError extends Error {
 }
 
 /**
+ * Un mensaje que se le pueda mostrar a una persona.
+ *
+ * `detail` de FastAPI viene en dos formas distintas segun quien rechace: una
+ * cadena cuando la rechaza un router, y una **lista** de errores por campo
+ * cuando la rechaza la validacion de Pydantic. Leer solo la primera deja los
+ * 422 —los mas frecuentes al conectar una pantalla— mostrando `[object Object]`.
+ */
+export function mensajeDeError(error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    // Ni siquiera llegamos a la API: DNS, red caida, CORS.
+    return 'No se pudo contactar al servidor. Revisa tu conexion.';
+  }
+
+  const detail = (error.body as { detail?: unknown } | null)?.detail;
+
+  if (typeof detail === 'string') return detail;
+
+  if (Array.isArray(detail)) {
+    const campos = detail
+      .map((d) => {
+        const loc = Array.isArray((d as { loc?: unknown[] }).loc)
+          ? (d as { loc: unknown[] }).loc.filter((p) => p !== 'body').join('.')
+          : '';
+        const msg = String((d as { msg?: unknown }).msg ?? '');
+        return loc ? `${loc}: ${msg}` : msg;
+      })
+      .filter(Boolean);
+    if (campos.length > 0) return campos.join(' · ');
+  }
+
+  if (error.status === 409) return 'Ya existe un registro con ese valor.';
+  if (error.status === 403) return 'No tienes permiso para hacer esto.';
+  return `El servidor rechazo la operacion (${error.status}).`;
+}
+
+/**
  * De donde sale el token en cada request.
  *
  * Es un **getter**, no un token. El JWT Template de Clerk emite tokens de 60

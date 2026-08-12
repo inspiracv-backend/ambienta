@@ -80,6 +80,21 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.tenantId]);
 
+  /**
+   * **Esto no llega a la base, y la causa está arriba de este store.**
+   *
+   * `POST /contracts/` exige `client_tenant_id`, y el `subTenantId` que llega
+   * acá sale de `mockSubTenants` — este store **nunca pide los sub-tenants a la
+   * API**, porque la sub-tenancy (RF-65) no está implementada: no hay endpoint
+   * que los liste. Mandar un id de dato de ejemplo da 422, porque la referencia
+   * se valida contra lo visible bajo RLS.
+   *
+   * O sea: el contrato no se puede guardar hasta que existan los sub-tenants
+   * contra los cuales se firma. La lectura de contratos sí funciona y es real.
+   *
+   * Faltan además `contract_number` y `manager_tenant_id`; los dos son
+   * derivables, pero no arreglan lo anterior.
+   */
   function addContrato(input: {
     subTenantId: string;
     nombre: string;

@@ -1,11 +1,12 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Articulo, LegalNorm, TipoDocumento } from '@ambienta/shared';
 import { mockLegalNorms } from '@/mocks/catalog';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
-import { api } from '@/lib/api-client';
+import { useToast } from '@/lib/toast-store';
+import { api, mensajeDeError } from '@/lib/api-client';
 
 interface LegalMatrixContextValue {
   norms: LegalNorm[];
@@ -30,6 +31,16 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
+  const { mostrarToast } = useToast();
+
+  /**
+   * `planta:norma` → id de la asignación que las vincula.
+   *
+   * En un ref y no en estado: cambiarlo no tiene que repintar nada, y ponerlo
+   * en `useState` desde dentro del efecto de carga dispararía otro render por
+   * cada planta.
+   */
+  const asignacionesRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     if (!user?.tenantId) { setLoading(false); return; }
@@ -59,12 +70,22 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
             .get<Record<string, unknown>[]>(`/facilities/${p.id}/norms`, {
               tenantId: user!.tenantId,
             })
-            .then((filas) => filas.map((f) => ({ planta: String(p.id), norma: String(f.norm_id) })))
+            .then((filas) =>
+              filas.map((f) => ({
+                planta: String(p.id),
+                norma: String(f.norm_id),
+                // El id **de la asignación**, que no es el de la norma ni el de
+                // la planta. Es lo único con lo que se puede borrar el vínculo
+                // después: la ruta de baja se direcciona por él.
+                asignacion: String(f.id),
+              })),
+            )
             .catch(() => []),
         ),
       );
-      for (const { planta, norma } of asignaciones.flat()) {
+      for (const { planta, norma, asignacion } of asignaciones.flat()) {
         mapa.set(norma, [...(mapa.get(norma) ?? []), planta]);
+        asignacionesRef.current.set(`${planta}:${norma}`, asignacion);
       }
       return mapa;
     }
@@ -93,6 +114,19 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   // peticiones anidadas, y depender de una parte deja la otra vieja.
   }, [user]);
 
+  /**
+   * **Esto no llega a la base, y es el hueco más grande de esta pantalla.**
+   *
+   * La API sí tiene dónde guardarlo: `/compliance/article-compliance` con su
+   * `/evaluate`. El problema es que **este store nunca carga artículos** — la
+   * lectura arma cada norma con `articulos: []` y lo que se ve en pantalla sale
+   * de `mockLegalNorms`. Sin artículos reales no hay `ac_id` contra el cual
+   * evaluar.
+   *
+   * Conectarlo no es agregar un `PATCH`: hay que cargar la matriz de
+   * cumplimiento de la empresa, sus normas y sus artículos, y recién ahí
+   * evaluar. Es el cambio que más valor tiene pendiente en la matriz legal.
+   */
   function updateArticulo(normId: string, articuloId: string, updates: Partial<Articulo>) {
     const norm = norms.find((n) => n.id === normId);
     const anterior = norm?.articulos.find((a) => a.id === articuloId);
@@ -158,6 +192,19 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     updateArticulo(normId, articuloId, { incluidoEnCalculo: incluido });
   }
 
+  /**
+   * **Esto no llega a la base: falta información que la pantalla no pide.**
+   *
+   * `POST /catalog/norms` exige `country_id` y `source_id`, ambos claves
+   * foráneas. La pantalla solo pregunta nombre, tipo y fuente ('RCA' | 'ISO'),
+   * que no es lo mismo que `source_id` — ese apunta a `/catalog/sources`.
+   *
+   * Y `country_id` no tiene ni endpoint del que leerlo: el catálogo expone
+   * `norms`, `sectors` y `sources`, no países. Mandarlo igual daría 422 por FK.
+   *
+   * Conectarlo necesita decidir de dónde salen esos dos campos, así que va por
+   * su propio cambio.
+   */
   function addNorm(input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) {
     const newNorm: LegalNorm = {
       id: `norm-${Date.now()}`,
@@ -188,7 +235,50 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     const anterior = norms.find((n) => n.id === normId);
     if (!anterior || JSON.stringify(anterior.plantIds) === JSON.stringify(plantIds)) return;
 
+    const previas = anterior.plantIds;
     setNorms((prev) => prev.map((n) => (n.id === normId ? { ...n, plantIds } : n)));
+
+    if (user?.tenantId) {
+      const agregadas = plantIds.filter((p) => !previas.includes(p));
+      const quitadas = previas.filter((p) => !plantIds.includes(p));
+
+      const escrituras = [
+        ...agregadas.map((plantaId) =>
+          api
+            .post<Record<string, unknown>>(
+              `/facilities/${plantaId}/norms`,
+              { norm_id: normId },
+              { tenantId: user.tenantId },
+            )
+            // Se guarda el id de la asignación recién creada: sin él, quitar
+            // esta misma planta en la siguiente edición no tendría qué borrar.
+            .then((fila) => asignacionesRef.current.set(`${plantaId}:${normId}`, String(fila.id))),
+        ),
+        ...quitadas.map((plantaId) => {
+          const asignacionId = asignacionesRef.current.get(`${plantaId}:${normId}`);
+          // Sin id conocido no se inventa una ruta: la asignación pudo venir de
+          // los datos de ejemplo y no existir en la base.
+          if (!asignacionId) return Promise.resolve();
+          return api
+            .delete(`/facilities/${plantaId}/norms/${asignacionId}`, { tenantId: user.tenantId })
+            .then(() => asignacionesRef.current.delete(`${plantaId}:${normId}`));
+        }),
+      ];
+
+      Promise.allSettled(escrituras).then((resultados) => {
+        const fallidas = resultados.filter((r) => r.status === 'rejected');
+        if (fallidas.length === 0) return;
+        // Se vuelve al conjunto anterior completo. A diferencia de las
+        // notificaciones, acá el estado es una lista y dejarla a medias
+        // mostraría una asignación que la base no tiene.
+        setNorms((prev) => prev.map((n) => (n.id === normId ? { ...n, plantIds: previas } : n)));
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo cambiar dónde aplica la norma',
+          descripcion: mensajeDeError((fallidas[0] as PromiseRejectedResult).reason),
+        });
+      });
+    }
 
     registrar({
       entidadTipo: 'norma',
