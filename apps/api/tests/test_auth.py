@@ -61,12 +61,42 @@ def test_token_expirado_da_401(clerk_enabled, make_token):
     assert exc.value.status_code == 401
 
 
-def test_token_sin_tenant_id_da_401(clerk_enabled, make_token):
-    """Pasa cuando falta configurar el JWT Template en Clerk (Fase 0)."""
+def test_token_sin_tenant_id_da_403_no_401(clerk_enabled, make_token):
+    """Identidad verificada, sin empresa: **no** es un problema de sesion.
+
+    Antes daba 401, que le decia al frontend "volve a entrar" sobre una sesion
+    que estaba perfectamente bien. Con SSO abierto este caso es normal: alguien
+    se autentica con Google sin estar dado de alta.
+    """
     with pytest.raises(HTTPException) as exc:
         auth.verify_token(make_token(tenant_id=None))
 
-    assert exc.value.status_code == 401
+    assert exc.value.status_code == 403
+
+
+def test_el_403_sin_empresa_trae_un_codigo_no_solo_texto(clerk_enabled, make_token):
+    """El frontend ramifica sobre el codigo; el mensaje es para personas.
+
+    Si esto fuera solo texto, la pantalla que explica el caso se romperia la
+    primera vez que alguien mejore la redaccion.
+    """
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_token(make_token(tenant_id=None))
+
+    assert exc.value.detail["codigo"] == auth.CODIGO_SIN_EMPRESA
+    assert exc.value.detail["mensaje"]
+
+
+def test_sin_empresa_no_manda_a_reautenticar(clerk_enabled, make_token):
+    """Un 401 lleva `WWW-Authenticate`, que invita a reintentar la credencial.
+
+    Acá la credencial es correcta, así que esa cabecera seria una instruccion
+    equivocada: reintentar no va a conseguir la empresa que falta.
+    """
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_token(make_token(tenant_id=None))
+
+    assert not (exc.value.headers or {}).get("WWW-Authenticate")
 
 
 def test_token_sin_sub_da_401(clerk_enabled, make_token):

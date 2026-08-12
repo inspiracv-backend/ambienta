@@ -138,11 +138,30 @@ def procesar_evento(db: Session, tipo: str, data: dict) -> str:
     usuario = _buscar(db, clerk_id, email)
 
     if usuario is None:
+        try:
+            tenant_id = _tenant_id(data)
+        except DatosDeClerkInvalidos:
+            # Con SSO abierto esto deja de ser raro: alguien se autentico con
+            # Google o Microsoft sin estar dado de alta. No se crea fila —
+            # `users.tenant_id` es NOT NULL y no hay empresa a la cual
+            # asignarlo— pero **el rechazo tiene que dejar con que actuar**.
+            #
+            # Sin el correo y el id del proveedor en el log, un empleado nuevo
+            # al que olvidaron dar de alta es invisible hasta que reclama.
+            logger.warning(
+                "Alta rechazada: %s (clerk_id=%s) se autentico sin empresa "
+                "asignada. Si corresponde, ponerle `tenant_id` en su "
+                "publicMetadata desde el dashboard de Clerk.",
+                email,
+                clerk_id,
+            )
+            raise
+
         usuario = User(
             clerk_id=clerk_id,
             email=email,
             full_name=_nombre(data),
-            tenant_id=_tenant_id(data),
+            tenant_id=tenant_id,
             user_type=_user_type(data),
             status="active",
         )
