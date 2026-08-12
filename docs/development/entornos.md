@@ -124,9 +124,29 @@ Completar en `.env`, generando cada secreto con `openssl rand -base64 32`:
 
 - `DOMAIN_WEB`, `DOMAIN_API`, `ACME_EMAIL`
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-- `JWT_SECRET` (mínimo 32 caracteres)
 
-Opcionales (hasta que existan): credenciales OAuth y `RESEND_API_KEY`.
+**Autenticación (Clerk, ADR-006).** No hay `JWT_SECRET`: la API **valida** un
+JWT RS256 contra el JWKS público de Clerk, no lo emite. No hay secreto
+compartido de firma que generar.
+
+| Variable | Servicio | Para qué |
+|---|---|---|
+| `CLERK_JWKS_URL` | api | Llaves públicas para verificar la firma. **Si está vacía, la API acepta el header `X-Tenant-Id` sin autenticar** — nunca dejarla vacía en producción |
+| `CLERK_ISSUER` | api | Emisor esperado del token |
+| `CLERK_WEBHOOK_SECRET` | api | Firma svix del webhook que sincroniza usuarios |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | web | Llave pública. Vacía ⇒ DevRoleSwitcher |
+| `CLERK_SECRET_KEY` | web | La usa `clerkMiddleware()` en el servidor de Next |
+| `NEXT_PUBLIC_CLERK_JWT_TEMPLATE` | web | Nombre del template que inyecta el claim `tenant_id` |
+
+Las credenciales de SSO (Microsoft, Google) **ya no son variables**: se
+configuran en el panel de Clerk, no en el `.env`.
+
+> **`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` se hornea en el bundle en tiempo de
+> build.** Ponerla solo en el runtime del contenedor no basta: el navegador
+> recibe un bundle compilado sin la llave y cae al DevRoleSwitcher aunque la
+> variable esté presente en el servidor. En producción va como *build arg*.
+
+Opcionales (hasta que existan): `RESEND_API_KEY`.
 
 El Compose de producción **falla al arrancar** si falta cualquiera de las obligatorias, con un mensaje que nombra la variable — no arranca a medias.
 

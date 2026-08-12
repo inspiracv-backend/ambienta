@@ -48,17 +48,64 @@ Debe responder `200 OK`.
 | Health | http://localhost:8000/health |
 | PostgreSQL | `postgresql://ambienta:ambienta_dev@localhost:5432/ambienta` |
 
-## Login de desarrollo
+## Login
 
-No hay auth real todavia. La pantalla de login muestra un panel **Acceso rapido de desarrollo** con los roles disponibles:
+Hay auth real (Clerk, ADR-006), pero **el repo levanta sin ella**. Cuál de los
+dos modos corre lo decide una sola variable:
 
-| Rol | Que puede hacer |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Qué pasa |
 |---|---|
-| Superadmin | Gestion de tenants y plataforma completa |
+| vacía | **Modo desarrollo**: DevRoleSwitcher, y la API acepta el header `X-Tenant-Id` |
+| con valor | **Modo real**: pantalla de Clerk, y la API exige un JWT válido |
+
+No hace falta cuenta de Clerk para trabajar en el repo. Si la variable está
+vacía, todo funciona como antes.
+
+### Modo desarrollo (por defecto)
+
+La pantalla de login muestra un panel **Acceso rápido de desarrollo**:
+
+| Rol | Qué puede hacer |
+|---|---|
+| Superadmin | Gestión de tenants y plataforma completa |
 | Admin Empresa | Gestiona su empresa y empleados |
-| Usuario Interno | Operativo, crea/envia declaraciones |
+| Usuario Interno | Operativo, crea/envía declaraciones |
 | Gestor | Admin Empresa + cartera de clientes |
 | Cliente Invitado | Solo tickets de soporte |
+
+### Modo real (con Clerk)
+
+Cinco variables en `.env`, todas documentadas en `.env.example`:
+
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_JWT_TEMPLATE=default
+CLERK_JWKS_URL=https://<instancia>.clerk.accounts.dev/.well-known/jwks.json
+CLERK_ISSUER=https://<instancia>.clerk.accounts.dev
+```
+
+Tres cosas que cuestan una tarde si no se saben:
+
+1. **Hay que crear un JWT Template en Clerk** con el claim `tenant_id`, y poner
+   su nombre en `NEXT_PUBLIC_CLERK_JWT_TEMPLATE`. **El token de sesión estándar
+   no lleva ese claim**: `getToken()` a secas devuelve un token sin `tenant_id`
+   y la API responde 401. Tiene que ser `getToken({ template })`.
+
+2. **`CLERK_SECRET_KEY` va también al servicio `web`**, no solo a la API.
+   `clerkMiddleware()` corre en el servidor de Next y falla con
+   *"Missing secretKey"* si no la encuentra.
+
+3. **El webhook no llega a `localhost`.** Clerk no puede alcanzar
+   `localhost:8000`, así que un usuario creado en Clerk **no aparece solo** en
+   la tabla `users`. En local hay que insertarlo a mano, emparejando `clerk_id`:
+
+   ```bash
+   docker compose exec postgres psql -U ambienta -d ambienta \
+     -c "UPDATE users SET clerk_id = 'user_xxx' WHERE email = 'dev@abada.cl';"
+   ```
+
+   En el VPS el webhook sí llega y esto no hace falta.
 
 ## Sin Docker (modo hibrido)
 
