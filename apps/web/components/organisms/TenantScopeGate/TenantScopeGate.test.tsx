@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { UsersProvider } from '@/lib/users-store';
 import { SessionProvider } from '@/lib/session';
+import { ToastProvider } from '@/lib/toast-store';
 import { rutaInicialParaRol } from '@/lib/navigation';
 import { Contenido, iniciarSesionComo } from '@/test/utils';
 import { TenantScopeGate } from './TenantScopeGate';
@@ -24,13 +25,15 @@ vi.mock('next/navigation', () => ({
 function montar(ruta: string) {
   pathname = ruta;
   return render(
-    <UsersProvider>
-      <SessionProvider>
-        <TenantScopeGate>
-          <Contenido />
-        </TenantScopeGate>
-      </SessionProvider>
-    </UsersProvider>,
+    <ToastProvider>
+      <UsersProvider>
+        <SessionProvider>
+          <TenantScopeGate>
+            <Contenido />
+          </TenantScopeGate>
+        </SessionProvider>
+      </UsersProvider>
+    </ToastProvider>,
   );
 }
 

@@ -203,14 +203,20 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | API | **95 rutas, 211 operaciones.** 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
-| Frontend — escrituras | **A medias.** Cuatro stores de negocio (`departamentos`, `gestores`, `legal-matrix`, `notifications`) actualizan solo estado local |
+| Frontend — escrituras | **62 %.** 23 de 37 acciones llegan a la base. Las 14 restantes tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Sin empezar.** 0 de 33 tareas |
 | worker · ai-service | Sin implementar |
 
-**Lo que hay que saber al tomar el repo:** las lecturas son reales, pero crear o
-editar desde varias pantallas **no llega a la base**. La API lo soporta; falta
-cablearlo. Es la trampa que mas rapido hace perder tiempo, porque la interfaz
-muestra el cambio y este desaparece al recargar.
+**Lo que hay que saber al tomar el repo:** conectar una escritura **no es
+agregar un `PATCH`**. Es un viaje de ida y vuelta, y hacer solo un lado engana
+igual: `tenants` leia `limiteUsuarios: 50` escrito a mano, asi que guardarlo sin
+tocar la lectura daba un "guardado" que se deshacia al recargar.
+
+Peor: **tres stores piden datos a la API y descartan la respuesta** —`audits`
+con las no conformidades, `legal-matrix` con los articulos, `plan-accion` con
+las tareas—. Lo que se ve en esas pantallas sale de `mocks/`, con identificadores
+que la API no conoce, asi que ninguna escritura sobre ellas puede funcionar
+hasta que se mapeen. Ver `docs/escrituras-del-frontend.md`.
 
 ## Trampas conocidas
 

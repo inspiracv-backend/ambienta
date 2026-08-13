@@ -103,6 +103,16 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
     return newPlan;
   }
 
+  /**
+   * **No llega a la base: las tareas no existen en el modelo.**
+   *
+   * El mapper de lectura arma `tareas: []` para todos los planes, y
+   * `ActionPlanUpdate` no tiene ningun campo donde guardarlas. Marcar una tarea
+   * se ve en pantalla y se pierde al recargar.
+   *
+   * Conectarlo exige decidir primero si las tareas son un modelo propio o una
+   * lista dentro del plan.
+   */
   function toggleTarea(planId: string, tareaId: string) {
     const plan = plans.find((p) => p.id === planId);
     const tarea = plan?.tareas.find((t) => t.id === tareaId);

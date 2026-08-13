@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { AuditLogProvider, diffCampos, useAuditLog, useRegistrarAuditoria } from './audit-log-store';
 import { SessionProvider } from './session';
+import { ToastProvider } from '@/lib/toast-store';
 import { UsersProvider } from './users-store';
 import { iniciarSesionComo } from '@/test/utils';
 
@@ -16,11 +17,13 @@ vi.mock('@/mocks/audit-log', () => ({ mockAuditLog: [] }));
 
 function wrapper({ children }: { children: ReactNode }) {
   return (
-    <AuditLogProvider>
-      <UsersProvider>
-        <SessionProvider>{children}</SessionProvider>
-      </UsersProvider>
-    </AuditLogProvider>
+    <ToastProvider>
+      <AuditLogProvider>
+        <UsersProvider>
+          <SessionProvider>{children}</SessionProvider>
+        </UsersProvider>
+      </AuditLogProvider>
+    </ToastProvider>
   );
 }
 

@@ -162,6 +162,13 @@ export function SupportTicketsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /**
+   * **No llega a la base:** `SupportTicketUpdate` acepta `status`, `priority` y
+   * `assigned_to`. No hay campo de visibilidad para el cliente.
+   *
+   * Ojo con confundirlo con `is_internal` de los mensajes: ese existe, pero es
+   * por mensaje, no por ticket, y significa otra cosa.
+   */
   function setVisibilidad(ticketId: string, visibleParaCliente: boolean) {
     const ticket = tickets.find((t) => t.id === ticketId);
     if (!ticket || ticket.visibleParaCliente === visibleParaCliente) return;

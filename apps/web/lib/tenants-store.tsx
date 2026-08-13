@@ -14,7 +14,8 @@ import { documentoDePais, nombreDePais } from '@ambienta/shared';
 import { mockTenants } from '@/mocks/tenants';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { MODULO_LABEL } from '@/lib/tenant-status';
-import { api } from '@/lib/api-client';
+import { useToast } from '@/lib/toast-store';
+import { api, mensajeDeError } from '@/lib/api-client';
 
 export interface NuevoTenantInput {
   nombre: string;
@@ -51,8 +52,27 @@ interface TenantsContextValue {
 
 const TenantsContext = createContext<TenantsContextValue | null>(null);
 
+/**
+ * Tres campos de empresa no tienen columna propia y viven en `settings`, el
+ * jsonb del tenant: el límite de usuarios, los módulos activos y el logo.
+ *
+ * Antes se leían de valores fijos escritos aquí (`limiteUsuarios: 50`,
+ * `modulosActivos: []`), así que **cambiarlos desde la pantalla no sobrevivía a
+ * recargar** aunque la escritura hubiera funcionado. Leer y escribir tienen que
+ * apuntar al mismo lugar; hacer solo uno de los dos lados cambia un engaño por
+ * otro.
+ */
+const LIMITE_USUARIOS_POR_DEFECTO = 50;
+
+/** Clave de `settings` donde esta pantalla guarda lo suyo. */
+function ajustesDe(raw: Record<string, unknown>): Record<string, unknown> {
+  const s = raw.settings;
+  return s && typeof s === 'object' && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
+}
+
 function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
   try {
+    const ajustes = ajustesDe(raw);
     return {
       id: String(raw.id),
       nombre: String(raw.legal_name ?? raw.trade_name ?? ''),
@@ -64,13 +84,17 @@ function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
       estado: raw.status === 'active' ? 'activo' : raw.status === 'suspended' ? 'suspendido' : 'activo',
       perfilEmpresaCompleto: Boolean(raw.business_activity && raw.rut_tax_id),
       esGestor: raw.tenant_type === 'manager',
+      logoUrl: ajustes.logoUrl ? String(ajustes.logoUrl) : undefined,
       suscripcion: {
         plan: 'contrato' as Plan,
         fechaInicio: String(raw.created_at ?? new Date().toISOString()),
         fechaTermino: new Date(Date.now() + 365 * 86400000).toISOString(),
-        limiteUsuarios: 50,
+        limiteUsuarios:
+          typeof ajustes.limiteUsuarios === 'number' ? ajustes.limiteUsuarios : LIMITE_USUARIOS_POR_DEFECTO,
       },
-      modulosActivos: [],
+      modulosActivos: Array.isArray(ajustes.modulosActivos)
+        ? (ajustes.modulosActivos as ModuloPlataforma[])
+        : [],
       certificaciones: [],
       plants: [],
     };
@@ -101,6 +125,7 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
   const [tenants, setTenants] = useState<Tenant[]>(mockTenants);
   const [loading, setLoading] = useState(true);
   const registrar = useRegistrarAuditoria();
+  const { mostrarToast } = useToast();
 
   useEffect(() => {
     let cancelled = false;
@@ -228,12 +253,64 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /**
+   * Guarda en `settings` **fusionando**, nunca reemplazando.
+   *
+   * `settings` es un jsonb compartido por varias pantallas. Mandar el objeto
+   * entero desde una de ellas borraría las claves que escribieron las otras, y
+   * el destrozo solo se vería al recargar otra pantalla.
+   *
+   * Se manda el estado que la interfaz ya tiene completo, no un fragmento: si
+   * llegara a haber claves que este store no conoce, hay que traerlas del
+   * registro antes de escribir.
+   */
+  function guardarAjustes(
+    tenantId: string,
+    parche: Record<string, unknown>,
+    alFallar: () => void,
+    queFallo: string,
+  ) {
+    const t = tenants.find((x) => x.id === tenantId);
+    if (!t) return;
+
+    const ajustes = {
+      limiteUsuarios: t.suscripcion.limiteUsuarios,
+      modulosActivos: t.modulosActivos,
+      ...(t.logoUrl ? { logoUrl: t.logoUrl } : {}),
+      ...parche,
+    };
+
+    api
+      .patch(`/tenants/${tenantId}`, { settings: ajustes })
+      .catch((error) => {
+        alFallar();
+        mostrarToast({
+          tipo: 'error',
+          mensaje: queFallo,
+          descripcion: mensajeDeError(error),
+        });
+      });
+  }
+
   function setLimiteUsuarios(tenantId: string, limite: number) {
     const anterior = tenants.find((t) => t.id === tenantId);
     if (!anterior || anterior.suscripcion.limiteUsuarios === limite) return;
 
+    const previo = anterior.suscripcion.limiteUsuarios;
     setTenants((prev) =>
       prev.map((t) => (t.id === tenantId ? { ...t, suscripcion: { ...t.suscripcion, limiteUsuarios: limite } } : t)),
+    );
+
+    guardarAjustes(
+      tenantId,
+      { limiteUsuarios: limite },
+      () =>
+        setTenants((prev) =>
+          prev.map((t) =>
+            t.id === tenantId ? { ...t, suscripcion: { ...t.suscripcion, limiteUsuarios: previo } } : t,
+          ),
+        ),
+      'No se pudo cambiar el límite de usuarios',
     );
 
     registrar({
@@ -253,7 +330,15 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     const anterior = tenants.find((t) => t.id === tenantId);
     if (!anterior || anterior.logoUrl === logoUrl) return;
 
+    const previo = anterior.logoUrl;
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, logoUrl } : t)));
+
+    guardarAjustes(
+      tenantId,
+      { logoUrl },
+      () => setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, logoUrl: previo } : t))),
+      'No se pudo guardar el logo',
+    );
 
     registrar({
       entidadTipo: 'tenant',
@@ -276,7 +361,15 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     const desactivados = anterior.modulosActivos.filter((m) => !despues.has(m));
     if (activados.length === 0 && desactivados.length === 0) return;
 
+    const previos = anterior.modulosActivos;
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, modulosActivos: modulos } : t)));
+
+    guardarAjustes(
+      tenantId,
+      { modulosActivos: modulos },
+      () => setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, modulosActivos: previos } : t))),
+      'No se pudieron guardar los módulos',
+    );
 
     const cambios = [
       ...(activados.length > 0
@@ -353,6 +446,18 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /**
+   * **No llega a la base, y el motivo es de fondo.**
+   *
+   * El Perfil Empresa se considera completo cuando la empresa tiene giro y RUT
+   * (ver el mapper: `Boolean(raw.business_activity && raw.rut_tax_id)`). No es
+   * una bandera guardada, es una condicion derivada.
+   *
+   * `TenantUpdate` acepta `business_activity` pero **no acepta `rut_tax_id`**,
+   * asi que la API no permite completar lo que esta pantalla ofrece marcar como
+   * completo. Requiere decidir si el RUT se vuelve editable o si el perfil se
+   * completa por otro camino.
+   */
   function completarPerfilEmpresa(tenantId: string) {
     const tenant = tenants.find((t) => t.id === tenantId);
     if (!tenant || tenant.perfilEmpresaCompleto) return;
