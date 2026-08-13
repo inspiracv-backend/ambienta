@@ -51,6 +51,20 @@ class TenantUpdate(BaseModel):
     status: str | None = None
     settings: dict | None = None
 
+    rut_tax_id: str | None = None
+    """Identificacion legal de la empresa. **Solo la cambia el Admin Global.**
+
+    Esta en el esquema porque sin ella el Perfil Empresa no se puede completar:
+    la aplicacion lo considera completo cuando hay giro Y RUT, y el RUT no habia
+    forma de fijarlo. La pantalla ofrecia marcar como completo algo que la API
+    no dejaba completar.
+
+    El router rechaza este campo si quien llama no es Admin Global. No basta
+    dejarlo aca: el RUT identifica legalmente a la empresa ante la autoridad, y
+    que su propio administrador lo cambie permitiria emitir declaraciones a
+    nombre de otra. Decision del equipo, 13-ago-2026.
+    """
+
 
 # ── Facility ──────────────────────────────────────────────────────────────
 

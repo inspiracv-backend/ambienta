@@ -213,11 +213,17 @@ def update_ticket_message(ticket_id: UUID, mensaje_id: int, data: SupportTicketM
     return obj
 
 
-@router.delete("/tickets/{ticket_id}/messages/{mensaje_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_ticket_message(ticket_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
-    obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
-    verificar_padre(obj, ticket_id, campo="ticket_id")
-    borrar_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
+# Los mensajes NO se borran, ni siquiera de forma logica.
+#
+# Un hilo de soporte es el registro de lo que se le dijo a un cliente. Quitarle
+# un mensaje suelto no deja el hilo mas corto: lo deja **enganoso**, porque las
+# respuestas que vienen despues siguen contestando algo que ya no aparece.
+#
+# El borrado existio y se retiro el 13-ago-2026: se habia expuesto aplicando
+# "DELETE en todos los routers" de forma uniforme, sin releer que este caso
+# estaba excluido a proposito (docs/estado-crud-base-de-datos.md).
+#
+# Corregir un mensaje se hace con PATCH, que deja el hilo completo y coherente.
 
 
 @router.get("/chatbot/{conversation_id}/messages/{mensaje_id}", response_model=ChatbotMessageRead)
@@ -235,8 +241,4 @@ def update_chatbot_message(conversation_id: UUID, mensaje_id: int, data: Chatbot
     return obj
 
 
-@router.delete("/chatbot/{conversation_id}/messages/{mensaje_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_chatbot_message(conversation_id: UUID, mensaje_id: int, db: Session = Depends(get_tenant_db)):
-    obj = obtener_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")
-    verificar_padre(obj, conversation_id, campo="conversation_id")
-    borrar_o_404(crud_chatbot_message, db, mensaje_id, recurso="ChatbotMessage")
+

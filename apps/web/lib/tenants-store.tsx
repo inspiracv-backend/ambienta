@@ -10,7 +10,12 @@ import type {
   Plant,
   Tenant,
 } from '@ambienta/shared';
-import { documentoDePais, nombreDePais } from '@ambienta/shared';
+import {
+  documentoDePais,
+  nombreDePais,
+  leerTenantSettings,
+  LIMITE_USUARIOS_POR_DEFECTO,
+} from '@ambienta/shared';
 import { mockTenants } from '@/mocks/tenants';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { MODULO_LABEL } from '@/lib/tenant-status';
@@ -58,21 +63,15 @@ const TenantsContext = createContext<TenantsContextValue | null>(null);
  *
  * Antes se leían de valores fijos escritos aquí (`limiteUsuarios: 50`,
  * `modulosActivos: []`), así que **cambiarlos desde la pantalla no sobrevivía a
- * recargar** aunque la escritura hubiera funcionado. Leer y escribir tienen que
- * apuntar al mismo lugar; hacer solo uno de los dos lados cambia un engaño por
- * otro.
+ * recargar** aunque la escritura hubiera funcionado.
+ *
+ * Qué claves admite `settings` lo declara `TenantSettingsSchema` en
+ * `packages/shared`, no este archivo: es un contrato compartido, y sin él el
+ * jsonb se vuelve un cajón donde cada pantalla escribe lo suyo.
  */
-const LIMITE_USUARIOS_POR_DEFECTO = 50;
-
-/** Clave de `settings` donde esta pantalla guarda lo suyo. */
-function ajustesDe(raw: Record<string, unknown>): Record<string, unknown> {
-  const s = raw.settings;
-  return s && typeof s === 'object' && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
-}
-
 function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
   try {
-    const ajustes = ajustesDe(raw);
+    const ajustes = leerTenantSettings(raw.settings);
     return {
       id: String(raw.id),
       nombre: String(raw.legal_name ?? raw.trade_name ?? ''),
@@ -84,17 +83,14 @@ function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
       estado: raw.status === 'active' ? 'activo' : raw.status === 'suspended' ? 'suspendido' : 'activo',
       perfilEmpresaCompleto: Boolean(raw.business_activity && raw.rut_tax_id),
       esGestor: raw.tenant_type === 'manager',
-      logoUrl: ajustes.logoUrl ? String(ajustes.logoUrl) : undefined,
+      logoUrl: ajustes.logoUrl,
       suscripcion: {
         plan: 'contrato' as Plan,
         fechaInicio: String(raw.created_at ?? new Date().toISOString()),
         fechaTermino: new Date(Date.now() + 365 * 86400000).toISOString(),
-        limiteUsuarios:
-          typeof ajustes.limiteUsuarios === 'number' ? ajustes.limiteUsuarios : LIMITE_USUARIOS_POR_DEFECTO,
+        limiteUsuarios: ajustes.limiteUsuarios ?? LIMITE_USUARIOS_POR_DEFECTO,
       },
-      modulosActivos: Array.isArray(ajustes.modulosActivos)
-        ? (ajustes.modulosActivos as ModuloPlataforma[])
-        : [],
+      modulosActivos: ajustes.modulosActivos ?? [],
       certificaciones: [],
       plants: [],
     };
@@ -446,23 +442,34 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  /**
-   * **No llega a la base, y el motivo es de fondo.**
-   *
-   * El Perfil Empresa se considera completo cuando la empresa tiene giro y RUT
-   * (ver el mapper: `Boolean(raw.business_activity && raw.rut_tax_id)`). No es
-   * una bandera guardada, es una condicion derivada.
-   *
-   * `TenantUpdate` acepta `business_activity` pero **no acepta `rut_tax_id`**,
-   * asi que la API no permite completar lo que esta pantalla ofrece marcar como
-   * completo. Requiere decidir si el RUT se vuelve editable o si el perfil se
-   * completa por otro camino.
-   */
   function completarPerfilEmpresa(tenantId: string) {
     const tenant = tenants.find((t) => t.id === tenantId);
     if (!tenant || tenant.perfilEmpresaCompleto) return;
 
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, perfilEmpresaCompleto: true } : t)));
+
+    // `perfilEmpresaCompleto` **no es una bandera guardada**: se deriva de que
+    // la empresa tenga giro y RUT. Por eso se mandan los dos datos y no un
+    // booleano — guardar la bandera aparte dejaria dos verdades que se pueden
+    // contradecir.
+    //
+    // El RUT solo lo acepta la API si quien llama es Admin Global; si no, la
+    // respuesta es 403 y se revierte. Ver el docstring de `TenantUpdate`.
+    api
+      .patch(`/tenants/${tenantId}`, {
+        business_activity: tenant.giro ?? tenant.sector,
+        rut_tax_id: tenant.identificacion.numero,
+      })
+      .catch((error) => {
+        setTenants((prev) =>
+          prev.map((t) => (t.id === tenantId ? { ...t, perfilEmpresaCompleto: false } : t)),
+        );
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo completar el Perfil Empresa',
+          descripcion: mensajeDeError(error),
+        });
+      });
 
     registrar({
       entidadTipo: 'tenant',

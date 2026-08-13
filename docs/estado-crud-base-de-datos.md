@@ -241,8 +241,29 @@ A ellas se suman, ya expuestas pero **deliberadamente sin CRUD completo**:
 | `catalog/*` | crear, editar, borrar | La ley no se edita a mano: se sincroniza desde la BCN |
 | `documents/versions` | borrar | Es la evidencia que respalda el cumplimiento; borrarla dejaría sin sustento a las evaluaciones que la citan |
 | `support/*/messages` | borrar | Borrar un mensaje suelto vuelve engañosa la conversación con el cliente |
+| ↑ | | **Se había expuesto igual, y se retiró el 13-ago-2026.** Salió de aplicar "DELETE en todos los routers" de forma uniforme, sin releer esta tabla |
 | `audit_log` | editar, borrar | Inmutable por RNF-08 y RNF-25. Lo sostiene la base, no la aplicación |
 | `tenants` | borrar | Sin resolver qué significa: marcar la empresa no impide entrar a sus usuarios, así que hoy sería una baja que miente |
+
+### Dos que sí tienen borrado, y por qué se dejaron (13-ago-2026)
+
+Al revisar la tabla de arriba contra la API aparecieron cuatro `DELETE` que no
+deberían estar. Dos se retiraron; **dos se dejaron, porque su propio código trae
+un argumento que responde a la objeción**:
+
+| Recurso | El argumento escrito |
+|---|---|
+| `catalog/norms` | *"Las matrices que la referencian no se tocan: registran que esa norma le aplicó a la empresa en su momento."* Además exige Admin Global |
+| `documents/versions` | *"Una versión subida por error también es un caso real. El borrado es lógico: la fila queda y las evaluaciones que la citaban siguen teniendo a qué apuntar."* |
+
+La objeción original —*"borrarla dejaría sin sustento a las evaluaciones que la
+citan"*— **queda respondida por el borrado lógico**: la fila sobrevive. Se dejan
+como están, y esta nota existe para que la próxima revisión no los vuelva a
+marcar como deriva.
+
+`catalog/sources` y `catalog/sectors` siguen con borrado y sin argumento
+escrito. Son metadatos del catálogo, no la ley, y exigen Admin Global; quedan
+pendientes de una decisión propia.
 
 ### Cómo se sostiene la distinción
 
