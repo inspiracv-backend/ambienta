@@ -193,17 +193,21 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * **Esto no llega a la base: falta información que la pantalla no pide.**
+   * **Esto todavía no llega a la base, pero el bloqueo se redujo a la mitad.**
    *
-   * `POST /catalog/norms` exige `country_id` y `source_id`, ambos claves
-   * foráneas. La pantalla solo pregunta nombre, tipo y fuente ('RCA' | 'ISO'),
-   * que no es lo mismo que `source_id` — ese apunta a `/catalog/sources`.
+   * `POST /catalog/norms` exige `country_id` y `source_id`.
    *
-   * Y `country_id` no tiene ni endpoint del que leerlo: el catálogo expone
-   * `norms`, `sectors` y `sources`, no países. Mandarlo igual daría 422 por FK.
+   * - `country_id` **ya se puede resolver**: `GET /catalog/countries` existe
+   *   desde el 13-ago-2026.
+   * - `source_id` sigue sin resolverse, y **no es que falte el endpoint**: es
+   *   que la pantalla y la base hablan de cosas distintas. Acá `fuente` es
+   *   `'RCA' | 'ISO'` —de dónde nace la obligación— y en la base `legal_sources`
+   *   son organismos: `BCN`, `SMA`, `RETC`.
    *
-   * Conectarlo necesita decidir de dónde salen esos dos campos, así que va por
-   * su propio cambio.
+   * Poner `BCN` por defecto sería lo fácil y sería falso: atribuiría a la
+   * fuente oficial una norma que alguien escribió a mano. Hace falta decidir si
+   * se siembra una fuente "carga manual" o si la pantalla pasa a preguntar el
+   * organismo.
    */
   function addNorm(input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) {
     const newNorm: LegalNorm = {
