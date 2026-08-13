@@ -149,6 +149,12 @@ def _decode(token: str, jwks: dict) -> dict:
     )
 
 
+# Identifica el 403 de "sesion valida sin empresa" frente a cualquier otro 403
+# de la API (por ejemplo el de Admin Global). El frontend decide que pantalla
+# mostrar leyendo esto, no el mensaje.
+CODIGO_SIN_EMPRESA = "sesion_sin_empresa"
+
+
 def verify_token(token: str) -> CurrentUser:
     """Verifica un JWT de Clerk y devuelve la identidad. 401 si no es valido.
 
@@ -171,21 +177,44 @@ def verify_token(token: str) -> CurrentUser:
     user_id = payload.get("sub")
     tenant_id = payload.get("tenant_id")
 
-    if not user_id or not tenant_id:
-        # El token esta firmado por Clerk pero no trae `tenant_id`. Casi
-        # siempre significa que falta configurar el JWT Template que mapea
-        # publicMetadata al claim (Fase 0 de tasks.md). Se registra como
-        # warning porque es un error de configuracion, no un ataque.
-        logger.warning(
-            "JWT de Clerk sin claims requeridos (sub=%s, tenant_id=%s). "
-            "Revisar el JWT Template en el dashboard de Clerk.",
-            bool(user_id),
-            bool(tenant_id),
-        )
+    if not user_id:
+        # Un token firmado que no dice de quien es no sirve para nada, y no hay
+        # a quien atribuirlo. Esto no pasa con Clerk salvo configuracion rota.
+        logger.warning("JWT de Clerk sin `sub`. Revisar el JWT Template.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="El token no identifica usuario y empresa.",
+            detail="El token no identifica al usuario.",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not tenant_id:
+        # **403 y no 401, y la diferencia importa.**
+        #
+        # La identidad se verifico: la firma es valida y sabemos quien es. Lo
+        # que falta es que esa persona pertenezca a una empresa. Son dos fallos
+        # con remedios opuestos —uno se arregla volviendo a entrar, el otro solo
+        # lo arregla un administrador— y responder 401 mandaba al frontend a
+        # reintentar una sesion que ya estaba bien.
+        #
+        # Con SSO abierto este caso deja de ser un error de configuracion y pasa
+        # a ser normal: alguien se autentica con Google sin estar dado de alta.
+        # Ver openspec/changes/acceso-por-sso/.
+        logger.warning(
+            "Sesion verificada sin empresa asignada (sub=%s). Falta el claim "
+            "`tenant_id`: o el JWT Template no lo mapea, o esta persona no "
+            "tiene `tenant_id` en su publicMetadata.",
+            user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            # Marcador legible por maquina. El frontend ramifica sobre `codigo`,
+            # **nunca sobre el mensaje**: el mensaje es para personas, se traduce
+            # y se reescribe, y un cliente que dependa de su texto se rompe la
+            # primera vez que alguien mejore la redaccion.
+            detail={
+                "codigo": CODIGO_SIN_EMPRESA,
+                "mensaje": "Tu cuenta no esta asociada a ninguna empresa.",
+            },
         )
 
     return CurrentUser(user_id=str(user_id), tenant_id=str(tenant_id))

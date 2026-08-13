@@ -28,9 +28,27 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 
 ## Fase 3 — Cálculo
 
-- [ ] Separar cumplimiento de cobertura en `lib/legal-matrix.ts`
-- [ ] Indicador de completitud de la cadena (aspectos sin requisito, requisitos sin aspecto)
-- [ ] Tests de ambos indicadores, incluido el caso "100% de cumplimiento sobre 30% evaluado"
+- [x] Separar cumplimiento de cobertura en `lib/legal-matrix.ts`.
+      `computeNormCoverage` deja fuera los `NA` de los dos denominadores, y a
+      propósito **no** aplica `incluidoEnCalculo`: excluir algo del cumplimiento
+      es una decisión legítima, esconderlo de la cobertura sería tapar que nadie
+      lo miró
+- [x] Indicador de completitud de la cadena en `lib/completitud-cadena.ts`
+      (aspectos sin requisito, requisitos sin aspecto). Es un **tercer**
+      indicador: los otros dos pueden verse perfectos sobre una lista de
+      requisitos que nadie derivó de sus aspectos, que es justo el hallazgo que
+      ISO busca
+  - [x] Un aspecto **no significativo** sin tratar no cuenta como hueco:
+        decidir que algo no es significativo es la decisión de no tratarlo
+  - [x] Sin datos devuelve 1, no 0. Misma convención que la cobertura: la
+        ausencia de datos no es un incumplimiento
+  - [x] Los enlaces rotos —ids que apuntan a algo que ya no está— se cuentan
+        **aparte** de la razón. Son inconsistencia de datos, no tarea
+        pendiente, y mezclarlos haría que arreglar un id se leyera como avance
+- [x] Tests de ambos indicadores, incluido el caso "100 % de cumplimiento sobre
+      un 20 % evaluado" (`legal-matrix-cobertura.test.ts`) y los 10 de la
+      completitud. Verificados por mutación: contar los aspectos no
+      significativos hace fallar el test que lo prohíbe
 
 ## Fase 4 — Pantallas
 

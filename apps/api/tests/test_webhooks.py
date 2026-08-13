@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -222,6 +223,24 @@ def test_sin_tenant_id_da_400_y_no_deja_la_fila_a_medias(cliente):
     assert "tenant_id" in r.json()["detail"]
     assert cliente.sesion.rollbacks == 1
     assert cliente.sesion.commits == 0
+
+
+def test_el_rechazo_sin_empresa_deja_con_que_actuar(cliente, caplog):
+    """Con SSO abierto esto deja de ser raro y pasa a ser el caso normal.
+
+    Alguien se autentica con Google sin estar dado de alta. No se crea fila
+    —`users.tenant_id` es NOT NULL— pero **quien administra tiene que poder
+    enterarse de quien fue**: sin el correo y el id del proveedor en el log, un
+    empleado nuevo al que olvidaron dar de alta es invisible hasta que reclama.
+    """
+    sin_tenant = evento_usuario(public_metadata={})
+
+    with caplog.at_level(logging.WARNING):
+        enviar(cliente, "user.created", sin_tenant)
+
+    registro = "\n".join(caplog.messages)
+    assert sin_tenant["email_addresses"][0]["email_address"] in registro
+    assert sin_tenant["id"] in registro
 
 
 # --- Traduccion de eventos (sin HTTP) ---------------------------------------
