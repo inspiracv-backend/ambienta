@@ -27,6 +27,7 @@ SUFIJOS_DE_ACCION = (
 
 # Recurso -> por que no tiene el CRUD entero. El motivo es la parte importante.
 SIN_CRUD_COMPLETO = {
+    "/catalog/countries": "la lista de paises viene dada: se consulta, no se administra. Exponerla como editable invitaria a inventar paises y a que dos empresas apuntaran a filas distintas del mismo lugar",
     "/catalog/norms": "la ley no se borra ni se edita a mano: se sincroniza desde la BCN",
     "/catalog/sectors": "catalogo de referencia, compartido y de solo lectura",
     "/catalog/sources": "catalogo de referencia, compartido y de solo lectura",
