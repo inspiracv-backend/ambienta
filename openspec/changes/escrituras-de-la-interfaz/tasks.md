@@ -20,8 +20,8 @@ Verificados contra el contrato OpenAPI y los mappers reales, no supuestos.
 
 ## Supuestos por confirmar
 
-- [ ] **Forma de `settings`.** Es un jsonb sin esquema. Si tres pantallas
-      escriben claves distintas, nadie sabrá qué contiene
+- [x] **Forma de `settings`.** Resuelto: esquema declarado en
+      `packages/shared` (`TenantSettingsSchema`), con lectura tolerante
 - [ ] **Si el parpadeo de la escritura optimista molesta** en conexiones lentas
       reales, no en local
 - [ ] **Si `completarPerfilEmpresa` debe existir** como acción, dado que la API

@@ -59,15 +59,26 @@ corresponde y leer de ahí mismo.
 - **No toca las 13 pantallas que todavía importan datos de ejemplo directo**, sin
   pasar por un store.
 
-## Decisiones que requiere el equipo
+## Decisiones del equipo — tomadas el 13-ago-2026
 
-- [ ] **`completarPerfilEmpresa` no se puede guardar**: el Perfil Empresa se
-      considera completo cuando hay giro y RUT, y la API **no acepta editar el
-      RUT**. ¿Se expone, o el perfil se completa por otro camino?
-- [ ] **Las tareas de un plan de acción no tienen dónde vivir.** ¿Entran como
-      modelo propio, o como lista dentro del plan?
-- [ ] **`settings` es un jsonb sin forma declarada.** Si tres pantallas escriben
-      claves distintas ahí, nadie sabrá qué contiene. ¿Se le fija un esquema?
-- [ ] **Escritura optimista o pesimista.** Este cambio adopta la optimista con
-      reversión, que es lo que ya hacían los stores conectados. Con conexiones
-      lentas el parpadeo se nota.
+- [x] **`completarPerfilEmpresa`**: el RUT pasa a ser editable, **solo por Admin
+      Global**. El campo identifica legalmente a la empresa ante la autoridad;
+      que su propio administrador lo cambie permitiria emitir declaraciones a
+      nombre de otra. El guard es **por campo, no por ruta**: el Admin Empresa
+      sigue pudiendo corregir su giro.
+- [x] **Las tareas de un plan de accion**: van como **modelo propio con sus
+      endpoints**, no como lista dentro del plan. Es lo que RF-97 pide —cinco
+      etapas con responsable por etapa— y permite consultar "mis tareas" entre
+      planes. Va por su propio cambio: es migracion, modelo, rutas y pantalla.
+- [x] **`settings`**: lleva **esquema declarado** en `packages/shared`
+      (`TenantSettingsSchema`), no columnas propias todavia. Sigue siendo
+      flexible para campos que aun toman forma, pero deja de ser un cajon: se
+      puede validar y documentar. Cuando alguno se estabilice, merece columna.
+- [x] **Escritura optimista con reversion**, confirmada. Se acepta el parpadeo
+      en conexiones lentas a cambio de respuesta inmediata.
+
+### Lo que la primera decision destrabo
+
+`completarPerfilEmpresa` ya no manda una bandera: manda **giro y RUT**, que es
+de donde la aplicacion deriva que el perfil esta completo. Guardar la bandera
+aparte habria dejado dos verdades que se pueden contradecir.

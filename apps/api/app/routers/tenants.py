@@ -11,11 +11,14 @@ Global, y eso lo verifica `exigir_admin_global`.
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth import CurrentUser
+from ..config import get_settings
 from ..crud.organization import crud_tenant
 from ..deps import exigir_admin_global, get_current_user, get_db
+from ..models.organization import User
 from ..schemas.organization import TenantCreate, TenantRead, TenantUpdate
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
@@ -32,6 +35,23 @@ def _propia_o_404(tenant_id: UUID, user: CurrentUser) -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found"
         )
+
+
+def _es_admin_global(user: CurrentUser, db: Session) -> bool:
+    """Predicado, no dependencia.
+
+    `exigir_admin_global` protege una ruta entera; aca hace falta decidir por
+    **campo**, porque el Admin Empresa si puede editar su empresa — solo no el
+    RUT.
+
+    Sin Clerk configurado no hay identidad que consultar y el modo desarrollo ya
+    confia en quien llama, asi que se responde que si. La barrera vive donde
+    importa, que es cualquier entorno con el proveedor puesto.
+    """
+    if not get_settings().clerk_configured:
+        return True
+    fila = db.scalar(select(User).where(User.clerk_id == user.user_id))
+    return fila is not None and fila.user_type == "platform_admin"
 
 
 @router.get("/", response_model=list[TenantRead])
@@ -81,8 +101,25 @@ def update_tenant(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Editar la propia empresa. Una ajena responde 404, no 403."""
+    """Editar la propia empresa. Una ajena responde 404, no 403.
+
+    **El RUT es la excepcion y va aparte.** El resto de los campos los edita el
+    Admin Empresa; el RUT solo el Admin Global, porque identifica legalmente a
+    la empresa ante la autoridad y cambiarlo permitiria emitir declaraciones a
+    nombre de otra. Decision del equipo, 13-ago-2026.
+    """
     _propia_o_404(tenant_id, user)
+
+    if data.rut_tax_id is not None and not _es_admin_global(user, db):
+        # 403 y no 404: aca no se esta revelando nada. Quien llama ya demostro
+        # que la empresa es suya; lo que se le niega es tocar **un campo**, y
+        # decirselo con claridad evita que lo reintente creyendo que fallo otra
+        # cosa.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el Admin Global puede cambiar el RUT de una empresa.",
+        )
+
     obj = crud_tenant.get(db, tenant_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
