@@ -23,3 +23,6 @@ venv/
 # Scripts sueltos de automatizacion puntual (creacion de epicas, migraciones
 # de tickets). Son de un solo uso y suelen llevar tokens o ids del entorno.
 add-epics.sh
+
+# Cache local de Turborepo. Aparece al correr `turbo run` fuera de CI.
+.turbo/
