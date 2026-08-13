@@ -16,6 +16,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.auth import CurrentUser
+from app.models.organization import User
 from app.routers import tenants as router_tenants
 from app.schemas.organization import TenantUpdate
 
@@ -23,14 +24,25 @@ TENANT = "a0000000-0000-0000-0000-000000000001"
 
 
 class _SesionFalsa:
-    """Devuelve el usuario que se le indique al buscar por `clerk_id`."""
+    """Sesion minima que responde distinto segun **que** se este consultando.
 
-    def __init__(self, usuario=None) -> None:
+    En esta ruta hay dos consultas seguidas: la del usuario, para saber si es
+    Admin Global, y la de la empresa. Un doble que devuelva lo mismo a las dos
+    hace que la busqueda de la empresa reciba un usuario y el flujo siga como si
+    la hubiera encontrado — que es como este archivo rompio CI la primera vez.
+    """
+
+    def __init__(self, usuario=None, empresa=None) -> None:
         self._usuario = usuario
+        self._empresa = empresa
         self.escrituras = 0
 
-    def scalar(self, _stmt):
-        return self._usuario
+    def scalar(self, stmt):
+        entidad = stmt.column_descriptions[0]["entity"]
+        return self._usuario if entidad is User else self._empresa
+
+    def flush(self) -> None:
+        pass
 
     def commit(self) -> None:
         self.escrituras += 1
