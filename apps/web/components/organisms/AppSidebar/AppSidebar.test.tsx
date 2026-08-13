@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { UsersProvider } from '@/lib/users-store';
 import { SessionProvider } from '@/lib/session';
+import { ToastProvider } from '@/lib/toast-store';
 import { iniciarSesionComo } from '@/test/utils';
 import { AppSidebar } from './AppSidebar';
 
@@ -18,11 +19,13 @@ vi.mock('next/navigation', () => ({
 
 function montar() {
   render(
-    <UsersProvider>
-      <SessionProvider>
-        <AppSidebar mobileOpen={false} onMobileOpenChange={vi.fn()} />
-      </SessionProvider>
-    </UsersProvider>,
+    <ToastProvider>
+      <UsersProvider>
+        <SessionProvider>
+          <AppSidebar mobileOpen={false} onMobileOpenChange={vi.fn()} />
+        </SessionProvider>
+      </UsersProvider>
+    </ToastProvider>,
   );
   // El sidebar de escritorio; el drawer móvil es un portal aparte.
   return within(screen.getByRole('navigation', { name: /navegación principal/i }));

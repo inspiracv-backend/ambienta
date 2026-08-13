@@ -4,7 +4,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { DescriptorCargo, Permiso, Role, User, UserEstado } from '@ambienta/shared';
 import { PERMISOS_POR_DEFECTO } from '@ambienta/shared';
 import { mockUsers } from '@/mocks/users';
-import { api } from '@/lib/api-client';
+import { useToast } from '@/lib/toast-store';
+import { api, mensajeDeError } from '@/lib/api-client';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
 
 interface UsersContextValue {
@@ -59,6 +60,7 @@ function mapApiUser(raw: Record<string, unknown>): User | null {
 
 export function UsersProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<User[]>(mockUsers);
+  const { mostrarToast } = useToast();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -159,12 +161,34 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * **No llega a la base: no hay dónde guardarlo.**
+   *
+   * La relación usuario-planta no está expuesta por la API, y el mapper de
+   * lectura arma `plantIds: []` para todos. Aunque se escribiera, al recargar
+   * volvería vacío.
+   */
   function updatePlants(userId: string, plantIds: string[]) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plantIds } : u)));
   }
 
   function updateDepartamento(userId: string, departamentoId: string | null) {
+    const anterior = users.find((u) => u.id === userId);
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, departamentoId } : u)));
+
+    if (!anterior?.tenantId) return;
+    const previo = anterior.departamentoId;
+
+    api
+      .patch(`/users/${userId}`, { department_id: departamentoId }, { tenantId: anterior.tenantId })
+      .catch((error) => {
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, departamentoId: previo } : u)));
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo cambiar el departamento',
+          descripcion: mensajeDeError(error),
+        });
+      });
   }
 
   function updateNombre(userId: string, nombre: string) {
@@ -175,10 +199,19 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * **No llega a la base:** `UserUpdate` acepta `full_name`, `department_id`,
+   * `status` y `preferences`. El descriptor de cargo no esta entre ellos.
+   */
   function updateDescriptorCargo(userId: string, descriptorCargo: DescriptorCargo) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, descriptorCargo } : u)));
   }
 
+  /**
+   * **No llega a la base.** Los permisos individuales tienen tabla
+   * (`user_permissions`) pero **ninguna API**: dependen de que se apruebe el
+   * cambio de RBAC, hoy en 0 de 33 tareas.
+   */
   function updatePermisos(userId: string, permisos: Permiso[]) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, permisos } : u)));
   }
