@@ -1,6 +1,11 @@
 import type { ReactNode } from 'react';
 import { DashboardLayout } from '@/components/templates';
-import { PerfilEmpresaGate, ClienteInvitadoGate, TenantScopeGate } from '@/components/organisms';
+import {
+  PerfilEmpresaGate,
+  ClienteInvitadoGate,
+  TenantScopeGate,
+  DevCambioDeRol,
+} from '@/components/organisms';
 import { ObligationsProvider } from '@/lib/obligations-store';
 import { PlanAccionProvider } from '@/lib/plan-accion-store';
 import { AuditsProvider } from '@/lib/audits-store';
@@ -48,6 +53,10 @@ export default function DashboardRouteLayout({ children }: { children: ReactNode
                       <TenantScopeGate>
                         <PerfilEmpresaGate>
                           <DashboardLayout>{children}</DashboardLayout>
+                          {/* Herramienta de desarrollo: no llega al bundle
+                              de produccion. Va dentro de los providers
+                              porque necesita la sesion y los usuarios. */}
+                          <DevCambioDeRol />
                         </PerfilEmpresaGate>
                       </TenantScopeGate>
                     </ClienteInvitadoGate>
