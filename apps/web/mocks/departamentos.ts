@@ -15,7 +15,7 @@ import type { Departamento } from '@ambienta/shared';
 export const mockDepartamentos: Departamento[] = [
   {
     id: 'depto-direccion',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Dirección y Planificación',
     tipo: 'estrategico',
     descripcion: 'Define objetivos ambientales y revisa el desempeño del sistema de gestión.',
@@ -25,7 +25,7 @@ export const mockDepartamentos: Departamento[] = [
   },
   {
     id: 'depto-medioambiente',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Medio Ambiente',
     tipo: 'estrategico',
     descripcion: 'Identifica requisitos legales aplicables y controla su cumplimiento.',
@@ -35,7 +35,7 @@ export const mockDepartamentos: Departamento[] = [
   },
   {
     id: 'depto-operaciones',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Operaciones',
     tipo: 'operativo',
     descripcion: 'Recepción, clasificación y valorización de residuos industriales.',
@@ -45,7 +45,7 @@ export const mockDepartamentos: Departamento[] = [
   },
   {
     id: 'depto-declaraciones',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Declaraciones y Reportes',
     tipo: 'operativo',
     descripcion: 'Prepara y presenta las declaraciones ante los sistemas del RETC.',
@@ -55,7 +55,7 @@ export const mockDepartamentos: Departamento[] = [
   },
   {
     id: 'depto-administracion',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Administración y Finanzas',
     tipo: 'apoyo',
     descripcion: 'Gestiona recursos, compras y contratos con terceros.',
@@ -65,7 +65,7 @@ export const mockDepartamentos: Departamento[] = [
   },
   {
     id: 'depto-personas',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Gestión de Personas',
     tipo: 'apoyo',
     descripcion: 'Competencia, formación y descriptores de cargo (ISO 9001 §7.2).',
@@ -75,7 +75,7 @@ export const mockDepartamentos: Departamento[] = [
   },
   {
     id: 'depto-servicio-cliente',
-    tenantId: 'tenant-2',
+    tenantId: 'a0000000-0000-0000-0000-000000000002',
     nombre: 'Servicio al Cliente',
     tipo: 'operativo',
     descripcion: 'Atención y seguimiento de los sub-tenants gestionados.',

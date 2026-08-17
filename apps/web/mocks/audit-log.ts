@@ -22,7 +22,7 @@ export const mockAuditLog: AuditLogEntry[] = [
   // ── Ticket de soporte TCK-1042 ────────────────────────────────────────────
   {
     id: 'audit-seed-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     entidadTipo: 'ticket_soporte',
     entidadId: 'ticket-1',
     entidadLabel: 'TCK-1042 — No puedo visualizar el certificado de un artículo',
@@ -36,7 +36,7 @@ export const mockAuditLog: AuditLogEntry[] = [
   },
   {
     id: 'audit-seed-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     entidadTipo: 'ticket_soporte',
     entidadId: 'ticket-1',
     entidadLabel: 'TCK-1042 — No puedo visualizar el certificado de un artículo',
@@ -50,7 +50,7 @@ export const mockAuditLog: AuditLogEntry[] = [
   },
   {
     id: 'audit-seed-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     entidadTipo: 'ticket_soporte',
     entidadId: 'ticket-1',
     entidadLabel: 'TCK-1042 — No puedo visualizar el certificado de un artículo',
@@ -67,7 +67,7 @@ export const mockAuditLog: AuditLogEntry[] = [
   // ── No conformidad NC-1 ───────────────────────────────────────────────────
   {
     id: 'audit-seed-4',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     entidadTipo: 'no_conformidad',
     entidadId: 'nc-1',
     entidadLabel: 'NC-001 — Discrepancia entre kilogramos declarados y retirados',
@@ -81,7 +81,7 @@ export const mockAuditLog: AuditLogEntry[] = [
   },
   {
     id: 'audit-seed-5',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     entidadTipo: 'no_conformidad',
     entidadId: 'nc-1',
     entidadLabel: 'NC-001 — Discrepancia entre kilogramos declarados y retirados',
@@ -103,7 +103,7 @@ export const mockAuditLog: AuditLogEntry[] = [
     id: 'audit-seed-6',
     tenantId: null,
     entidadTipo: 'tenant',
-    entidadId: 'tenant-2',
+    entidadId: 'a0000000-0000-0000-0000-000000000002',
     entidadLabel: 'Veolia Ambiental Chile',
     accion: 'actualizado',
     resumen: 'Amplió el límite de usuarios contratado',

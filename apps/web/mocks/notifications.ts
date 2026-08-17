@@ -10,7 +10,7 @@ function addDays(days: number): string {
 export const mockNotifications: Notification[] = [
   {
     id: 'notif-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     userId: 'user-admin-empresa',
     urgencia: 'alta',
     titulo: 'DAE 2026 vencida',
@@ -21,7 +21,7 @@ export const mockNotifications: Notification[] = [
   },
   {
     id: 'notif-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     userId: 'user-admin-empresa',
     urgencia: 'media',
     titulo: 'SIDREP Q3 2026 por vencer',
@@ -32,7 +32,7 @@ export const mockNotifications: Notification[] = [
   },
   {
     id: 'notif-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     userId: 'user-admin-empresa',
     urgencia: 'baja',
     titulo: 'RCA Planta Rancagua actualizada',

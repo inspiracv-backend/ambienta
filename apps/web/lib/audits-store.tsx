@@ -7,7 +7,8 @@ import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useUsers } from '@/lib/users-store';
 import { useSession } from '@/lib/session';
 import { CRITICIDAD_LABEL, NC_ESTADO_LABEL } from '@/lib/audit-status';
-import { api } from '@/lib/api-client';
+import { api, mensajeDeError } from '@/lib/api-client';
+import { useToast } from '@/lib/toast-store';
 
 interface AuditsContextValue {
   audits: Audit[];
@@ -49,6 +50,83 @@ const ESTADO_POR_STATUS: Record<string, Audit['estado']> = {
   cancelled: 'cerrada',
 };
 
+/**
+ * `nonconformities.severity` de la API ↔ la criticidad del modelo compartido.
+ *
+ * La base restringe la columna a `minor|major|critical`. El alta mandaba
+ * directamente `'alta'`, que viola ese CHECK: la fila nunca se insertaba y el
+ * `.catch(() => {})` se comia el error, asi que la pantalla mostraba el
+ * hallazgo creado y la base no tenia nada.
+ */
+const CRITICIDAD_POR_SEVERITY: Record<string, NonConformity['criticidad']> = {
+  minor: 'baja',
+  major: 'media',
+  critical: 'alta',
+};
+const SEVERITY_POR_CRITICIDAD: Record<NonConformity['criticidad'], string> = {
+  baja: 'minor',
+  media: 'major',
+  alta: 'critical',
+};
+
+/**
+ * `nonconformities.status` de la API → los tres estados de la pantalla.
+ *
+ * La base modela seis estados y el frontend tres. Las tres etapas intermedias
+ * —analisis, plan de accion y verificacion— son todas "en tratamiento" para
+ * quien mira la lista. `rejected` cae en cerrada: no sigue abierta, y mostrarla
+ * como pendiente inflaria el conteo de lo que falta resolver.
+ */
+const NC_ESTADO_POR_STATUS: Record<string, NonConformity['estado']> = {
+  open: 'abierta',
+  analysis: 'en_tratamiento',
+  action_plan: 'en_tratamiento',
+  verification: 'en_tratamiento',
+  closed: 'cerrada',
+  rejected: 'cerrada',
+};
+
+/** El estado que le corresponde en la API a una que pasa a tratamiento. */
+const STATUS_EN_TRATAMIENTO = 'analysis';
+
+function mapApiNonConformity(raw: Record<string, unknown>): NonConformity | null {
+  try {
+    const cerradaEl = raw.closed_at ? String(raw.closed_at) : null;
+    const responsableId = raw.owner_user_id ? String(raw.owner_user_id) : '';
+    return {
+      id: String(raw.id),
+      tenantId: String(raw.tenant_id ?? ''),
+      // `facility_id` es opcional en la base: hay hallazgos de la empresa que
+      // no cuelgan de una planta. La pantalla filtra por planta, asi que la
+      // cadena vacia los deja fuera de esos filtros en vez de asignarlos mal.
+      plantId: raw.facility_id ? String(raw.facility_id) : '',
+      hallazgo: String(raw.description ?? raw.title ?? ''),
+      criticidad: CRITICIDAD_POR_SEVERITY[String(raw.severity ?? '')] ?? 'media',
+      estado: NC_ESTADO_POR_STATUS[String(raw.status ?? '')] ?? 'abierta',
+      fechaDeteccion: String(raw.detected_at ?? new Date().toISOString()),
+      responsableId,
+      // Ambos vienen como JSONB. Se validan de forma: un `{}` donde se espera
+      // una lista rompe la pantalla de los 5 porques al renderizar.
+      cincoPorques: Array.isArray(raw.root_cause_answers)
+        ? (raw.root_cause_answers as unknown[]).map(String).slice(0, 5)
+        : [],
+      ...(raw.improvement_stages && typeof raw.improvement_stages === 'object'
+        && !Array.isArray(raw.improvement_stages)
+        && Object.keys(raw.improvement_stages).length > 0
+        ? { etapasMejora: raw.improvement_stages as EtapasMejora }
+        : {}),
+      ...(raw.record_type ? { tipoRegistro: String(raw.record_type) as TipoRegistroMejora } : {}),
+      // La API no expone el `audit_id` en el listado, solo `audit_item_id`. Se
+      // deja sin origen antes que inventar el vinculo.
+      ...(cerradaEl
+        ? { cierre: { fecha: cerradaEl, responsableId, firmada: true } }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function mapApiAudit(raw: Record<string, unknown>): Audit | null {
   try {
     return {
@@ -75,6 +153,7 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
   const registrar = useRegistrarAuditoria();
   const { users } = useUsers();
   const { user } = useSession();
+  const { mostrarToast } = useToast();
 
   useEffect(() => {
     if (!user?.tenantId) { setLoading(false); return; }
@@ -87,7 +166,10 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const mappedAudits = auditsData.map(mapApiAudit).filter((a): a is Audit => a !== null);
         if (mappedAudits.length > 0) setAudits(mappedAudits);
-        // NC mapping is complex due to frontend-specific fields, keep mocks as base
+        const mappedNc = ncData
+          .map(mapApiNonConformity)
+          .filter((n): n is NonConformity => n !== null);
+        if (mappedNc.length > 0) setNonConformities(mappedNc);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -96,6 +178,30 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
 
   function etiqueta(nc: NonConformity): string {
     return nc.hallazgo.length > 70 ? `${nc.hallazgo.slice(0, 70)}…` : nc.hallazgo;
+  }
+
+  /**
+   * Manda el parche y **revierte al valor anterior completo** si la API lo
+   * rechaza.
+   *
+   * Se guarda `anterior` entero y no solo los campos tocados: son escrituras
+   * optimistas, asi que entre el envio y el fallo la pantalla ya muestra el
+   * valor nuevo. Reponer campo por campo dejaria la fila a medio camino si dos
+   * ediciones se solapan.
+   */
+  function guardar(
+    ncId: string,
+    parche: Record<string, unknown>,
+    anterior: NonConformity,
+    queFallo: string,
+  ) {
+    if (!user?.tenantId) return;
+    api
+      .patch(`/audits/nonconformities/${ncId}`, parche, { tenantId: user.tenantId })
+      .catch((error) => {
+        setNonConformities((prev) => prev.map((nc) => (nc.id === ncId ? anterior : nc)));
+        mostrarToast({ tipo: 'error', mensaje: queFallo, descripcion: mensajeDeError(error) });
+      });
   }
 
   function addNonConformity(input: {
@@ -122,12 +228,40 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
     };
     setNonConformities((prev) => [...prev, nc]);
 
-    api.post('/audits/nonconformities/', {
-      description: input.hallazgo,
-      severity: input.criticidad,
-      status: 'open',
-      owner_user_id: input.responsableId,
-    }, { tenantId: input.tenantId }).catch(() => {});
+    // `code` y `title` son NOT NULL y no se mandaban: la fila no entraba.
+    // El codigo lleva la marca de tiempo porque hay un UNIQUE (tenant, code) y
+    // dos hallazgos del mismo dia tienen que poder convivir.
+    api
+      .post<Record<string, unknown>>(
+        '/audits/nonconformities/',
+        {
+          code: `NC-${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}`,
+          title: etiqueta(nc),
+          description: input.hallazgo,
+          severity: SEVERITY_POR_CRITICIDAD[input.criticidad],
+          ...(input.plantId ? { facility_id: input.plantId } : {}),
+          ...(input.responsableId ? { owner_user_id: input.responsableId } : {}),
+          ...(input.tipoRegistro ? { record_type: input.tipoRegistro } : {}),
+        },
+        { tenantId: input.tenantId },
+      )
+      .then((creada) => {
+        // El id local era `nc-<timestamp>`, que la API no conoce: sin este
+        // reemplazo toda escritura posterior sobre este hallazgo apuntaria a
+        // una fila inexistente y volveria a fallar en silencio.
+        const real = mapApiNonConformity(creada);
+        if (real) setNonConformities((prev) => prev.map((x) => (x.id === nc.id ? real : x)));
+      })
+      .catch((error) => {
+        // Revertir: mostrar un hallazgo que la base no tiene es peor que no
+        // mostrarlo, porque nadie vuelve a registrarlo.
+        setNonConformities((prev) => prev.filter((x) => x.id !== nc.id));
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo registrar el hallazgo',
+          descripcion: mensajeDeError(error),
+        });
+      });
 
     registrar({
       entidadTipo: 'no_conformidad',
@@ -158,6 +292,16 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
     );
 
     const causaRaiz = cincoPorques.filter(Boolean).at(-1) ?? null;
+
+    guardar(
+      ncId,
+      {
+        root_cause_answers: cincoPorques,
+        ...(nuevoEstado !== anterior.estado ? { status: STATUS_EN_TRATAMIENTO } : {}),
+      },
+      anterior,
+      'No se pudo guardar el análisis de causa raíz',
+    );
 
     registrar({
       entidadTipo: 'no_conformidad',
@@ -192,6 +336,16 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       ),
     );
 
+    guardar(
+      ncId,
+      {
+        improvement_stages: etapas,
+        ...(nuevoEstado !== anterior.estado ? { status: STATUS_EN_TRATAMIENTO } : {}),
+      },
+      anterior,
+      'No se pudieron guardar las etapas del tratamiento',
+    );
+
     registrar({
       entidadTipo: 'no_conformidad',
       entidadId: ncId,
@@ -219,8 +373,22 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       ),
     );
 
+    // Va por `/close` y no por un PATCH: la base exige
+    // `(status='closed') = (closed_at IS NOT NULL)`, asi que mandar solo el
+    // estado viola el CHECK y la fila nunca se cerraba. El endpoint ademas
+    // rechaza el cierre si quedan planes de accion abiertos, que es la regla
+    // de negocio que un PATCH suelto se saltaba.
     if (user?.tenantId) {
-      api.patch(`/audits/nonconformities/${ncId}`, { status: 'closed' }, { tenantId: user.tenantId }).catch(() => {});
+      api
+        .post(`/audits/nonconformities/${ncId}/close`, {}, { tenantId: user.tenantId })
+        .catch((error) => {
+          setNonConformities((prev) => prev.map((nc) => (nc.id === ncId ? anterior : nc)));
+          mostrarToast({
+            tipo: 'error',
+            mensaje: 'No se pudo cerrar la no conformidad',
+            descripcion: mensajeDeError(error),
+          });
+        });
     }
 
     registrar({

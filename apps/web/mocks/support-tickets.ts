@@ -11,7 +11,7 @@ export const mockSupportTickets: SupportTicket[] = [
   {
     id: 'ticket-1',
     numero: 'TCK-1042',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     tipoSolicitud: 'general',
     asunto: 'No puedo visualizar el certificado de un artículo',
     descripcion: 'Al intentar abrir la evidencia de la RCA de Rancagua, el enlace no carga.',

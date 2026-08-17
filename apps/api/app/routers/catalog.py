@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..crud.catalog import (
@@ -9,10 +10,12 @@ from ..crud.catalog import (
     crud_legal_source,
     crud_sector,
 )
+from ..models.catalog import LegalArticle, LegalNormVersion
 from ..auth import CurrentUser
 from ..deps import exigir_admin_global, get_db
 from ..schemas.catalog import (
     CountryRead,
+    LegalArticleRead,
     LegalNormCreate,
     LegalNormRead,
     LegalNormUpdate,
@@ -75,6 +78,41 @@ def get_norm(norm_id: UUID, db: Session = Depends(get_db)):
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Norm not found")
     return obj
+
+
+@router.get("/norms/{norm_id}/articles", response_model=list[LegalArticleRead])
+def list_norm_articles(norm_id: UUID, db: Session = Depends(get_db)):
+    """Articulos del texto **vigente** de la norma.
+
+    El articulo no cuelga de la norma sino de una VERSION suya, porque el texto
+    legal cambia y una auditoria pregunta bajo que redaccion se evaluo en una
+    fecha dada. Aca se devuelve la version marcada `is_current`: es la que
+    corresponde evaluar hoy.
+
+    Una norma sin version vigente devuelve lista vacia, no 404: la norma existe
+    y la respuesta correcta es "no hay articulos que evaluar todavia".
+    """
+    if not crud_legal_norm.get(db, norm_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Norm not found")
+
+    vigente = db.scalar(
+        select(LegalNormVersion.id).where(
+            LegalNormVersion.norm_id == norm_id,
+            LegalNormVersion.is_current.is_(True),
+            LegalNormVersion.deleted_at.is_(None),
+        )
+    )
+    if vigente is None:
+        return []
+
+    return db.scalars(
+        select(LegalArticle)
+        .where(
+            LegalArticle.norm_version_id == vigente,
+            LegalArticle.deleted_at.is_(None),
+        )
+        .order_by(LegalArticle.display_order)
+    ).all()
 
 
 # ── Escritura del catalogo ────────────────────────────────────────────────

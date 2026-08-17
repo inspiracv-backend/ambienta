@@ -10,7 +10,7 @@ function addDays(days: number): string {
 export const mockSubTenants: SubTenant[] = [
   {
     id: 'sub-1',
-    gestorTenantId: 'tenant-2',
+    gestorTenantId: 'a0000000-0000-0000-0000-000000000002',
     nombre: 'Agroindustrial Los Ríos SpA',
     rut: '77.111.222-3',
     estado: 'activo',
@@ -21,7 +21,7 @@ export const mockSubTenants: SubTenant[] = [
   },
   {
     id: 'sub-2',
-    gestorTenantId: 'tenant-2',
+    gestorTenantId: 'a0000000-0000-0000-0000-000000000002',
     nombre: 'Frigorífico del Maule Ltda.',
     rut: '78.222.333-4',
     estado: 'inactivo',

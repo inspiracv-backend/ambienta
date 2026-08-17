@@ -9,18 +9,37 @@ en los 12 stores, cruzado con el contrato OpenAPI y con los mappers de lectura.
 
 | | Acciones |
 |---|---|
-| Llegan a la base | **23** |
-| Solo estado local | 14 |
+| Llegan a la base | **25** |
+| Solo estado local | 12 |
 | **Total** | **37** |
 
-**62 % conectado.** Antes de esta tanda era 51 %.
+**68 % conectado.** Antes de esta tanda era 62 % — pero ese 62 % estaba
+inflado.
+
+### Dos de las que se contaban como conectadas no llegaban
+
+Se contaba "manda un `POST`" como "llega a la base". No es lo mismo, y la
+diferencia no se ve leyendo el código:
+
+- **`audits.addNonConformity`** mandaba `severity: 'alta'`, y la columna solo
+  acepta `minor|major|critical`. Además omitía `code` y `title`, que son
+  `NOT NULL`. La fila **nunca se insertaba**, y el `.catch(() => {})` se comía
+  el error.
+- **`audits.closeNonConformity`** cerraba con `PATCH {status:'closed'}`, pero
+  la base exige `(status='closed') = (closed_at IS NOT NULL)`. Violaba el
+  CHECK. Existe `/nonconformities/{id}/close`, que además rechaza el cierre si
+  quedan planes de acción abiertos.
+
+**El número real antes de esta tanda era 21 de 37, no 23.** Una escritura que
+manda una petición que la base rechaza es indistinguible de una que no manda
+nada — salvo que da más confianza, que es peor.
 
 | Store | Conectadas |
 |---|---|
 | `obligations` | 3 / 3 |
 | `tenants` | 7 / 8 |
 | `users` | 5 / 8 |
-| `audits` | 2 / 4 |
+| `audits` | **4 / 4** |
 | `support-tickets` | 2 / 4 |
 | `departamentos` | 1 / 2 |
 | `notifications` | 1 / 2 |
@@ -55,8 +74,8 @@ como indicador:
 
 | Store | Qué descarta |
 |---|---|
-| `audits` | Pide `/audits/nonconformities/` y **no mapea la respuesta**. Las no conformidades en pantalla salen de los datos de ejemplo, con ids que la API no conoce |
-| `legal-matrix` | Arma cada norma con `articulos: []`. Los artículos que se ven son de ejemplo |
+| ~~`audits`~~ | **Resuelto.** El store mapea la respuesta de `/audits/nonconformities/`; las no conformidades en pantalla son las de la base |
+| ~~`legal-matrix`~~ | **Resuelto la mitad.** Los artículos vienen de `/catalog/norms/{id}/articles`. Falta cruzar la **evaluación** de la empresa, que vive en `article_compliance` |
 | `plan-accion` | Arma cada plan con `tareas: []` |
 
 Mientras sigan así, **ninguna escritura sobre esas entidades puede funcionar**:
@@ -64,7 +83,7 @@ apuntaría a identificadores inventados.
 
 ---
 
-## Las 14 que no llegan a la base
+## Las 12 que no llegan a la base
 
 Ninguna es "falta de tiempo". Cada una tiene una causa concreta, y está escrita
 también en el docstring de su función, que es donde la va a leer quien intente
@@ -86,11 +105,9 @@ arreglarla.
 
 | Acción | Causa |
 |---|---|
-| `legal-matrix.addNorm` | `POST /catalog/norms` exige `country_id` y `source_id`. **De países no hay ni endpoint de lectura** |
-| `legal-matrix.updateArticulo` | El store nunca carga artículos reales |
-| `audits.updateEtapas` | `NonconformityUpdate` acepta `improvement_stages`, pero el store descarta las NC de la API |
-| `audits.updatePorques` | Igual, con `root_cause_answers` |
-| `support.addCorreccion` | Depende de la misma cadena de no conformidades |
+| `legal-matrix.addNorm` | `POST /catalog/norms` exige `country_id` y `source_id`. La lectura de países **ya existe** (PR #171); falta que el formulario la use |
+| `legal-matrix.updateArticulo` | Los artículos ya se cargan. Falta que evaluar por primera vez **cree** la fila de `article_compliance`: hoy la pantalla no distingue alta de edición |
+| `support.addCorreccion` | Ya no está bloqueada por las no conformidades: ahora depende de que el ticket modele la corrección |
 | `gestores.addContrato` | `client_tenant_id` sale de datos de ejemplo: la sub-tenancy no existe |
 
 ### Necesita una decisión
@@ -128,10 +145,15 @@ validar; cuando alguno de esos campos se estabilice, merece columna propia.
 
 ## Lo que sigue, en orden de lo que más desbloquea
 
-1. **Mapear las no conformidades desde la API.** Desbloquea cuatro acciones de
-   una vez y es la entidad más usada del módulo de auditorías.
-2. **Exponer `GET /catalog/countries`.** Veinte minutos, y desbloquea crear
-   normas desde la interfaz.
-3. **Cargar los artículos de la matriz de cumplimiento.** Es el corazón de la
-   matriz legal: evaluar SI/NO/NA es lo que el módulo existe para hacer.
-4. Lo demás depende de decisiones del equipo o de modelo nuevo.
+1. ~~**Mapear las no conformidades desde la API.**~~ **Hecho.** Desbloqueó
+   `updateEtapas` y `updatePorques`, y destapó que el alta y el cierre nunca
+   habían funcionado.
+2. ~~**Exponer `GET /catalog/countries`.**~~ **Hecho** (PR #171). Falta que el
+   formulario de alta de normas lo consuma.
+3. **Cruzar el articulado con `article_compliance`.** Los artículos ya se
+   cargan; falta que evaluar SI/NO/NA cree la fila cuando no existe. Es el
+   último paso de la matriz legal y ya no depende de nada aguas arriba.
+4. **Las tareas del plan de acción** necesitan modelo propio: es migración,
+   endpoints y pantalla. Ya está decidido que van como entidad, no como lista
+   dentro del plan.
+5. Lo demás depende de decisiones del equipo o de modelo nuevo.

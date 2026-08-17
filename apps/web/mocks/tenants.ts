@@ -1,3 +1,15 @@
+/**
+ * Los identificadores y los nombres de las dos primeras empresas **espejan la
+ * semilla de `db/02_seed.sql`**, no son inventados.
+ *
+ * No es cosmetico: en modo desarrollo el frontend manda el tenant de la sesion
+ * en la cabecera `X-Tenant-Id`, y la API lo exige como UUID. Con los ids
+ * antiguos (`tenant-1`) **toda llamada con empresa devolvia 400** y la pantalla
+ * caia a estos mismos datos de ejemplo con un aviso de "no pudimos conectar":
+ * se entraba, y no se podia probar nada.
+ *
+ * Si cambia la semilla, esto cambia con ella.
+ */
 import type { Tenant } from '@ambienta/shared';
 
 function enDias(dias: number): string {
@@ -21,8 +33,8 @@ function enDias(dias: number): string {
  */
 export const mockTenants: Tenant[] = [
   {
-    id: 'tenant-1',
-    nombre: 'Recicladora del Sur SpA',
+    id: 'a0000000-0000-0000-0000-000000000001',
+    nombre: 'Minera Andes SpA',
     identificacion: { tipo: 'RUT', numero: '76.123.456-7' },
     pais: 'CL',
     sector: 'Industrial',
@@ -58,14 +70,14 @@ export const mockTenants: Tenant[] = [
       'chatbot',
     ],
     plants: [
-      { id: 'planta-rancagua', tenantId: 'tenant-1', nombre: 'Planta Rancagua', comuna: 'Rancagua', region: "O'Higgins", identificadorRETC: '5495718', ciiu: 'C107100' },
-      { id: 'planta-talca', tenantId: 'tenant-1', nombre: 'Planta Talca', comuna: 'Talca', region: 'Maule', identificadorRETC: '5495722', ciiu: 'C107100' },
-      { id: 'planta-concepcion', tenantId: 'tenant-1', nombre: 'Planta Concepción', comuna: 'Concepción', region: 'Biobío' },
+      { id: 'planta-rancagua', tenantId: 'a0000000-0000-0000-0000-000000000001', nombre: 'Planta Rancagua', comuna: 'Rancagua', region: "O'Higgins", identificadorRETC: '5495718', ciiu: 'C107100' },
+      { id: 'planta-talca', tenantId: 'a0000000-0000-0000-0000-000000000001', nombre: 'Planta Talca', comuna: 'Talca', region: 'Maule', identificadorRETC: '5495722', ciiu: 'C107100' },
+      { id: 'planta-concepcion', tenantId: 'a0000000-0000-0000-0000-000000000001', nombre: 'Planta Concepción', comuna: 'Concepción', region: 'Biobío' },
     ],
   },
   {
-    id: 'tenant-2',
-    nombre: 'Veolia Ambiental Chile',
+    id: 'a0000000-0000-0000-0000-000000000002',
+    nombre: 'EcoGestión Consultoría Ambiental Ltda',
     identificacion: { tipo: 'RUT', numero: '96.789.123-4' },
     pais: 'CL',
     sector: 'Gestión de residuos',
@@ -90,7 +102,7 @@ export const mockTenants: Tenant[] = [
     },
     modulosActivos: ['obligaciones', 'calendario', 'gestores', 'notificaciones'],
     plants: [
-      { id: 'sede-santiago', tenantId: 'tenant-2', nombre: 'Sede Santiago', comuna: 'Santiago', region: 'Metropolitana' },
+      { id: 'sede-santiago', tenantId: 'a0000000-0000-0000-0000-000000000002', nombre: 'Sede Santiago', comuna: 'Santiago', region: 'Metropolitana' },
     ],
   },
   {
