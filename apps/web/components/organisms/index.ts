@@ -50,6 +50,7 @@ export * from './UserFormModal';
 export * from './UsersManagementTable';
 export * from './UserProfileView';
 export * from './DevRoleSwitcher';
+export * from './DevCambioDeRol';
 export * from './TenantScopeGate';
 export * from './ToastViewport';
 export * from './PlatformDashboard';
