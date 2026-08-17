@@ -200,7 +200,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Area | Estado |
 |---|---|
 | Base de datos | **Completa y verificada.** 52 tablas, 38 con RLS, 9 smoke tests en verde |
-| API | **95 rutas, 211 operaciones.** 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
+| API | **96 rutas, 212 operaciones.** Swagger con titulo y explicacion en las 206 de negocio. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **68 %.** 25 de 37 acciones llegan a la base. Las 12 restantes tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
@@ -212,11 +212,9 @@ agregar un `PATCH`**. Es un viaje de ida y vuelta, y hacer solo un lado engana
 igual: `tenants` leia `limiteUsuarios: 50` escrito a mano, asi que guardarlo sin
 tocar la lectura daba un "guardado" que se deshacia al recargar.
 
-Peor: **dos stores piden datos a la API y descartan la respuesta**
-—`legal-matrix` con los articulos y `plan-accion` con las tareas—. `audits` ya
-no: mapea las no conformidades desde el 17-ago. Lo que se ve en esas pantallas sale de `mocks/`, con identificadores
-que la API no conoce, asi que ninguna escritura sobre ellas puede funcionar
-hasta que se mapeen. Ver `docs/escrituras-del-frontend.md`.
+Queda **un store que pide datos y descarta la respuesta**: `plan-accion` con
+las tareas, que ademas no existen en el modelo. `audits` y `legal-matrix` ya
+mapean lo suyo desde el 17-ago. Ver `docs/escrituras-del-frontend.md`.
 
 ## Trampas conocidas
 

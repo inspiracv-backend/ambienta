@@ -29,6 +29,7 @@ SUFIJOS_DE_ACCION = (
 SIN_CRUD_COMPLETO = {
     "/catalog/countries": "la lista de paises viene dada: se consulta, no se administra. Exponerla como editable invitaria a inventar paises y a que dos empresas apuntaran a filas distintas del mismo lugar",
     "/catalog/norms": "la ley no se borra ni se edita a mano: se sincroniza desde la BCN",
+    "/catalog/norms/articles": "el articulado es el texto de la ley: se sincroniza desde la BCN y se lee, no se administra",
     "/catalog/sectors": "catalogo de referencia, compartido y de solo lectura",
     "/catalog/sources": "catalogo de referencia, compartido y de solo lectura",
     "/documents/versions": "es la evidencia que respalda el cumplimiento; borrarla dejaria sin sustento a las evaluaciones que la citan",

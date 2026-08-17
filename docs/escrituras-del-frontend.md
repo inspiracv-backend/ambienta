@@ -75,7 +75,7 @@ como indicador:
 | Store | Qué descarta |
 |---|---|
 | ~~`audits`~~ | **Resuelto.** El store mapea la respuesta de `/audits/nonconformities/`; las no conformidades en pantalla son las de la base |
-| `legal-matrix` | Arma cada norma con `articulos: []`. Los artículos que se ven son de ejemplo |
+| ~~`legal-matrix`~~ | **Resuelto la mitad.** Los artículos vienen de `/catalog/norms/{id}/articles`. Falta cruzar la **evaluación** de la empresa, que vive en `article_compliance` |
 | `plan-accion` | Arma cada plan con `tareas: []` |
 
 Mientras sigan así, **ninguna escritura sobre esas entidades puede funcionar**:
@@ -106,7 +106,7 @@ arreglarla.
 | Acción | Causa |
 |---|---|
 | `legal-matrix.addNorm` | `POST /catalog/norms` exige `country_id` y `source_id`. La lectura de países **ya existe** (PR #171); falta que el formulario la use |
-| `legal-matrix.updateArticulo` | El store nunca carga artículos reales |
+| `legal-matrix.updateArticulo` | Los artículos ya se cargan. Falta que evaluar por primera vez **cree** la fila de `article_compliance`: hoy la pantalla no distingue alta de edición |
 | `support.addCorreccion` | Ya no está bloqueada por las no conformidades: ahora depende de que el ticket modele la corrección |
 | `gestores.addContrato` | `client_tenant_id` sale de datos de ejemplo: la sub-tenancy no existe |
 
@@ -150,8 +150,9 @@ validar; cuando alguno de esos campos se estabilice, merece columna propia.
    habían funcionado.
 2. ~~**Exponer `GET /catalog/countries`.**~~ **Hecho** (PR #171). Falta que el
    formulario de alta de normas lo consuma.
-3. **Cargar los artículos de la matriz de cumplimiento.** Es el corazón de la
-   matriz legal: evaluar SI/NO/NA es lo que el módulo existe para hacer.
+3. **Cruzar el articulado con `article_compliance`.** Los artículos ya se
+   cargan; falta que evaluar SI/NO/NA cree la fila cuando no existe. Es el
+   último paso de la matriz legal y ya no depende de nada aguas arriba.
 4. **Las tareas del plan de acción** necesitan modelo propio: es migración,
    endpoints y pantalla. Ya está decidido que van como entidad, no como lista
    dentro del plan.
