@@ -46,8 +46,14 @@ que hace falta para validar firmas.
 ## Aislamiento entre empresas
 
 Cada consulta se ejecuta con el tenant de la sesion fijado en la conexion, y
-PostgreSQL aplica Row Level Security sobre 38 tablas. Es una segunda barrera:
-una consulta mal escrita no puede devolver datos de otra empresa.
+PostgreSQL aplica Row Level Security sobre 38 tablas.
+
+**RLS no es la segunda barrera: es la unica.** Ninguna consulta de la
+aplicacion filtra por `tenant_id`. La API se conecta con un rol que **no puede
+saltarse RLS**, asi que la separacion entre empresas la garantiza enteramente
+PostgreSQL. La consecuencia practica para quien integra: un endpoint mal
+escrito devuelve **cero filas**, nunca datos de otra empresa. Una respuesta
+vacia inesperada es el sintoma de esa falla, no una fuga.
 
 ## Convenciones
 
@@ -279,9 +285,270 @@ _ESQUEMA_ERROR = {
 }
 
 
+_RESPUESTA_422 = {
+    "description": (
+        "El cuerpo no cumple el esquema: falta un campo obligatorio, un tipo "
+        "no calza, o un identificador referenciado no existe en la empresa "
+        "de la sesion. `detail` viene como **lista**, un elemento por campo."
+    ),
+    "content": {
+        "application/json": {
+            "example": {
+                "detail": [
+                    {
+                        "loc": ["body", "name"],
+                        "msg": "Field required",
+                        "type": "missing",
+                    }
+                ]
+            }
+        }
+    },
+}
+
+# Recurso -> (singular con articulo, plural con articulo).
+#
+# Se escribe a mano a proposito: "facilities" no se traduce solo a
+# "instalaciones", y un plural mal formado en 206 operaciones se nota mas que
+# la ausencia de texto. Lo que NO se escribe a mano es que operacion lleva que
+# frase — eso se deriva del metodo y de la forma de la ruta.
+_RECURSOS: dict[str, tuple[str, str]] = {
+    "action-plans": ("el plan de accion", "los planes de accion"),
+    "article-compliance": ("el cumplimiento del articulo", "el cumplimiento por articulo"),
+    "articles": ("el articulo", "los articulos"),
+    "aspects": ("el aspecto ambiental", "los aspectos ambientales"),
+    "audits": ("la auditoria", "las auditorias"),
+    "chatbot": ("la conversacion con el asistente", "las conversaciones con el asistente"),
+    "compliance": ("la evaluacion de cumplimiento", "las evaluaciones de cumplimiento"),
+    "contracts": ("el contrato", "los contratos"),
+    "countries": ("el pais", "los paises"),
+    "declarations": ("la declaracion", "las declaraciones"),
+    "departments": ("el departamento", "los departamentos"),
+    "documents": ("el documento", "los documentos"),
+    "entities": ("la entidad fiscalizadora", "las entidades fiscalizadoras"),
+    "equipment": ("el equipo regulado", "los equipos regulados"),
+    "facilities": ("la instalacion", "las instalaciones"),
+    "integrations": ("la cuenta de integracion", "las cuentas de integracion"),
+    "items": ("el item del checklist", "los items del checklist"),
+    "matrices": ("la matriz", "las matrices"),
+    "matrix-norms": ("la norma de la matriz", "las normas de la matriz"),
+    "messages": ("el mensaje", "los mensajes"),
+    "nonconformities": ("la no conformidad", "las no conformidades"),
+    "norms": ("la norma", "las normas"),
+    "notifications": ("la notificacion", "las notificaciones"),
+    "obligations": ("la obligacion", "las obligaciones"),
+    "operators": ("el operador", "los operadores"),
+    "participants": ("el participante", "los participantes"),
+    "processes": ("el proceso", "los procesos"),
+    "risks": ("el riesgo y oportunidad", "los riesgos y oportunidades"),
+    "rules": ("la regla", "las reglas"),
+    "sectors": ("el sector economico", "los sectores economicos"),
+    "sources": ("la fuente normativa", "las fuentes normativas"),
+    "tasks": ("la tarea", "las tareas"),
+    "templates": ("la plantilla", "las plantillas"),
+    "tenants": ("la empresa", "las empresas"),
+    "tickets": ("el ticket de soporte", "los tickets de soporte"),
+    "users": ("el usuario", "los usuarios"),
+    "versions": ("la version del documento", "las versiones del documento"),
+}
+
+# Endpoints que no son CRUD: cambian de estado o calculan algo. La frase no se
+# puede derivar del recurso, asi que va escrita.
+_ACCIONES: dict[str, tuple[str, str]] = {
+    "advance": (
+        "Avanzar la etapa",
+        "Mueve el registro a la etapa siguiente de su ciclo. La etapa no se "
+        "elige: se avanza en orden, y el salto lo decide el servidor.",
+    ),
+    "close": ("Cerrar", "Da por terminado el registro. Un registro cerrado ya no admite cambios."),
+    "verify": (
+        "Verificar la eficacia",
+        "Registra si la accion tomada resolvio el problema. Es tri-estado: "
+        "eficaz, no eficaz, o todavia sin verificar.",
+    ),
+    "evaluate": (
+        "Evaluar el cumplimiento",
+        "Registra la respuesta de cumplimiento sobre el articulo y deja "
+        "constancia de quien la respondio y cuando.",
+    ),
+    "fulfill": ("Marcar como cumplida", "Deja la obligacion como cumplida en el periodo vigente."),
+    "submit": (
+        "Enviar la declaracion",
+        "Envia la declaracion a la autoridad. Es el paso que la vuelve "
+        "oficial; despues de enviarla no se edita.",
+    ),
+    "stats": ("Obtener estadisticas", "Conteos agregados, calculados en la base y no en el cliente."),
+    "summary": ("Obtener el resumen", "Vista agregada del estado actual, lista para mostrar."),
+    "metrics": (
+        "Obtener las metricas del tablero",
+        "Cumplimiento global, incumplimientos, no conformidades abiertas y "
+        "vencimientos proximos. Se calculan en la base.",
+    ),
+    "audit-log": (
+        "Consultar la bitacora",
+        "Registro de cambios, solo lectura. La bitacora no se edita ni se "
+        "borra: es la evidencia de que paso.",
+    ),
+    "upcoming": ("Listar los vencimientos proximos", "Lo que vence dentro de la ventana consultada."),
+    "overdue": ("Listar lo vencido", "Lo que ya paso su plazo y sigue sin cumplirse."),
+    "generate-notifications": (
+        "Generar las notificaciones pendientes",
+        "Recorre los vencimientos y crea los avisos que falten. Es "
+        "idempotente: llamarlo dos veces no duplica avisos.",
+    ),
+    "clerk": (
+        "Recibir eventos de Clerk",
+        "Entrada del proveedor de identidad. **No lleva Bearer**: la "
+        "autenticidad se comprueba con la firma HMAC del payload.",
+    ),
+}
+
+_VERBOS = {
+    ("get", False): "Listar",
+    ("get", True): "Obtener",
+    ("post", False): "Crear",
+    ("patch", True): "Actualizar",
+    ("put", True): "Reemplazar",
+    ("delete", True): "Eliminar",
+}
+
+
 def _recibe_un_id(ruta: str) -> bool:
     """Si la ruta lleva `{algo}`, ese algo puede no existir."""
     return "{" in ruta
+
+
+def _segmentos(ruta: str) -> list[str]:
+    """Los segmentos de la ruta sin el prefijo de version."""
+    partes = [p for p in ruta.strip("/").split("/") if p]
+    if partes[:2] == ["api", "v1"]:
+        partes = partes[2:]
+    return partes
+
+
+def _summaries_por_defecto(app: FastAPI) -> dict[tuple[str, str], str]:
+    """Que `summary` habria puesto FastAPI solo, por ruta y metodo.
+
+    Hace falta para no pisar el texto que alguien escribio a mano. FastAPI
+    nunca deja el campo vacio —lo arma con el nombre de la funcion, `list_audits`
+    a "List Audits"—, asi que preguntar `if not operacion.get("summary")` no
+    distingue lo generado de lo deliberado. Reconstruir el valor por defecto
+    desde `app.routes` si lo distingue.
+
+    Se recorre en profundidad **a proposito**: esta version de FastAPI no
+    aplana los routers incluidos, los deja envueltos en un nodo intermedio.
+    Mirar solo `app.routes` encuentra 3 rutas de 209 y hace creer que todo el
+    resto ya estaba documentado a mano.
+    """
+    por_defecto: dict[tuple[str, str], str] = {}
+
+    def recorrer(rutas, prefijo: str = "") -> None:
+        for ruta in rutas:
+            # Router incluido: el nodo no tiene ruta propia. El camino real es
+            # el prefijo con el que se incluyo mas el de cada hija.
+            interno = getattr(ruta, "original_router", None)
+            if interno is not None:
+                contexto = getattr(ruta, "include_context", None)
+                recorrer(interno.routes, prefijo + getattr(contexto, "prefix", ""))
+                continue
+            hijas = getattr(ruta, "routes", None)
+            if hijas:
+                recorrer(hijas, prefijo)
+                continue
+            nombre = getattr(ruta, "name", None)
+            camino = getattr(ruta, "path", None)
+            if not nombre or not camino:
+                continue
+            for metodo in getattr(ruta, "methods", ()) or ():
+                por_defecto[(prefijo + camino, metodo.lower())] = (
+                    nombre.replace("_", " ").title()
+                )
+
+    recorrer(app.routes)
+    return por_defecto
+
+
+def _describir(ruta: str, metodo: str) -> tuple[str, str] | None:
+    """Arma el titulo y la explicacion de una operacion desde su ruta.
+
+    Devuelve `None` cuando la ruta no cae en ningun patron conocido, y en ese
+    caso se respeta lo que traiga el codigo. Preferimos un hueco a una frase
+    inventada: un texto generado que describe mal es peor que ninguno, porque
+    quien lo lee no tiene como saber que no es de fiar.
+    """
+    partes = _segmentos(ruta)
+    if not partes:
+        return None
+
+    ultimo = partes[-1]
+    if ultimo in _ACCIONES:
+        return _ACCIONES[ultimo]
+
+    apunta_a_uno = ultimo.startswith("{")
+    # El recurso es el ultimo segmento que no es un parametro.
+    concretos = [p for p in partes if not p.startswith("{")]
+    if not concretos:
+        return None
+    recurso = concretos[-1]
+    if recurso not in _RECURSOS:
+        return None
+    singular, plural = _RECURSOS[recurso]
+
+    # Anidado: `/audits/{audit_id}/participants` habla de los participantes
+    # *de esa auditoria*, y decirlo cambia como se lee la operacion.
+    padre = padre_sing = ""
+    if len(concretos) > 1 and "{" in ruta.split(recurso)[0]:
+        anterior = concretos[-2]
+        if anterior in _RECURSOS:
+            padre_sing = _RECURSOS[anterior][0]
+            padre = f" de {padre_sing}"
+
+    # `POST /audits/{id}/participants/{user_id}` no crea nada: vincula dos
+    # cosas que ya existen. Tratarlo como alta diria que se esta creando un
+    # usuario, que es justo lo contrario de lo que pasa.
+    if padre_sing and apunta_a_uno and metodo in ("post", "delete"):
+        if metodo == "post":
+            return (
+                f"Vincular {singular} a {padre_sing}",
+                f"Asocia {singular} —que ya existe— a {padre_sing}. No crea "
+                "el registro: ambos extremos tienen que existir antes.",
+            )
+        return (
+            f"Desvincular {singular} de {padre_sing}",
+            f"Quita la asociacion entre {singular} y {padre_sing}. Ninguno "
+            "de los dos se borra: solo deja de existir el vinculo.",
+        )
+
+    verbo = _VERBOS.get((metodo, apunta_a_uno))
+    if verbo is None:
+        return None
+
+    sustantivo = singular if apunta_a_uno or metodo in ("post", "patch", "put", "delete") else plural
+    titulo = f"{verbo} {sustantivo}{padre}"
+
+    detalle = {
+        "get": (
+            f"Devuelve {sustantivo}{padre} de la empresa de la sesion."
+            + ("" if apunta_a_uno else " Paginado con `skip` y `limit`.")
+        ),
+        "post": (
+            f"Crea {singular}{padre}. El `tenant_id` **no se manda en el "
+            "cuerpo**: se toma de la sesion, asi que no se puede crear a "
+            "nombre de otra empresa."
+        ),
+        "patch": (
+            f"Actualiza {singular}{padre}. Solo se aplican los campos "
+            "presentes en el cuerpo; los omitidos quedan como estaban."
+        ),
+        "put": f"Reemplaza {singular}{padre} por completo.",
+        "delete": (
+            f"Da de baja {singular}{padre}. El borrado es **logico**: la fila "
+            "se marca con `deleted_at` y deja de aparecer en los listados, "
+            "pero se conserva para no dejar sin sustento a lo que la cita."
+        ),
+    }[metodo]
+
+    return titulo[0].upper() + titulo[1:], detalle
 
 
 def construir_esquema(app: FastAPI) -> dict:
@@ -313,6 +580,8 @@ def construir_esquema(app: FastAPI) -> dict:
         "DetalleError"
     ] = _ESQUEMA_ERROR
 
+    por_defecto = _summaries_por_defecto(app)
+
     for ruta, metodos in esquema["paths"].items():
         for metodo, operacion in metodos.items():
             if metodo not in ("get", "post", "patch", "put", "delete"):
@@ -322,6 +591,22 @@ def construir_esquema(app: FastAPI) -> dict:
                 respuestas.setdefault("401", _RESPUESTA_401)
             if _recibe_un_id(ruta):
                 respuestas.setdefault("404", _RESPUESTA_404)
+            if operacion.get("requestBody"):
+                respuestas["422"] = _RESPUESTA_422
+
+            # El texto derivado no pisa al escrito a mano: si alguien se tomo
+            # el trabajo de explicar un endpoint, sabe mas que esta regla.
+            derivado = _describir(ruta, metodo)
+            if derivado is None:
+                continue
+            titulo, detalle = derivado
+            # FastAPI siempre pone un `summary` sacado del nombre de la
+            # funcion ("List Audits"), asi que no sirve preguntar si existe:
+            # hay que comparar contra ese valor por defecto.
+            if operacion.get("summary", "") == por_defecto.get((ruta, metodo)):
+                operacion["summary"] = titulo
+            if not operacion.get("description"):
+                operacion["description"] = detalle
 
     app.openapi_schema = esquema
     return esquema
