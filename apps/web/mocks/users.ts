@@ -30,7 +30,7 @@ export const mockUsers: User[] = [
   },
   {
     id: 'user-admin-empresa',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Marcelo Fuentes',
     email: 'marcelo.fuentes@recicladorasur.cl',
     role: 'admin_empresa',
@@ -46,7 +46,7 @@ export const mockUsers: User[] = [
   },
   {
     id: 'user-interno',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Camila Rojas',
     email: 'camila.rojas@recicladorasur.cl',
     role: 'usuario_interno',
@@ -62,7 +62,7 @@ export const mockUsers: User[] = [
   },
   {
     id: 'user-especialista',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Diego Muñoz',
     email: 'diego.munoz@consultora-ambiental.cl',
     role: 'usuario_interno',
@@ -78,7 +78,7 @@ export const mockUsers: User[] = [
   },
   {
     id: 'user-gestor',
-    tenantId: 'tenant-2',
+    tenantId: 'a0000000-0000-0000-0000-000000000002',
     nombre: 'Antonia Vidal',
     email: 'antonia.vidal@veolia.cl',
     role: 'gestor',
@@ -89,7 +89,7 @@ export const mockUsers: User[] = [
   },
   {
     id: 'user-cliente-invitado',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     nombre: 'Roberto Pizarro',
     email: 'roberto.pizarro@gmail.com',
     role: 'cliente_invitado',

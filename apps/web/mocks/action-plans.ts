@@ -16,7 +16,7 @@ export const mockActionPlans: PlanAccion[] = [
   {
     // Generado desde el Art. 10 "No cumple" de norm-1 (Ley REP) en mocks/catalog.ts.
     id: 'plan-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     origenTipo: 'articulo',
     origenId: 'art-1b',
     origenLabel: 'Art. 10 — Registro de productores (Ley 20.920 — Ley REP)',
@@ -33,7 +33,7 @@ export const mockActionPlans: PlanAccion[] = [
   {
     // Atrasado: es el caso que genera incumplimiento y debe destacarse.
     id: 'plan-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     origenTipo: 'no_conformidad',
     origenId: 'nc-1',
     origenLabel: 'NC-001 — Contenedores sin rotulación de residuo peligroso',
@@ -50,7 +50,7 @@ export const mockActionPlans: PlanAccion[] = [
   {
     // Vence esta semana.
     id: 'plan-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     origenTipo: 'articulo',
     origenId: 'art-2a',
     origenLabel: 'Art. 5 — Declaración anual (DS 148 — Residuos peligrosos)',

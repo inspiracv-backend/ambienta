@@ -25,7 +25,7 @@ export const mockLegalNorms: LegalNorm[] = [
   },
   {
     id: 'norm-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantIds: ['planta-rancagua'],
     tipoDocumento: 'Resolucion',
     nombre: 'RCA Planta Rancagua N° 145/2019',
@@ -38,7 +38,7 @@ export const mockLegalNorms: LegalNorm[] = [
   },
   {
     id: 'norm-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantIds: ['planta-rancagua', 'planta-talca', 'planta-concepcion'],
     tipoDocumento: 'NCh',
     nombre: 'ISO 14001:2026 — Sistema de Gestión Ambiental',

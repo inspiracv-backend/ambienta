@@ -14,7 +14,7 @@ function addDays(days: number): string {
 export const mockObligations: Obligation[] = [
   {
     id: 'obl-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-rancagua',
     sistema: 'SIDREP',
     nombre: 'SIDREP Q3 2026',
@@ -29,7 +29,7 @@ export const mockObligations: Obligation[] = [
   },
   {
     id: 'obl-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-rancagua',
     sistema: 'RETC',
     nombre: 'Declaración RETC anual 2025',
@@ -43,7 +43,7 @@ export const mockObligations: Obligation[] = [
   },
   {
     id: 'obl-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-talca',
     sistema: 'DAE',
     nombre: 'DAE 2026',
@@ -57,7 +57,7 @@ export const mockObligations: Obligation[] = [
   },
   {
     id: 'obl-4',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-talca',
     sistema: 'Ley REP',
     nombre: 'Ley REP — Metas de recolección Q3',
@@ -71,7 +71,7 @@ export const mockObligations: Obligation[] = [
   },
   {
     id: 'obl-5',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-concepcion',
     sistema: 'SINADER',
     nombre: 'SINADER — Movimiento de residuos julio',
@@ -85,7 +85,7 @@ export const mockObligations: Obligation[] = [
   },
   {
     id: 'obl-6',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-concepcion',
     sistema: 'RETC',
     nombre: 'RETC — Fuentes fijas Concepción',
@@ -99,7 +99,7 @@ export const mockObligations: Obligation[] = [
   },
   {
     id: 'obl-7',
-    tenantId: 'tenant-2',
+    tenantId: 'a0000000-0000-0000-0000-000000000002',
     plantId: 'sede-santiago',
     sistema: 'SIDREP',
     nombre: 'SIDREP clientes Q3 2026',
@@ -114,7 +114,7 @@ export const mockObligations: Obligation[] = [
   },
   {
     id: 'obl-8',
-    tenantId: 'tenant-2',
+    tenantId: 'a0000000-0000-0000-0000-000000000002',
     plantId: 'sede-santiago',
     sistema: 'RETC',
     nombre: 'RETC — Declaración anual Frigorífico del Maule',

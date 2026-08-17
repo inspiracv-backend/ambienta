@@ -26,6 +26,43 @@ const RESPUESTA_LABEL: Record<NonNullable<Articulo['respuesta']>, string> = {
   N_E: 'Sin evaluar',
 };
 
+/**
+ * El tipo y la fuente venían **escritos a mano** en el mapper: toda norma se
+ * mostraba como `Ley` y `RCA del tenant`, sin mirar lo que devolvía la API.
+ *
+ * El efecto no era cosmético. De las 8 normas sembradas, **6 son de la BCN y
+ * una es ISO**, y las tres aparecían como Resolución de Calificación Ambiental
+ * de la propia empresa — es decir, la Ley 19.300 figuraba como un documento
+ * interno. Y el filtro por tipo de la pantalla ("Pública / ISO interna / RCA")
+ * quedaba inservible, porque todo caía en la misma casilla.
+ */
+const TIPO_POR_NORM_TYPE: Record<string, TipoDocumento> = {
+  ley: 'Ley',
+  decreto_supremo: 'Decreto',
+  decreto: 'Decreto',
+  resolucion: 'Resolucion',
+  dfl: 'DFL',
+  constitucion: 'Constitucion',
+  circular: 'Circular',
+  ordenanza: 'Ordenanza',
+  nch: 'NCh',
+};
+
+/**
+ * `legal_sources` distingue cuatro orígenes y la interfaz solo modela tres.
+ * `INTERNAL` —normativa propia de la empresa— no tiene equivalente, y hoy no
+ * hay ninguna norma que lo use. Se deja caer en 'RCA', que es el origen interno
+ * más cercano, y queda anotado: si alguien empieza a cargar normativa interna,
+ * esto necesita una cuarta opción de verdad.
+ */
+const FUENTE_POR_CODIGO: Record<string, LegalNorm['fuente']> = {
+  BCN_LEYCHILE: 'BCN',
+  BCN: 'BCN',
+  ISO: 'ISO',
+  RCA: 'RCA',
+  INTERNAL: 'RCA',
+};
+
 export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   const [norms, setNorms] = useState<LegalNorm[]>(mockLegalNorms);
   const [loading, setLoading] = useState(true);
@@ -93,16 +130,24 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     Promise.all([
       api.get<Record<string, unknown>[]>('/catalog/norms'),
       plantasPorNorma(),
+      // Las normas traen `source_id`, no el codigo. Sin esta lista no hay forma
+      // de saber si una norma es de la BCN, una ISO o una RCA de la empresa.
+      api.get<Record<string, unknown>[]>('/catalog/sources').catch(() => []),
     ])
-      .then(([data, porNorma]) => {
+      .then(([data, porNorma, fuentes]) => {
         if (cancelled) return;
+
+        const codigoPorFuente = new Map<string, string>(
+          fuentes.map((f) => [String(f.id), String(f.code ?? '')] as [string, string]),
+        );
+
         const mapped: LegalNorm[] = data.map((raw) => ({
           id: String(raw.id),
           tenantId: user.tenantId!,
           plantIds: porNorma.get(String(raw.id)) ?? [],
-          tipoDocumento: 'ley' as TipoDocumento,
+          tipoDocumento: TIPO_POR_NORM_TYPE[String(raw.norm_type ?? '')] ?? 'Ley',
           nombre: String(raw.title ?? raw.norm_number ?? ''),
-          fuente: 'RCA' as const,
+          fuente: FUENTE_POR_CODIGO[codigoPorFuente.get(String(raw.source_id)) ?? ''] ?? 'RCA',
           articulos: [],
         }));
         if (mapped.length > 0) setNorms(mapped);

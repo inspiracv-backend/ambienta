@@ -12,7 +12,7 @@ import type { RiesgoOportunidad, EquipoRegulado } from '@ambienta/shared';
 export const mockRiesgosOportunidades: RiesgoOportunidad[] = [
   {
     id: 'ryo-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     codigo: 'R-2026-01',
     tipo: 'riesgo',
@@ -37,7 +37,7 @@ export const mockRiesgosOportunidades: RiesgoOportunidad[] = [
   },
   {
     id: 'ryo-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     codigo: 'R-2026-02',
     tipo: 'riesgo',
@@ -60,7 +60,7 @@ export const mockRiesgosOportunidades: RiesgoOportunidad[] = [
   },
   {
     id: 'ryo-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     codigo: 'O-2026-01',
     tipo: 'oportunidad',
@@ -82,7 +82,7 @@ export const mockRiesgosOportunidades: RiesgoOportunidad[] = [
   },
   {
     id: 'ryo-4',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     codigo: 'R-2026-03',
     tipo: 'riesgo',
@@ -118,7 +118,7 @@ export const mockRiesgosOportunidades: RiesgoOportunidad[] = [
 export const mockEquiposRegulados: EquipoRegulado[] = [
   {
     id: 'equipo-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     nombre: 'Caldera de vapor N.1',
     tipo: 'caldera',
@@ -144,7 +144,7 @@ export const mockEquiposRegulados: EquipoRegulado[] = [
   },
   {
     id: 'equipo-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     nombre: 'Grupo electrogeno de respaldo',
     tipo: 'grupo_electrogeno',

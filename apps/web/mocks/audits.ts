@@ -10,7 +10,7 @@ function addDays(days: number): string {
 export const mockAudits: Audit[] = [
   {
     id: 'audit-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-rancagua',
     tipo: 'interna',
     fecha: addDays(20),
@@ -20,7 +20,7 @@ export const mockAudits: Audit[] = [
   },
   {
     id: 'audit-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-talca',
     tipo: 'externa',
     fecha: addDays(-15),
@@ -30,7 +30,7 @@ export const mockAudits: Audit[] = [
   },
   {
     id: 'audit-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-concepcion',
     tipo: 'interna',
     fecha: addDays(-2),
@@ -44,7 +44,7 @@ export const mockAudits: Audit[] = [
 export const mockNonConformities: NonConformity[] = [
   {
     id: 'nc-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-talca',
     auditId: 'audit-2',
     hallazgo: 'Discrepancia entre kilogramos declarados y retirados de residuo peligroso',
@@ -59,7 +59,7 @@ export const mockNonConformities: NonConformity[] = [
   },
   {
     id: 'nc-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-rancagua',
     hallazgo: 'Falta certificado de calibración de balanza de pesaje',
     criticidad: 'media',
@@ -70,7 +70,7 @@ export const mockNonConformities: NonConformity[] = [
   },
   {
     id: 'nc-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'planta-concepcion',
     auditId: 'audit-3',
     hallazgo: 'Bitácora de mantenimiento de fuentes fijas incompleta',

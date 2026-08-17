@@ -8,7 +8,7 @@ import type { AspectoAmbiental, ConfiguracionMatrices } from '@ambienta/shared';
  * Es una metodologia habitual, no la unica: por eso vive en configuracion.
  */
 export const mockConfiguracionMatrices: ConfiguracionMatrices = {
-  tenantId: 'tenant-1',
+  tenantId: 'a0000000-0000-0000-0000-000000000001',
   criteriosSignificancia: [
     {
       id: 'crit-severidad',
@@ -83,7 +83,7 @@ export const mockConfiguracionMatrices: ConfiguracionMatrices = {
 export const mockAspectosAmbientales: AspectoAmbiental[] = [
   {
     id: 'asp-1',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     procesoId: 'depto-operaciones',
     actividad: 'Lavado de equipos de envasado',
@@ -114,7 +114,7 @@ export const mockAspectosAmbientales: AspectoAmbiental[] = [
   },
   {
     id: 'asp-2',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     procesoId: 'depto-operaciones',
     actividad: 'Operacion de caldera a gas',
@@ -143,7 +143,7 @@ export const mockAspectosAmbientales: AspectoAmbiental[] = [
   },
   {
     id: 'asp-3',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     procesoId: 'depto-operaciones',
     actividad: 'Almacenamiento de hipoclorito a granel',
@@ -173,7 +173,7 @@ export const mockAspectosAmbientales: AspectoAmbiental[] = [
   },
   {
     id: 'asp-4',
-    tenantId: 'tenant-1',
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
     plantId: 'plant-1',
     procesoId: 'depto-administracion',
     actividad: 'Uso de papel en oficinas',

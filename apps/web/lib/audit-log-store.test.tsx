@@ -5,7 +5,7 @@ import { AuditLogProvider, diffCampos, useAuditLog, useRegistrarAuditoria } from
 import { SessionProvider } from './session';
 import { ToastProvider } from '@/lib/toast-store';
 import { UsersProvider } from './users-store';
-import { iniciarSesionComo } from '@/test/utils';
+import { iniciarSesionComo, usuarioConRol } from '@/test/utils';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -45,20 +45,24 @@ const eventoBase = {
 
 describe('useRegistrarAuditoria', () => {
   it('firma el evento con el usuario de la sesión', () => {
+    // Se compara contra el usuario mock, no contra literales: sus id vienen de
+    // la semilla de la base y cambian con ella.
+    const actor = usuarioConRol('admin_empresa');
     const { result } = montarConSesion('admin_empresa');
 
     act(() => result.current.registrar(eventoBase));
 
     const entry = result.current.log.entries.at(-1)!;
-    expect(entry.actorNombre).toBe('Marcelo Fuentes');
+    expect(entry.actorNombre).toBe(actor.nombre);
     expect(entry.actorRol).toBe('admin_empresa');
-    expect(entry.tenantId).toBe('tenant-1');
+    expect(entry.tenantId).toBe(actor.tenantId);
   });
 
   it('hereda el tenant del actor si el evento no lo especifica', () => {
+    const gestor = usuarioConRol('gestor');
     const { result } = montarConSesion('gestor');
     act(() => result.current.registrar(eventoBase));
-    expect(result.current.log.entries.at(-1)!.tenantId).toBe('tenant-2');
+    expect(result.current.log.entries.at(-1)!.tenantId).toBe(gestor.tenantId);
   });
 
   it('permite marcar un evento como de plataforma con tenantId null', () => {
