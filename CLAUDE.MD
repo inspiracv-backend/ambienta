@@ -194,7 +194,7 @@ No hace falta cuenta de Clerk: sin `CLERK_JWKS_URL` la API acepta el header
 
 ## Estado del proyecto
 
-**Actualizado 12-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
+**Actualizado 17-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
 de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 
 | Area | Estado |
@@ -202,6 +202,8 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Base de datos | **Completa y verificada.** 52 tablas, 38 con RLS, 9 smoke tests en verde |
 | API | **96 rutas, 212 operaciones.** Swagger con titulo y explicacion en las 206 de negocio. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
+| Auth — Google SSO | **Verificado en local el 17-ago.** Entrada con `oauth_google`, el claim `tenant_id` viaja y la API responde 200. **Falta para produccion:** credenciales propias (hoy usa las compartidas de Clerk) y el webhook. Ver abajo |
+| Auth — Microsoft SSO | **Sin configurar.** Exige registro en Entra ID, y ahi el tipo de cuenta tiene que ser *cualquier directorio + cuentas personales*: con "solo este directorio" ningun cliente puede entrar |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **70 %.** 26 de 37 acciones llegan a la base. Las 11 restantes tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Sin empezar.** 0 de 33 tareas |
@@ -215,6 +217,18 @@ tocar la lectura daba un "guardado" que se deshacia al recargar.
 Queda **un store que pide datos y descarta la respuesta**: `plan-accion` con
 las tareas, que ademas no existen en el modelo. `audits` y `legal-matrix` ya
 mapean lo suyo desde el 17-ago. Ver `docs/escrituras-del-frontend.md`.
+
+**El SSO no deja un usuario utilizable por si solo.** Entrar con Google crea la
+sesion en Clerk, pero el `tenant_id` sale de `publicMetadata` —lo inyecta el
+JWT Template— y la fila en `users` la escribe el webhook. En local **el webhook
+no llega a `localhost`**, asi que ambas cosas se hacen a mano:
+
+1. Clerk → Users → Public metadata: `{"tenant_id": "<uuid de la empresa>"}`
+2. `UPDATE users SET clerk_id = 'user_xxx' WHERE email = '...'`
+
+Sin el paso 1 la persona entra y recibe `403 sesion_sin_empresa` en todo. El
+paso 2 solo hace falta en local; en el VPS el webhook lo resuelve. Ver
+`docs/development/setup-local.md`.
 
 ## Trampas conocidas
 
