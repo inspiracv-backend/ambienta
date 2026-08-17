@@ -49,6 +49,33 @@ const TIPO_POR_NORM_TYPE: Record<string, TipoDocumento> = {
 };
 
 /**
+ * `article_compliance.compliance_status` ↔ la respuesta de la pantalla.
+ *
+ * **`partial` no tiene equivalente en la interfaz**, que solo modela
+ * SI / NO / NA / sin evaluar. Se lee como `NO` y no como `SI` a propósito: en
+ * una matriz de cumplimiento, dar por cumplido lo que la base dice que se
+ * cumple *a medias* sobreestima el porcentaje de la empresa ante un auditor.
+ * La dirección conservadora es la única defendible.
+ *
+ * El costo está anotado porque es real: si alguien reevalúa desde la pantalla
+ * un artículo que estaba en `partial`, se guarda como `non_compliant` y el
+ * matiz se pierde. Recuperarlo pide una quinta opción en la interfaz.
+ */
+const RESPUESTA_POR_STATUS: Record<string, Articulo['respuesta']> = {
+  compliant: 'SI',
+  non_compliant: 'NO',
+  partial: 'NO',
+  not_applicable: 'NA',
+  pending: 'N_E',
+};
+const STATUS_POR_RESPUESTA: Record<NonNullable<Articulo['respuesta']>, string> = {
+  SI: 'compliant',
+  NO: 'non_compliant',
+  NA: 'not_applicable',
+  N_E: 'pending',
+};
+
+/**
  * `legal_sources` distingue cuatro orígenes y la interfaz solo modela tres.
  * `INTERNAL` —normativa propia de la empresa— no tiene equivalente, y hoy no
  * hay ninguna norma que lo use. Se deja caer en 'RCA', que es el origen interno
@@ -78,6 +105,12 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
    * cada planta.
    */
   const asignacionesRef = useRef(new Map<string, string>());
+
+  /** `articulo` → id de su evaluacion. Vacio mientras nadie la haya evaluado. */
+  const evaluacionRef = useRef(new Map<string, string>());
+
+  /** `norma` → id de esa norma **dentro de la matriz de esta empresa**. */
+  const matrizNormaRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     if (!user?.tenantId) { setLoading(false); return; }
@@ -135,13 +168,16 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
      * de una vez sin decidir por cual version. El endpoint resuelve la vigente.
      *
      * La evaluacion —el SI/NO/NA de la empresa— **no viene de aca**: esto es el
-     * texto de la ley, que es igual para todos. Los articulos entran con
-     * `respuesta: 'N_E'` —no evaluado— hasta que se cruce
-     * `/compliance/article-compliance`, que es lo unico que queda para cerrar
-     * la matriz. `N_E` y no `NO`: no haber evaluado no es incumplir.
+     * texto de la ley, que es igual para todos. Se cruza con `evaluaciones`,
+     * que si es de la empresa. Un articulo que nadie evaluo queda en `N_E` y
+     * no en `NO`: no haber evaluado no es incumplir.
      */
     async function articulosDeLasNormas(
       normas: Record<string, unknown>[],
+      evaluaciones: Map<
+        string,
+        { ac: string; estado: string; forma?: string; responsableId?: string }
+      >,
     ): Promise<Map<string, Articulo[]>> {
       const mapa = new Map<string, Articulo[]>();
       const porNorma = await Promise.all(
@@ -156,19 +192,82 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
       for (const { norma, filas } of porNorma) {
         mapa.set(
           norma,
-          filas.map((f) => ({
-            id: String(f.id),
-            normId: norma,
-            numero: String(f.article_number ?? ''),
-            // `heading` es el epigrafe y puede venir vacio; el texto del
-            // articulo es `content`, que es NOT NULL.
-            descripcion: String(f.heading || f.content || ''),
-            respuesta: 'N_E' as const,
-            incluidoEnCalculo: true,
-          })),
+          filas.map((f) => {
+            const evaluacion = evaluaciones.get(String(f.id));
+            return {
+              id: String(f.id),
+              normId: norma,
+              numero: String(f.article_number ?? ''),
+              // `heading` es el epigrafe y puede venir vacio; el texto del
+              // articulo es `content`, que es NOT NULL.
+              descripcion: String(f.heading || f.content || ''),
+              respuesta: RESPUESTA_POR_STATUS[evaluacion?.estado ?? ''] ?? 'N_E',
+              ...(evaluacion?.forma ? { formaCumplimiento: evaluacion.forma } : {}),
+              ...(evaluacion?.responsableId
+                ? { responsableId: evaluacion.responsableId }
+                : {}),
+              incluidoEnCalculo: true,
+            };
+          }),
         );
       }
       return mapa;
+    }
+
+    /**
+     * Las evaluaciones de la empresa, indexadas por artículo.
+     *
+     * Esto es lo que separa el texto de la ley —igual para todos— de lo que
+     * esta empresa respondió sobre él. Sin este cruce los artículos se
+     * mostraban todos «sin evaluar» aunque la base tuviera las respuestas
+     * guardadas, que es el segundo engaño de esta pantalla: la evaluación se
+     * guardaba y la pantalla seguía mostrando el valor de siempre.
+     *
+     * También deja el `id` de la evaluación, que es contra el que se escribe:
+     * `/article-compliance` se direcciona por la evaluación, no por el
+     * artículo.
+     */
+    async function evaluacionesPorArticulo(): Promise<
+      Map<string, { ac: string; estado: string; forma?: string; responsableId?: string }>
+    > {
+      const filas = await api
+        .get<Record<string, unknown>[]>('/compliance/article-compliance', {
+          tenantId: user!.tenantId,
+        })
+        .catch(() => []);
+      const mapa = new Map<
+        string,
+        { ac: string; estado: string; forma?: string; responsableId?: string }
+      >();
+      for (const f of filas) {
+        mapa.set(String(f.article_id), {
+          ac: String(f.id),
+          estado: String(f.compliance_status ?? ''),
+          ...(f.compliance_method ? { forma: String(f.compliance_method) } : {}),
+          ...(f.responsible_user_id ? { responsableId: String(f.responsible_user_id) } : {}),
+        });
+      }
+      return mapa;
+    }
+
+    /**
+     * `norma` → id de esa norma dentro de la matriz de la empresa.
+     *
+     * Hace falta para **crear** una evaluación: `article_compliance` no cuelga
+     * de la norma del catálogo sino de la fila que la incorpora a la matriz de
+     * este tenant. Una norma que la empresa no incorporó a su matriz no se
+     * puede evaluar, y eso es correcto: evaluar presupone haber decidido que
+     * le aplica.
+     */
+    async function matrizPorNorma(): Promise<Map<string, string>> {
+      const filas = await api
+        .get<Record<string, unknown>[]>('/compliance/matrix-norms', {
+          tenantId: user!.tenantId,
+        })
+        .catch(() => []);
+      return new Map(
+        filas.map((f) => [String(f.norm_id), String(f.id)] as [string, string]),
+      );
     }
 
     Promise.all([
@@ -181,7 +280,21 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
       .then(async ([data, porNorma, fuentes]) => {
         if (cancelled) return;
 
-        const articulosPorNorma = await articulosDeLasNormas(data);
+        const [evaluaciones, porNormaMatriz] = await Promise.all([
+          evaluacionesPorArticulo(),
+          matrizPorNorma(),
+        ]);
+        if (cancelled) return;
+
+        // Se guardan para el camino de escritura: evaluar un articulo necesita
+        // el id de su evaluacion, y crearla necesita el de la norma en la
+        // matriz de esta empresa.
+        const ids = new Map<string, string>();
+        evaluaciones.forEach((v, articulo) => ids.set(articulo, v.ac));
+        evaluacionRef.current = ids;
+        matrizNormaRef.current = porNormaMatriz;
+
+        const articulosPorNorma = await articulosDeLasNormas(data, evaluaciones);
         if (cancelled) return;
 
         const codigoPorFuente = new Map<string, string>(
@@ -207,23 +320,85 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   /**
-   * **Esto todavía no llega a la base, pero ya no por la misma razón.**
+   * Evalúa un artículo, y **crea la evaluación si es la primera vez**.
    *
-   * Antes el bloqueo era que el store nunca cargaba artículos: armaba cada
-   * norma con `articulos: []` y lo que se veía salía de `mockLegalNorms`. Eso
-   * ya está resuelto — los artículos vienen de
-   * `/catalog/norms/{id}/articles`.
+   * `/compliance/article-compliance` no se direcciona por artículo sino por su
+   * evaluación: la fila cruza `matrix_norm_id` con `article_id`, y esa fila
+   * puede no existir. Evaluar por primera vez es un alta y reevaluar es una
+   * edición, así que la función decide cuál de las dos según lo que encontró
+   * al cargar.
    *
-   * Lo que falta es el otro extremo. `/compliance/article-compliance` no se
-   * direcciona por artículo sino por su **evaluación**: la fila cruza
-   * `matrix_norm_id` con `article_id`, y esa fila puede no existir todavía.
-   * Evaluar por primera vez es un alta, no una edición, y la pantalla no sabe
-   * cuál de las dos cosas está haciendo.
-   *
-   * Conectarlo pide: cargar la matriz de cumplimiento de la empresa, cruzarla
-   * con el articulado, y crear la evaluación si no está. Es el último paso de
-   * la matriz legal y ya no depende de nada aguas arriba.
+   * Una norma que la empresa no incorporó a su matriz no se puede evaluar, y
+   * eso es correcto: evaluar presupone haber decidido que le aplica. En ese
+   * caso se revierte y se dice, en vez de guardar contra una matriz que no
+   * existe.
    */
+  function guardarEvaluacion(
+    normId: string,
+    articuloId: string,
+    nuevo: Articulo,
+    anterior: Articulo,
+  ) {
+    if (!user?.tenantId) return;
+    const opts = { tenantId: user.tenantId };
+
+    function revertir(queFallo: string, error: unknown) {
+      setNorms((prev) =>
+        prev.map((n) =>
+          n.id !== normId
+            ? n
+            : {
+                ...n,
+                articulos: n.articulos.map((a) => (a.id === articuloId ? anterior : a)),
+              },
+        ),
+      );
+      mostrarToast({ tipo: 'error', mensaje: queFallo, descripcion: mensajeDeError(error) });
+    }
+
+    const estado = STATUS_POR_RESPUESTA[nuevo.respuesta];
+    const yaEvaluado = evaluacionRef.current.get(articuloId);
+
+    if (yaEvaluado) {
+      // `answer` viaja por query: el endpoint lo declara como parametro suelto,
+      // no dentro de un cuerpo.
+      const query = new URLSearchParams({ answer: estado });
+      if (nuevo.formaCumplimiento) query.set('compliance_method', nuevo.formaCumplimiento);
+      if (nuevo.evidenciaUrl) query.set('evidence_url', nuevo.evidenciaUrl);
+      api
+        .post(`/compliance/article-compliance/${yaEvaluado}/evaluate?${query}`, {}, opts)
+        .catch((error) => revertir('No se pudo guardar la evaluación', error));
+      return;
+    }
+
+    const matrixNormId = matrizNormaRef.current.get(normId);
+    if (!matrixNormId) {
+      revertir(
+        'Esta norma no está en la matriz de la empresa',
+        new Error('Agregala a la matriz legal antes de evaluar sus artículos.'),
+      );
+      return;
+    }
+
+    api
+      .post<Record<string, unknown>>(
+        '/compliance/article-compliance',
+        {
+          matrix_norm_id: matrixNormId,
+          article_id: articuloId,
+          compliance_status: estado,
+          ...(nuevo.formaCumplimiento ? { compliance_method: nuevo.formaCumplimiento } : {}),
+          ...(nuevo.responsableId ? { responsible_user_id: nuevo.responsableId } : {}),
+        },
+        opts,
+      )
+      // Se guarda el id recién creado: la próxima edición del mismo artículo
+      // tiene que ser una edición y no otra alta, que chocaría contra el
+      // UNIQUE de la tabla.
+      .then((creada) => evaluacionRef.current.set(articuloId, String(creada.id)))
+      .catch((error) => revertir('No se pudo guardar la evaluación', error));
+  }
+
   function updateArticulo(normId: string, articuloId: string, updates: Partial<Articulo>) {
     const norm = norms.find((n) => n.id === normId);
     const anterior = norm?.articulos.find((a) => a.id === articuloId);
@@ -271,6 +446,8 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
 
     const evaluado = updates.respuesta !== undefined && updates.respuesta !== anterior.respuesta;
 
+    guardarEvaluacion(normId, articuloId, { ...anterior, ...updates }, anterior);
+
     registrar({
       entidadTipo: 'articulo',
       entidadId: articuloId,
@@ -292,19 +469,23 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   /**
    * **Esto todavía no llega a la base, pero el bloqueo se redujo a la mitad.**
    *
-   * `POST /catalog/norms` exige `country_id` y `source_id`.
+   * Los dos identificadores que exige `POST /catalog/norms` **ya se pueden
+   * resolver**: `GET /catalog/countries` existe, y `legal_sources` sí tiene
+   * códigos `ISO` y `RCA` (los siembra `db/03_seed_catalogos.sql`), así que
+   * `fuente` mapea directo. La versión anterior de esta nota decía que las
+   * fuentes eran solo organismos —`BCN`, `SMA`, `RETC`— y estaba equivocada.
    *
-   * - `country_id` **ya se puede resolver**: `GET /catalog/countries` existe
-   *   desde el 13-ago-2026.
-   * - `source_id` sigue sin resolverse, y **no es que falte el endpoint**: es
-   *   que la pantalla y la base hablan de cosas distintas. Acá `fuente` es
-   *   `'RCA' | 'ISO'` —de dónde nace la obligación— y en la base `legal_sources`
-   *   son organismos: `BCN`, `SMA`, `RETC`.
+   * **El bloqueo real es otro, y es de diseño.** `legal_norms` es un catálogo
+   * global **sin `tenant_id`, a propósito**: su propio comentario en el esquema
+   * dice que la norma es la misma para todos los tenants y que lo que se
+   * registra por empresa es la aplicabilidad y el cumplimiento.
    *
-   * Poner `BCN` por defecto sería lo fácil y sería falso: atribuiría a la
-   * fuente oficial una norma que alguien escribió a mano. Hace falta decidir si
-   * se siembra una fuente "carga manual" o si la pantalla pasa a preguntar el
-   * organismo.
+   * Una RCA **no** es la misma para todos: es de una empresa. Dejar que esta
+   * pantalla escriba ahí publicaría la resolución de un cliente en el catálogo
+   * que ven todos los demás. No es un `POST` que falte: hay que decidir dónde
+   * vive la normativa propia de una empresa —columna `tenant_id` en
+   * `legal_norms`, tabla aparte, o solo dentro de `matrix_norms`— y esa
+   * decisión tiene consecuencias sobre RLS.
    */
   function addNorm(input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) {
     const newNorm: LegalNorm = {

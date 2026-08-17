@@ -9,11 +9,11 @@ en los 12 stores, cruzado con el contrato OpenAPI y con los mappers de lectura.
 
 | | Acciones |
 |---|---|
-| Llegan a la base | **25** |
-| Solo estado local | 12 |
+| Llegan a la base | **26** |
+| Solo estado local | 11 |
 | **Total** | **37** |
 
-**68 % conectado.** Antes de esta tanda era 62 % — pero ese 62 % estaba
+**70 % conectado.** Antes de esta tanda era 62 % — pero ese 62 % estaba
 inflado.
 
 ### Dos de las que se contaban como conectadas no llegaban
@@ -44,7 +44,7 @@ nada — salvo que da más confianza, que es peor.
 | `departamentos` | 1 / 2 |
 | `notifications` | 1 / 2 |
 | `plan-accion` | 1 / 2 |
-| `legal-matrix` | 1 / 3 |
+| `legal-matrix` | 2 / 3 |
 | `gestores` | 0 / 1 |
 
 ---
@@ -75,7 +75,7 @@ como indicador:
 | Store | Qué descarta |
 |---|---|
 | ~~`audits`~~ | **Resuelto.** El store mapea la respuesta de `/audits/nonconformities/`; las no conformidades en pantalla son las de la base |
-| ~~`legal-matrix`~~ | **Resuelto la mitad.** Los artículos vienen de `/catalog/norms/{id}/articles`. Falta cruzar la **evaluación** de la empresa, que vive en `article_compliance` |
+| ~~`legal-matrix`~~ | **Resuelto.** Los artículos vienen de `/catalog/norms/{id}/articles` y su evaluación de `/compliance/article-compliance` |
 | `plan-accion` | Arma cada plan con `tareas: []` |
 
 Mientras sigan así, **ninguna escritura sobre esas entidades puede funcionar**:
@@ -83,7 +83,7 @@ apuntaría a identificadores inventados.
 
 ---
 
-## Las 12 que no llegan a la base
+## Las 11 que no llegan a la base
 
 Ninguna es "falta de tiempo". Cada una tiene una causa concreta, y está escrita
 también en el docstring de su función, que es donde la va a leer quien intente
@@ -93,7 +93,7 @@ arreglarla.
 
 | Acción | Causa |
 |---|---|
-| `users.updatePlants` | La relación usuario-planta no está expuesta; el mapper arma `plantIds: []` |
+| `users.updatePlants` | **Desacuerdo de modelo.** El único vínculo es `user_roles.facility_id`, y su PK `(user_id, role_id)` admite **una** planta por rol. La pantalla modela `plantIds` en plural |
 | `users.updatePermisos` | `user_permissions` existe como tabla, sin API. Depende de RBAC (0 de 33 tareas) |
 | `users.updateDescriptorCargo` | `UserUpdate` no acepta ese campo |
 | `support.setVisibilidad` | `SupportTicketUpdate` acepta `status`, `priority` y `assigned_to`. No hay visibilidad por ticket |
@@ -105,8 +105,7 @@ arreglarla.
 
 | Acción | Causa |
 |---|---|
-| `legal-matrix.addNorm` | `POST /catalog/norms` exige `country_id` y `source_id`. La lectura de países **ya existe** (PR #171); falta que el formulario la use |
-| `legal-matrix.updateArticulo` | Los artículos ya se cargan. Falta que evaluar por primera vez **cree** la fila de `article_compliance`: hoy la pantalla no distingue alta de edición |
+| `legal-matrix.addNorm` | **Decisión de diseño, no falta de endpoint.** `legal_norms` es catálogo global **sin `tenant_id`, a propósito**. Una RCA es de una empresa: escribirla ahí la publicaría a todos los tenants. Hay que decidir dónde vive la normativa propia |
 | `support.addCorreccion` | Ya no está bloqueada por las no conformidades: ahora depende de que el ticket modele la corrección |
 | `gestores.addContrato` | `client_tenant_id` sale de datos de ejemplo: la sub-tenancy no existe |
 
@@ -150,9 +149,9 @@ validar; cuando alguno de esos campos se estabilice, merece columna propia.
    habían funcionado.
 2. ~~**Exponer `GET /catalog/countries`.**~~ **Hecho** (PR #171). Falta que el
    formulario de alta de normas lo consuma.
-3. **Cruzar el articulado con `article_compliance`.** Los artículos ya se
-   cargan; falta que evaluar SI/NO/NA cree la fila cuando no existe. Es el
-   último paso de la matriz legal y ya no depende de nada aguas arriba.
+3. ~~**Cruzar el articulado con `article_compliance`.**~~ **Hecho.** Evaluar
+   crea la fila si no existe y la edita si ya está. La matriz legal quedó
+   cerrada de punta a punta.
 4. **Las tareas del plan de acción** necesitan modelo propio: es migración,
    endpoints y pantalla. Ya está decidido que van como entidad, no como lista
    dentro del plan.

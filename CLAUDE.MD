@@ -203,7 +203,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | API | **96 rutas, 212 operaciones.** Swagger con titulo y explicacion en las 206 de negocio. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
-| Frontend — escrituras | **68 %.** 25 de 37 acciones llegan a la base. Las 12 restantes tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
+| Frontend — escrituras | **70 %.** 26 de 37 acciones llegan a la base. Las 11 restantes tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Sin empezar.** 0 de 33 tareas |
 | worker · ai-service | Sin implementar |
 
