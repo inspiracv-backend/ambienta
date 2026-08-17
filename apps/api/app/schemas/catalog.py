@@ -6,6 +6,28 @@ from pydantic import BaseModel, Field
 from .base import OrmBase
 
 
+# ── Country ───────────────────────────────────────────────────────────────
+
+class CountryRead(OrmBase):
+    """Catalogo estatico de referencia. **Solo lectura, y es deliberado.**
+
+    `docs/estado-crud-base-de-datos.md` lo dice desde antes: "se consulta, no se
+    administra". Lo que faltaba era la mitad positiva de esa decision — habia
+    quedado sin escritura (correcto) y tambien sin lectura, asi que
+    `POST /catalog/norms` pedia un `country_id` que la interfaz no tenia de
+    donde sacar y crear una norma era imposible.
+
+    Por eso no hay `CountryCreate` ni `CountryUpdate`: agregar un pais no es una
+    operacion de la aplicacion.
+    """
+
+    id: int
+    iso2: str
+    iso3: str
+    name: str
+    default_timezone: str
+
+
 # ── LegalSource ───────────────────────────────────────────────────────────
 
 class LegalSourceRead(OrmBase):

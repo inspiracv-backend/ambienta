@@ -3,10 +3,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..crud.catalog import crud_legal_norm, crud_legal_source, crud_sector
+from ..crud.catalog import (
+    crud_country,
+    crud_legal_norm,
+    crud_legal_source,
+    crud_sector,
+)
 from ..auth import CurrentUser
 from ..deps import exigir_admin_global, get_db
 from ..schemas.catalog import (
+    CountryRead,
     LegalNormCreate,
     LegalNormRead,
     LegalNormUpdate,
@@ -20,6 +26,32 @@ from ..schemas.catalog import (
 from ._comun import borrar_o_404, obtener_o_404
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+
+# ── Paises ────────────────────────────────────────────────────────────────
+#
+# Solo lectura, y es una decision escrita: "catalogo estatico de referencia, se
+# consulta, no se administra" (docs/estado-crud-base-de-datos.md).
+#
+# Lo que faltaba era la mitad positiva de esa decision. Estaba cumplida la parte
+# negativa —no hay escritura— y omitida la otra: sin GET, `POST /catalog/norms`
+# exigia un `country_id` que la interfaz no tenia de donde sacar, asi que crear
+# una norma desde la aplicacion era imposible.
+#
+# No lleva `exigir_admin_global`: es el catalogo de paises, la misma lista para
+# todo el mundo. Pedirlo restringido no protegeria nada y romperia la pantalla
+# de quien no es admin, que es justo quien necesita elegir el pais.
+
+
+@router.get("/countries", response_model=list[CountryRead])
+def list_countries(db: Session = Depends(get_db)):
+    return crud_country.get_multi(db)
+
+
+@router.get("/countries/{country_id}", response_model=CountryRead)
+def get_country(country_id: int, db: Session = Depends(get_db)):
+    return obtener_o_404(crud_country, db, country_id, recurso="Country")
+
 
 
 @router.get("/sources", response_model=list[LegalSourceRead])
