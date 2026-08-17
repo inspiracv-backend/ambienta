@@ -162,11 +162,20 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * **No llega a la base: no hay dónde guardarlo.**
+   * **No llega a la base, y el motivo es un desacuerdo de modelo.**
    *
-   * La relación usuario-planta no está expuesta por la API, y el mapper de
-   * lectura arma `plantIds: []` para todos. Aunque se escribiera, al recargar
-   * volvería vacío.
+   * No es que falte el endpoint. El único lugar donde la base vincula a una
+   * persona con una planta es `user_roles.facility_id`, y esa tabla tiene
+   * clave primaria `(user_id, role_id)`: **una fila por rol, con UNA planta**.
+   *
+   * Acá el campo es `plantIds`, en plural. Los dos modelos no se pueden
+   * conciliar escribiendo código: o una persona pertenece a varias plantas —y
+   * entonces falta una tabla `user_facilities`, o la PK de `user_roles` está
+   * mal— o pertenece a una sola, y el plural de esta pantalla sobra.
+   *
+   * Es una decisión de negocio con consecuencia de esquema, no una tarea de
+   * frontend. Mientras no se tome, el mapper de lectura arma `plantIds: []`
+   * para todos y cualquier escritura se perdería al recargar.
    */
   function updatePlants(userId: string, plantIds: string[]) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plantIds } : u)));
