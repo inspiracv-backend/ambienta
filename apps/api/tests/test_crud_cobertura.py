@@ -39,6 +39,12 @@ SIN_CRUD_COMPLETO = {
     "/support/chatbot": "una conversacion no se edita; se cierra o se retira entera",
     "/obligations/tasks": "las tareas se listan dentro de su obligacion, no sueltas",
     "/documents": "las versiones se listan dentro de su documento",
+    "/catalog/norms/sectors": (
+        "una clasificacion no se crea aparte de la norma y el sector que la "
+        "identifican, asi que el PUT idempotente cubre alta y edicion. Leer una "
+        "suelta tampoco aplica: lo util es toda la clasificacion de esa norma, "
+        "que sale del listado"
+    ),
     "/users/permissions": (
         "no se crea un permiso: existen en el catalogo global. Lo que se administra "
         "es la excepcion de una persona, y el PUT es idempotente, asi que alta y "

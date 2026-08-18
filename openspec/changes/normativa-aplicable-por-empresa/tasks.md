@@ -41,14 +41,14 @@ Ninguna de las dos cambia el modelo; se pueden responder mientras se construye:
 
 ## 3. Clasificación de normas por sector
 
-- [ ] 3.1 Modelo SQLAlchemy de `norm_sectors` — la tabla existe, el modelo hay que confirmarlo o crearlo
-- [ ] 3.2 `GET /catalog/norms/{id}/sectors` — leer la clasificación, sin exigir Admin Global
-- [ ] 3.3 `PUT /catalog/norms/{id}/sectors/{sector_id}` — declarar aplicabilidad, **exige Admin Global**
-- [ ] 3.4 Rechazar la clasificación sin `rationale`
-- [ ] 3.5 Permitir acotar la clasificación a artículos concretos (`norm_sectors.article_id`)
-- [ ] 3.6 Registrar quién clasificó y cuándo
-- [ ] 3.7 Tests, **rompiéndolos a propósito**: sin fundamento se rechaza; un usuario de empresa no puede clasificar
-- [ ] 3.8 Declarar en `test_crud_cobertura.py` por qué este recurso no tiene CRUD completo, si corresponde
+- [x] 3.1 Modelo SQLAlchemy de `norm_sectors` — **ya existía**; se le agregaron `classified_by` y `classified_at`
+- [x] 3.2 `GET /catalog/norms/{id}/sectors` — leer la clasificación, sin exigir Admin Global
+- [x] 3.3 `PUT /catalog/norms/{id}/sectors/{sector_id}` — declarar aplicabilidad, **exige Admin Global**
+- [x] 3.4 Rechazar la clasificación sin `rationale`
+- [x] 3.5 Permitir acotar la clasificación a artículos concretos (`norm_sectors.article_id`)
+- [x] 3.6 Registrar quién clasificó y cuándo
+- [x] 3.7 Tests, **rompiéndolos a propósito**: sin fundamento se rechaza; un usuario de empresa no puede clasificar
+- [x] 3.8 Declarar en `test_crud_cobertura.py` por qué este recurso no tiene CRUD completo, si corresponde — **sí hizo falta**: el test detectó `/catalog/norms/sectors` a medias y exigió el motivo
 
 ## 4. Cálculo de normativa aplicable
 

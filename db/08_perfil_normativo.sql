@@ -103,7 +103,26 @@ COMMENT ON COLUMN matrix_norms.inclusion_source IS
   'NULL = fila anterior a esta migracion, origen desconocido.';
 
 -- ───────────────────────────────────────────────────────────────────────────
---  3. Limpieza de la primera version de esta migracion
+--  3. Quien clasifico una norma en un sector, y cuando
+-- ───────────────────────────────────────────────────────────────────────────
+--
+-- `norm_sectors` ya traia `rationale`, `source` y `confidence`, pero no quien ni
+-- cuando. Una clasificacion errada se propaga a TODAS las empresas del sector,
+-- asi que sin autor no se puede corregir: un error con nombre y fundamento se
+-- conversa, uno anonimo se discute sin llegar a nada.
+
+ALTER TABLE norm_sectors ADD COLUMN IF NOT EXISTS classified_by uuid;
+ALTER TABLE norm_sectors ADD COLUMN IF NOT EXISTS classified_at timestamptz;
+
+COMMENT ON COLUMN norm_sectors.classified_by IS
+  'Quien declaro que esta norma aplica a este sector. NULL en filas anteriores '
+  'a esta migracion o cuando `source` es automatico.';
+COMMENT ON COLUMN norm_sectors.classified_at IS
+  'Cuando se declaro. Sirve para revisar clasificaciones viejas cuando cambia '
+  'el criterio.';
+
+-- ───────────────────────────────────────────────────────────────────────────
+--  4. Limpieza de la primera version de esta migracion
 -- ───────────────────────────────────────────────────────────────────────────
 --
 -- Si alguien alcanzo a correr la version que duplicaba columnas, se quitan.
