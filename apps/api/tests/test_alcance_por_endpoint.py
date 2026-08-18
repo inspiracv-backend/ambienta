@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 from fastapi.routing import APIRoute
 
-from app.deps import get_admin_db, get_db, get_tenant_db
+from app.deps import get_admin_db, get_tenant_db
 from app.main import app
 
 # Prefijo -> por que NO usa `get_tenant_db`. El motivo es la parte importante.
