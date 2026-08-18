@@ -29,7 +29,7 @@ Ninguna de las dos cambia el modelo; se pueden responder mientras se construye:
 - [x] 1.2 Agregar `tenants.sector_id` (FK a `sectors`, **nullable**) y `tenants.size_bracket` con su CHECK de tramos
 - [x] 1.3 Agregar a `matrix_norms` **solo** `inclusion_source`: la versión ya la da `selected_version_id`, el responsable `created_by`, y lo que deja de aplicar `applicability` + `applicability_reason`. Duplicarlas habría dejado dos fuentes de verdad
 - [x] 1.4 Verificar que el script corre dos veces seguidas sin error y sobre una base ya existente
-- [x] 1.5 Registrar el archivo en los lugares que deben coincidir: `docker-compose.yml`, `db/run.sh` y `db/README.md`. **`docker-compose.prod.yml` no monta las migraciones numeradas**, así que son tres y no cuatro
+- [x] 1.5 Registrar el archivo en los lugares que deben coincidir. **Son cinco, no cuatro**: `docker-compose.yml`, `db/run.sh`, `db/README.md` y el bucle de `.github/workflows/ci.yml` — este último lo documenté mal en `CLAUDE.md` y CI falló con `column "sector_id" does not exist`. `docker-compose.prod.yml` no monta las migraciones numeradas
 - [x] 1.6 Confirmar que no hace falta política RLS nueva — no se crea ninguna tabla; si eso cambiara, la migración debe declarar su política y sus GRANT
 
 ## 2. Perfil de la empresa

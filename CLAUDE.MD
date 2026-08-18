@@ -239,8 +239,15 @@ nuevas. Todo cambio de esquema necesita ademas un `db/NN_*.sql` idempotente, y
 ese archivo tiene que declarar **su propia politica RLS y sus GRANT**: el bucle
 de politicas y el `GRANT ON ALL TABLES` de `01_schema` corren una sola vez, asi
 que una tabla nacida en una migracion no los hereda y queda visible entre
-empresas. La lista de archivos vive en cuatro lugares que deben coincidir: los
-dos compose, `db/run.sh` y `db/README.md`.
+empresas.
+
+**La lista de archivos vive en CINCO lugares que deben coincidir**, y el quinto
+es el que se olvida: `docker-compose.yml`, `docker-compose.prod.yml`,
+`db/run.sh`, `db/README.md` y **el bucle de `.github/workflows/ci.yml`**. Este
+ultimo tiene su propia enumeracion, asi que olvidarlo no rompe nada en local
+—donde Docker ya aplico el archivo— y hace fallar CI con
+`column ... does not exist`, que se lee como un error del codigo y no de la
+configuracion.
 
 **El modelo esta escrito dos veces.** `packages/shared` lo define en Zod y
 `apps/api/schemas` en Pydantic, en dos lenguajes que no pueden importarse. Hoy
