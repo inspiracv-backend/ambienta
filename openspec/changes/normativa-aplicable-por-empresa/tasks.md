@@ -52,12 +52,12 @@ Ninguna de las dos cambia el modelo; se pueden responder mientras se construye:
 
 ## 4. Cálculo de normativa aplicable
 
-- [ ] 4.1 Servicio que dado el perfil devuelve las normas del sector, separadas en obligatorias (directa) y recomendadas (indirecta/referencial)
-- [ ] 4.2 Cada norma devuelta indica **qué sector y qué nivel** la hicieron entrar
-- [ ] 4.3 Distinguir en la respuesta "el sector no tiene normas clasificadas" de "la empresa no tiene obligaciones"
-- [ ] 4.4 `GET /compliance/normativa-aplicable` — calcula y muestra, **sin escribir nada**
-- [ ] 4.5 Tests: sector con normas; sector sin clasificar; empresa sin perfil
-- [ ] 4.6 **Romper a propósito** el caso de la lista vacía y confirmar que el test falla
+- [x] 4.1 Servicio que dado el perfil devuelve las normas del sector, separadas en obligatorias (directa) y recomendadas (indirecta/referencial)
+- [x] 4.2 Cada norma devuelta indica **qué sector y qué nivel** la hicieron entrar
+- [x] 4.3 Distinguir en la respuesta "el sector no tiene normas clasificadas" de "la empresa no tiene obligaciones"
+- [x] 4.4 `GET /compliance/normativa-aplicable` — calcula y muestra, **sin escribir nada**
+- [x] 4.5 Tests: sector con normas; sector sin clasificar; empresa sin perfil
+- [x] 4.6 **Romper a propósito** el caso de la lista vacía y confirmar que el test falla
 
 ## 5. Generación de la matriz
 

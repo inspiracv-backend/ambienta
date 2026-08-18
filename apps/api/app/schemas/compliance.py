@@ -118,3 +118,43 @@ class ArticleComplianceUpdate(BaseModel):
     risk_level: str | None = None
     responsible_user_id: UUID | None = None
     attributes: dict | None = None
+
+
+# ── Normativa aplicable (RF-19) ───────────────────────────────────────────
+
+class NormaAplicableRead(BaseModel):
+    """Una norma que le corresponde a la empresa, **y por que le corresponde**.
+
+    `sector_id` y `applicability_level` no son adorno: son la respuesta a la
+    primera pregunta de un fiscalizador — como determinaron que esta norma les
+    aplica.
+    """
+
+    norm_id: UUID
+    title: str
+    norm_type: str
+    norm_number: str | None
+    sector_id: int
+    applicability_level: str
+    rationale: str | None
+
+
+class NormativaAplicableRead(BaseModel):
+    """El calculo completo, con el motivo cuando viene vacio.
+
+    `estado` existe porque una lista vacia tiene **dos causas opuestas** y
+    ninguna significa "esta empresa no tiene obligaciones":
+
+    - `sin_perfil`: falta que la empresa declare su sector
+    - `sector_sin_clasificar`: falta que nosotros clasifiquemos las normas
+    - `con_normativa`: hay resultado
+
+    Devolver solo la lista dejaria que la pantalla mostrara "0 normas" en los
+    tres casos, y el mas peligroso se lee como estar en regla.
+    """
+
+    estado: str
+    sector_id: int | None
+    obligatorias: list[NormaAplicableRead]
+    recomendadas: list[NormaAplicableRead]
+    total: int

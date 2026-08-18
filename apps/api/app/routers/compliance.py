@@ -5,8 +5,11 @@ from sqlalchemy.orm import Session
 
 from ..crud.compliance import crud_article_compliance, crud_matrix, crud_matrix_norm
 from ..deps import get_tenant_db, get_tenant_id
+from ..services.normativa_aplicable import calcular as calcular_normativa_aplicable
 from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.compliance import (
+    NormaAplicableRead,
+    NormativaAplicableRead,
     ArticleComplianceCreate,
     ArticleComplianceRead,
     ArticleComplianceUpdate,
@@ -161,3 +164,40 @@ def get_matrix_norm(mn_id: UUID, db: Session = Depends(get_tenant_db)):
 @router.get("/article-compliance/{ac_id}", response_model=ArticleComplianceRead)
 def get_article_compliance(ac_id: UUID, db: Session = Depends(get_tenant_db)):
     return obtener_o_404(crud_article_compliance, db, ac_id, recurso="ArticleCompliance")
+
+
+# ── Normativa aplicable a la empresa (RF-19) ──────────────────────────────
+
+
+@router.get("/normativa-aplicable", response_model=NormativaAplicableRead)
+def get_normativa_aplicable(
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    """Que normas le corresponden a esta empresa segun su perfil.
+
+    **No escribe nada.** Calcular y aplicar son operaciones distintas a
+    proposito: el negocio pidio "un check de normativas recomendadas", y un
+    check es una revision humana antes de comprometer. Generar la matriz de
+    golpe le daria a la empresa cientos de articulos que evaluar sin que nadie
+    mirara si tienen sentido.
+
+    Las normas vienen separadas en **obligatorias** —aplicabilidad directa— y
+    **recomendadas** —indirecta o referencial—, y cada una dice que sector y que
+    nivel la hicieron entrar.
+
+    ## Por que `estado` y no solo la lista
+
+    Una lista vacia tiene dos causas opuestas: que la empresa no haya declarado
+    su sector, o que nadie haya clasificado las normas de ese sector todavia.
+    **Ninguna significa que la empresa no tenga obligaciones**, y devolver solo
+    la lista dejaria que la pantalla mostrara "0 normas" en los tres casos.
+    """
+    r = calcular_normativa_aplicable(db, tenant_id)
+    return NormativaAplicableRead(
+        estado=r.estado,
+        sector_id=r.sector_id,
+        obligatorias=[NormaAplicableRead(**vars(n)) for n in r.obligatorias],
+        recomendadas=[NormaAplicableRead(**vars(n)) for n in r.recomendadas],
+        total=r.total,
+    )
