@@ -74,16 +74,22 @@ def delete_user(user_id: UUID, db: Session = Depends(get_tenant_db)):
 # no tenia API, asi que `users.updatePermisos` del frontend no podia llegar a
 # la base. Esto lo destraba.
 #
-# Administrar permisos exige `usuarios.permisos`: quien puede cambiar lo que
-# otros pueden hacer necesita permiso explicito para eso, o cualquiera se
-# concede lo que quiera.
+# Administrar permisos exige `role.manage` —"Administrar roles y permisos" en
+# el catalogo sembrado—: quien puede cambiar lo que otros pueden hacer necesita
+# permiso explicito para eso, o cualquiera se concede lo que quiera.
+#
+# El codigo tiene que existir en `permissions`. La primera version de esto usaba
+# `usuarios.permisos`, que **no esta en el catalogo**: con Clerk configurado
+# `tiene_permiso` habria devuelto siempre false y nadie habria podido
+# administrar nada. Un permiso inventado no falla al escribirlo, falla al
+# usarlo, y en modo desarrollo ni siquiera se nota porque la guarda no verifica.
 
 
 @router.get("/{user_id}/permissions", response_model=PermisosDelUsuario)
 def get_user_permissions(user_id: UUID, db: Session = Depends(get_tenant_db)):
     """Que puede hacer esta persona, y de donde le viene cada permiso.
 
-    Leer no exige `usuarios.permisos`: ver los permisos de alguien de la misma
+    Leer no exige `role.manage`: ver los permisos de alguien de la misma
     empresa es informacion de trabajo, y RLS ya acota la consulta a la empresa
     de la sesion.
     """
@@ -121,7 +127,7 @@ def set_user_permission(
     codigo: str,
     data: PermisoIndividual,
     tenant_id: UUID = Depends(get_tenant_id),
-    _: CurrentUser = Depends(exigir_permiso("usuarios.permisos")),
+    _: CurrentUser = Depends(exigir_permiso("role.manage")),
     db: Session = Depends(get_tenant_db),
 ):
     """Concede o deniega un permiso a esta persona, por encima de su rol.
@@ -164,7 +170,7 @@ def set_user_permission(
 def clear_user_permission(
     user_id: UUID,
     codigo: str,
-    _: CurrentUser = Depends(exigir_permiso("usuarios.permisos")),
+    _: CurrentUser = Depends(exigir_permiso("role.manage")),
     db: Session = Depends(get_tenant_db),
 ):
     """Quita la excepcion individual y devuelve a la persona a lo que da su rol.

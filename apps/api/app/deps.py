@@ -180,9 +180,16 @@ CODIGO_SIN_PERMISO = "permiso_insuficiente"
 def exigir_permiso(codigo: str):
     """Guarda de permiso para un endpoint (RF-08).
 
-    Se usa como `Depends(exigir_permiso("obligaciones.editar"))`. Devuelve una
+    Se usa como `Depends(exigir_permiso("obligation.write"))`. Devuelve una
     dependencia y no un booleano porque FastAPI necesita resolverla por
     request, con su propia sesion.
+
+    **El codigo tiene que existir en la tabla `permissions`.** Uno inventado no
+    falla al escribirlo —es una cadena cualquiera— sino al usarlo, y en modo
+    desarrollo ni siquiera ahi, porque esta guarda no verifica sin Clerk. Da un
+    endpoint que en local anda perfecto y en produccion no puede llamar nadie.
+    Lo comprueba `test_permisos.py::TestCodigosUsadosEnLaApi`, que tambien lee
+    los ejemplos de estos docstrings: por eso el de arriba es un codigo real.
 
     ## Por que el 403 dice cual permiso falta
 

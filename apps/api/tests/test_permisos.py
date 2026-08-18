@@ -285,3 +285,39 @@ class TestExcepciones:
         concedidas, denegadas = excepciones_del_usuario(db, uid)
         assert codigo in denegadas
         assert codigo not in concedidas
+
+
+class TestCodigosUsadosEnLaApi:
+    """Todo permiso que una guarda exige tiene que existir en el catalogo.
+
+    Es el error que se cometio al escribir esto: la guarda de administracion
+    pedia `usuarios.permisos`, que **no esta sembrado**. Un permiso inventado
+    no falla al escribirlo —es una cadena cualquiera— sino al usarlo, y en modo
+    desarrollo ni siquiera ahi, porque la guarda no verifica sin Clerk. El
+    resultado habria sido un endpoint que nadie puede llamar en produccion, y
+    que en local funciona perfecto.
+    """
+
+    def test_cada_exigir_permiso_referencia_un_codigo_sembrado(
+        self, db: Session
+    ) -> None:
+        import pathlib
+        import re
+
+        raiz = pathlib.Path(__file__).resolve().parents[1] / "app"
+        usados: dict[str, str] = {}
+        for archivo in raiz.rglob("*.py"):
+            for m in re.finditer(
+                r"""exigir_permiso\(\s*["']([^"']+)["']""", archivo.read_text(encoding="utf-8")
+            ):
+                usados[m.group(1)] = archivo.name
+
+        assert usados, "No se encontro ninguna guarda; el patron de busqueda quedo obsoleto"
+
+        sembrados = {c for (c,) in db.execute(text("SELECT code FROM permissions")).all()}
+        inventados = {c: a for c, a in usados.items() if c not in sembrados}
+        assert not inventados, (
+            f"Guardas que exigen permisos inexistentes: {inventados}. "
+            "Con Clerk configurado nadie puede pasarlas. Usa un codigo de "
+            "`permissions` o agregalo al seed."
+        )
