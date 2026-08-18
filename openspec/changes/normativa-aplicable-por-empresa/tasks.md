@@ -25,19 +25,19 @@ Ninguna de las dos cambia el modelo; se pueden responder mientras se construye:
 
 ## 1. Esquema
 
-- [ ] 1.1 Escribir `db/NN_perfil_normativo.sql` idempotente
-- [ ] 1.2 Agregar `tenants.sector_id` (FK a `sectors`, **nullable**) y `tenants.size_bracket` con su CHECK de tramos
-- [ ] 1.3 Agregar a `matrix_norms` el origen de la inclusión (automático/manual + responsable) y la versión contra la que se evaluó
-- [ ] 1.4 Verificar que el script corre dos veces seguidas sin error y sobre una base ya existente
-- [ ] 1.5 Registrar el archivo nuevo en los **cuatro** lugares que deben coincidir: los dos compose, `db/run.sh` y `db/README.md`
-- [ ] 1.6 Confirmar que no hace falta política RLS nueva — no se crea ninguna tabla; si eso cambiara, la migración debe declarar su política y sus GRANT
+- [x] 1.1 Escribir `db/08_perfil_normativo.sql` idempotente
+- [x] 1.2 Agregar `tenants.sector_id` (FK a `sectors`, **nullable**) y `tenants.size_bracket` con su CHECK de tramos
+- [x] 1.3 Agregar a `matrix_norms` **solo** `inclusion_source`: la versión ya la da `selected_version_id`, el responsable `created_by`, y lo que deja de aplicar `applicability` + `applicability_reason`. Duplicarlas habría dejado dos fuentes de verdad
+- [x] 1.4 Verificar que el script corre dos veces seguidas sin error y sobre una base ya existente
+- [x] 1.5 Registrar el archivo en los lugares que deben coincidir: `docker-compose.yml`, `db/run.sh` y `db/README.md`. **`docker-compose.prod.yml` no monta las migraciones numeradas**, así que son tres y no cuatro
+- [x] 1.6 Confirmar que no hace falta política RLS nueva — no se crea ninguna tabla; si eso cambiara, la migración debe declarar su política y sus GRANT
 
 ## 2. Perfil de la empresa
 
-- [ ] 2.1 Exponer sector y tramo en los esquemas de lectura y escritura de `tenants`
-- [ ] 2.2 `GET /catalog/sectors` ya existe: verificar que sirve para poblar el selector del alta
-- [ ] 2.3 Marcar como **sin perfil normativo** a la empresa sin sector, y que la API lo diga explícitamente
-- [ ] 2.4 Tests: alta sin sector se acepta y queda sin perfil; el giro escrito **no** cuenta como sector
+- [x] 2.1 Exponer sector y tramo en los esquemas de lectura y escritura de `tenants`
+- [x] 2.2 `GET /catalog/sectors` ya existe: verificar que sirve para poblar el selector del alta
+- [x] 2.3 Marcar como **sin perfil normativo** a la empresa sin sector, y que la API lo diga explícitamente
+- [x] 2.4 Tests: alta sin sector se acepta y queda sin perfil; el giro escrito **no** cuenta como sector
 
 ## 3. Clasificación de normas por sector
 

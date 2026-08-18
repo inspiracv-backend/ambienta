@@ -55,6 +55,13 @@ class Tenant(Base, TimestampMixin, SoftDeleteMixin):
     legal_name: Mapped[str] = mapped_column(String(240), nullable=False)
     trade_name: Mapped[str | None] = mapped_column(String(180))
     business_activity: Mapped[str | None] = mapped_column(String(300))
+    # Perfil normativo: con esto se decide que normas le tocan a la empresa.
+    # Nullable a proposito — una empresa sin sector declarado no tiene perfil
+    # normativo, que es distinto de tener uno vacio. Ver db/08_perfil_normativo.sql.
+    sector_id: Mapped[int | None] = mapped_column(
+        SmallInteger, ForeignKey("sectors.id")
+    )
+    size_bracket: Mapped[str | None] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(
         String(24), nullable=False, server_default="trial"
     )
