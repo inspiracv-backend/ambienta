@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from .base import OrmBase
 
@@ -26,6 +26,8 @@ class TenantCreate(BaseModel):
     legal_name: str
     trade_name: str | None = None
     business_activity: str | None = None
+    sector_id: int | None = None
+    size_bracket: str | None = None
     settings: dict = Field(default_factory=dict)
 
 
@@ -38,16 +40,35 @@ class TenantRead(OrmBase):
     legal_name: str
     trade_name: str | None
     business_activity: str | None
+    sector_id: int | None
+    size_bracket: str | None
     status: str
     settings: dict
     created_at: datetime
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def tiene_perfil_normativo(self) -> bool:
+        """Si a esta empresa se le puede calcular normativa aplicable.
+
+        Se devuelve explicito y no se deja que el cliente lo deduzca de
+        `sector_id is None`: la pantalla tiene que poder decir "falta declarar
+        el sector" en vez de mostrar una lista vacia de normas, que se lee como
+        "esta empresa no tiene obligaciones" — lo contrario de lo que pasa.
+
+        El giro en texto libre NO cuenta. Es lo que impide cruzar, y es
+        justamente el motivo de que exista `sector_id`.
+        """
+        return self.sector_id is not None
 
 
 class TenantUpdate(BaseModel):
     legal_name: str | None = None
     trade_name: str | None = None
     business_activity: str | None = None
+    sector_id: int | None = None
+    size_bracket: str | None = None
     status: str | None = None
     settings: dict | None = None
 

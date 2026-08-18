@@ -56,6 +56,7 @@ services:
       - ./db/05_user_permissions.sql:/docker-entrypoint-initdb.d/04-permisos.sql:ro
       - ./db/06_ticket_number.sql:/docker-entrypoint-initdb.d/05-ticket-number.sql:ro
       - ./db/07_rol_aplicacion.sql:/docker-entrypoint-initdb.d/06-rol-app.sql:ro
+      - ./db/08_perfil_normativo.sql:/docker-entrypoint-initdb.d/07-perfil-normativo.sql:ro
       - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
       # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
       # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —

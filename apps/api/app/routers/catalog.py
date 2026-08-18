@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,7 +11,8 @@ from ..crud.catalog import (
     crud_legal_source,
     crud_sector,
 )
-from ..models.catalog import LegalArticle, LegalNormVersion
+from ..models.catalog import LegalArticle, LegalNormVersion, NormSector, Sector
+from ..models.organization import User
 from ..auth import CurrentUser
 from ..deps import exigir_admin_global, get_db
 from ..schemas.catalog import (
@@ -23,12 +25,18 @@ from ..schemas.catalog import (
     LegalSourceRead,
     LegalSourceUpdate,
     SectorCreate,
+    NormSectorRead,
+    NormSectorWrite,
     SectorRead,
     SectorUpdate,
 )
 from ._comun import borrar_o_404, obtener_o_404
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+# El CHECK vive en la base; esto lo repite para poder dar un 422 con el detalle
+# en vez de un 500 por violacion de restriccion.
+NIVELES_DE_APLICABILIDAD = {"directa", "indirecta", "referencial"}
 
 
 # ── Paises ────────────────────────────────────────────────────────────────
@@ -113,6 +121,110 @@ def list_norm_articles(norm_id: UUID, db: Session = Depends(get_db)):
         )
         .order_by(LegalArticle.display_order)
     ).all()
+
+
+# ── Clasificacion de normas por sector (RF-19) ────────────────────────────
+#
+# Es lo que **alimenta** el filtro. Sin estas filas, calcular la normativa de
+# una empresa devuelve vacio — y eso no significa que no tenga obligaciones,
+# significa que nadie clasifico todavia.
+#
+# Leer no exige nada: saber que normas aplican a un sector es informacion de
+# trabajo. **Escribir exige Admin Global**, porque `norm_sectors` no lleva
+# `tenant_id`: una clasificacion errada se propaga a TODAS las empresas de ese
+# sector, no solo a la de quien la escribio.
+
+
+@router.get("/norms/{norm_id}/sectors", response_model=list[NormSectorRead])
+def list_norm_sectors(norm_id: UUID, db: Session = Depends(get_db)):
+    """A que sectores aplica esta norma, con que nivel y por que."""
+    if not crud_legal_norm.get(db, norm_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Norm not found")
+
+    return db.scalars(
+        select(NormSector).where(NormSector.norm_id == norm_id)
+    ).all()
+
+
+@router.put(
+    "/norms/{norm_id}/sectors/{sector_id}",
+    response_model=NormSectorRead,
+    tags=["business-logic"],
+)
+def set_norm_sector(
+    norm_id: UUID,
+    sector_id: int,
+    data: NormSectorWrite,
+    user: CurrentUser = Depends(exigir_admin_global),
+    db: Session = Depends(get_db),
+):
+    """Declara que una norma aplica a un sector.
+
+    Es `PUT` y no `POST` porque la operacion es idempotente: declarar dos veces
+    lo mismo deja el mismo estado.
+
+    **El nivel decide si es obligatoria o recomendada.** `directa` significa que
+    la empresa del sector la debe cumplir; `indirecta` y `referencial` que se le
+    recomienda revisarla. Es la distincion que pidio el negocio, y por eso el
+    campo no admite texto libre.
+
+    Se registra quien clasifico y cuando: un error con nombre y fundamento se
+    corrige, uno anonimo se discute sin llegar a nada.
+    """
+    if not crud_legal_norm.get(db, norm_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Norm not found")
+    if db.get(Sector, sector_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sector not found")
+    if data.applicability_level not in NIVELES_DE_APLICABILIDAD:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Nivel invalido: '{data.applicability_level}'. "
+                f"Valores validos: {', '.join(sorted(NIVELES_DE_APLICABILIDAD))}."
+            ),
+        )
+
+    fila = db.get(NormSector, (norm_id, sector_id))
+    if fila is None:
+        fila = NormSector(norm_id=norm_id, sector_id=sector_id)
+        db.add(fila)
+    fila.applicability_level = data.applicability_level
+    fila.rationale = data.rationale
+    fila.article_id = data.article_id
+    # Lo declaro una persona, no un proceso. `confidence` queda en NULL: no
+    # tiene sentido una probabilidad cuando alguien lo afirma.
+    fila.source = "analyst"
+    fila.classified_at = datetime.now(timezone.utc)
+    autor = db.scalar(select(User).where(User.clerk_id == user.user_id))
+    fila.classified_by = autor.id if autor else None
+    db.commit()
+    db.refresh(fila)
+    return fila
+
+
+@router.delete(
+    "/norms/{norm_id}/sectors/{sector_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def clear_norm_sector(
+    norm_id: UUID,
+    sector_id: int,
+    _: CurrentUser = Depends(exigir_admin_global),
+    db: Session = Depends(get_db),
+):
+    """Retira la clasificacion de una norma en un sector.
+
+    Las empresas que ya la tengan en su matriz **no la pierden**: lo que se quita
+    es la regla que la haria entrar de ahora en mas.
+    """
+    fila = db.get(NormSector, (norm_id, sector_id))
+    if fila is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Esa norma no esta clasificada en ese sector.",
+        )
+    db.delete(fila)
+    db.commit()
 
 
 # ── Escritura del catalogo ────────────────────────────────────────────────

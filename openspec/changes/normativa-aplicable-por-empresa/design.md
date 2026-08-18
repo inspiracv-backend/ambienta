@@ -99,13 +99,26 @@ mano se respeta siempre.
 se evaluó. Un fiscalizador que revisa 2026 en 2028 necesita ver lo que regía
 entonces.
 
-**Cómo se distingue:** columna de origen en `matrix_norms` — automático o manual,
-con el responsable cuando es manual.
+**Cómo se distingue:** una columna nueva `matrix_norms.inclusion_source`
+(automático/manual). El responsable ya lo da `created_by`.
+
+**Corregido al implementar (18-ago):** la primera versión de esta migración
+agregaba cuatro columnas a `matrix_norms`. **Tres ya existían**:
+`selected_version_id` —con el comentario *"Versión congelada usada para evaluar.
+Sin esto no se puede reconstruir una evaluación pasada"*— cubre la versión;
+`created_by` cubre el responsable; y `applicability` con `not_applicable` más
+`applicability_reason` cubre lo que deja de aplicar. También estaba ya
+`matrix_norms.sector_id`.
+
+Duplicarlas habría dejado **dos fuentes de verdad para el mismo dato**, que es
+peor que no tenerlo: la segunda se desactualiza en silencio. Solo se agrega
+`inclusion_source`.
 
 ### El aviso de versión nueva compara versiones, no fechas
 
-**Decisión:** la matriz guarda contra qué `legal_norm_version_id` se evaluó. El
-aviso sale de comparar esa versión con la que hoy tiene `is_current`.
+**Decisión:** el aviso sale de comparar `matrix_norms.selected_version_id` —que
+**ya existe**— con la versión que hoy tiene `is_current`. No hace falta columna
+nueva.
 
 **Por qué no comparar fechas:** una norma puede tener correcciones que no cambian
 el articulado. `content_hash` y el versionado ya existen; usar fechas
@@ -144,9 +157,9 @@ general — decisión de negocio, con el modelo ya preparado.
 
 ## Migration Plan
 
-1. `db/NN_perfil_normativo.sql` idempotente: columnas nuevas en `tenants`
-   (`sector_id`, `size_bracket`) y en `matrix_norms` (origen, versión evaluada).
-   Ambas **nullable**: las empresas existentes no tienen perfil y eso es correcto.
+1. `db/08_perfil_normativo.sql` idempotente: `tenants.sector_id` y
+   `tenants.size_bracket`, más `matrix_norms.inclusion_source`. Todas
+   **nullable**: las empresas existentes no tienen perfil y eso es correcto.
 2. **No hace falta sembrar sectores**: `sectors` ya tiene las 8 secciones CIIU.
 3. La API acepta el perfil; el frontend lo pide en el alta.
 4. Clasificación de normas — la parte que puede empezar en paralelo con negocio.

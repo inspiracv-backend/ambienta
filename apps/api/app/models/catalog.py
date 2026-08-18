@@ -230,6 +230,10 @@ class NormSector(Base):
         String(20), nullable=False, server_default="analyst"
     )
     confidence: Mapped[float | None] = mapped_column(Numeric(5, 4))
+    # Quien clasifico y cuando. Una clasificacion errada se propaga a TODAS las
+    # empresas del sector: sin autor no hay a quien preguntarle por que.
+    classified_by: Mapped[PyUUID | None] = mapped_column(UUID(as_uuid=True))
+    classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class NormSyncRun(Base):

@@ -334,6 +334,7 @@ _RECURSOS: dict[str, tuple[str, str]] = {
     "matrix-norms": ("la norma de la matriz", "las normas de la matriz"),
     "messages": ("el mensaje", "los mensajes"),
     "nonconformities": ("la no conformidad", "las no conformidades"),
+    "normativa-aplicable": ("la normativa aplicable", "la normativa aplicable"),
     "norms": ("la norma", "las normas"),
     "notifications": ("la notificacion", "las notificaciones"),
     "obligations": ("la obligacion", "las obligaciones"),

@@ -193,6 +193,13 @@ class NormSectorCreate(BaseModel):
 
 
 class NormSectorRead(OrmBase):
+    """Que norma aplica a que sector, con que nivel y por que.
+
+    `applicability_level` es lo que decide si la norma es **obligatoria** para
+    la empresa del sector (`directa`) o solo **recomendada** (`indirecta`,
+    `referencial`).
+    """
+
     norm_id: UUID
     sector_id: int
     article_id: UUID | None
@@ -200,6 +207,8 @@ class NormSectorRead(OrmBase):
     rationale: str | None
     source: str
     confidence: float | None
+    classified_by: UUID | None
+    classified_at: datetime | None
 
 
 # ── NormSyncRun ───────────────────────────────────────────────────────────
@@ -295,3 +304,24 @@ class SectorUpdate(BaseModel):
     name: str | None = None
     parent_sector_id: int | None = None
     active: bool | None = None
+
+
+# ── Clasificacion de normas por sector (RF-19) ────────────────────────────
+
+class NormSectorWrite(BaseModel):
+    """Declarar que una norma aplica a un sector.
+
+    `rationale` es obligatorio y con minimo real: una clasificacion sin
+    explicacion es indistinguible de un error de carga cuando alguien la revisa
+    un ano despues, y esta se propaga a **todas** las empresas del sector.
+    """
+
+    applicability_level: str = Field(
+        default="directa",
+        description="directa = la debe cumplir; indirecta o referencial = se le recomienda revisar",
+    )
+    rationale: str = Field(min_length=10, max_length=2000)
+    article_id: UUID | None = Field(
+        default=None,
+        description="Acota la clasificacion a un articulo, cuando solo parte de la norma aplica",
+    )
