@@ -26,3 +26,6 @@ add-epics.sh
 
 # Cache local de Turborepo. Aparece al correr `turbo run` fuera de CI.
 .turbo/
+
+# Entorno temporal para correr las pruebas de la API en Windows sin Docker.
+.venv-doc/

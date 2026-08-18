@@ -366,3 +366,41 @@ class FacilityProcessCreateAnidado(BaseModel):
     scope_notes: str | None = None
     active_from: date | None = None
     active_to: date | None = None
+
+
+# ── Permisos (RF-08, RF-12) ───────────────────────────────────────────────
+
+class PermisoEfectivo(BaseModel):
+    """Un permiso que la persona tiene, y de donde le viene.
+
+    `origen` importa para la pantalla: quitar un permiso que viene del rol se
+    hace de otra forma que quitar uno concedido a esta persona en particular, y
+    sin distinguirlos la interfaz ofreceria la accion equivocada.
+    """
+
+    codigo: str
+    modulo: str
+    descripcion: str
+    origen: str = Field(description="'rol' o 'individual'")
+
+
+class PermisosDelUsuario(BaseModel):
+    user_id: UUID
+    permisos: list[PermisoEfectivo]
+    # Se devuelven aparte porque una denegacion no aparece en la lista de lo
+    # que puede hacer, y sin verla nadie entiende por que el rol no alcanza.
+    denegados: list[str] = Field(
+        default_factory=list,
+        description="Permisos que el rol concede pero se le denegaron a esta persona",
+    )
+
+
+class PermisoIndividual(BaseModel):
+    """Concesion o denegacion sobre una persona concreta."""
+
+    codigo: str
+    granted: bool
+    # Obligatorio: la spec pide que toda excepcion fuera del rol quede
+    # justificada. Un permiso suelto sin motivo es indistinguible de un error
+    # de configuracion cuando alguien lo audita seis meses despues.
+    reason: str = Field(min_length=3, max_length=500)

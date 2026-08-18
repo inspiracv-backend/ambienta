@@ -39,6 +39,12 @@ SIN_CRUD_COMPLETO = {
     "/support/chatbot": "una conversacion no se edita; se cierra o se retira entera",
     "/obligations/tasks": "las tareas se listan dentro de su obligacion, no sueltas",
     "/documents": "las versiones se listan dentro de su documento",
+    "/users/permissions": (
+        "no se crea un permiso: existen en el catalogo global. Lo que se administra "
+        "es la excepcion de una persona, y el PUT es idempotente, asi que alta y "
+        "edicion son la misma operacion. Leer uno suelto tampoco aplica: lo que "
+        "importa es el conjunto efectivo, que sale del listado"
+    ),
 }
 
 

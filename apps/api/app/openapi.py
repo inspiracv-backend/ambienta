@@ -339,6 +339,7 @@ _RECURSOS: dict[str, tuple[str, str]] = {
     "obligations": ("la obligacion", "las obligaciones"),
     "operators": ("el operador", "los operadores"),
     "participants": ("el participante", "los participantes"),
+    "permissions": ("el permiso", "los permisos"),
     "processes": ("el proceso", "los procesos"),
     "risks": ("el riesgo y oportunidad", "los riesgos y oportunidades"),
     "rules": ("la regla", "las reglas"),
@@ -468,6 +469,17 @@ def _summaries_por_defecto(app: FastAPI) -> dict[tuple[str, str], str]:
     return por_defecto
 
 
+def _contraer(frase: str) -> str:
+    """`de el` es `del`, y `a el` es `al`.
+
+    Sale de concatenar la preposicion con el articulo que ya trae el glosario.
+    Un titulo que dice "Listar las versiones de el documento" se lee como un
+    texto generado por una maquina, que es justo lo que hay que evitar cuando
+    el objetivo es que /docs se pueda leer sin esfuerzo.
+    """
+    return frase.replace(" de el ", " del ").replace(" a el ", " al ")
+
+
 def _describir(ruta: str, metodo: str) -> tuple[str, str] | None:
     """Arma el titulo y la explicacion de una operacion desde su ruta.
 
@@ -501,7 +513,7 @@ def _describir(ruta: str, metodo: str) -> tuple[str, str] | None:
         anterior = concretos[-2]
         if anterior in _RECURSOS:
             padre_sing = _RECURSOS[anterior][0]
-            padre = f" de {padre_sing}"
+            padre = _contraer(f" de {padre_sing}")
 
     # `POST /audits/{id}/participants/{user_id}` no crea nada: vincula dos
     # cosas que ya existen. Tratarlo como alta diria que se esta creando un
@@ -509,12 +521,14 @@ def _describir(ruta: str, metodo: str) -> tuple[str, str] | None:
     if padre_sing and apunta_a_uno and metodo in ("post", "delete"):
         if metodo == "post":
             return (
-                f"Vincular {singular} a {padre_sing}",
-                f"Asocia {singular} —que ya existe— a {padre_sing}. No crea "
-                "el registro: ambos extremos tienen que existir antes.",
+                _contraer(f"Vincular {singular} a {padre_sing}"),
+                _contraer(
+                    f"Asocia {singular} —que ya existe— a {padre_sing}. No crea "
+                    "el registro: ambos extremos tienen que existir antes."
+                ),
             )
         return (
-            f"Desvincular {singular} de {padre_sing}",
+            _contraer(f"Desvincular {singular} de {padre_sing}"),
             f"Quita la asociacion entre {singular} y {padre_sing}. Ninguno "
             "de los dos se borra: solo deja de existir el vinculo.",
         )
