@@ -18,8 +18,6 @@ una decision y un olvido.
 """
 from __future__ import annotations
 
-import re
-
 import pytest
 from fastapi.routing import APIRoute
 
