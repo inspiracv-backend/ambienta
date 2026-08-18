@@ -225,6 +225,44 @@ class UserRole(Base):
     role = relationship("Role", lazy="select")
 
 
+class UserPermission(Base):
+    """Concesion o denegacion individual, por encima del rol (RF-12).
+
+    La tabla existe desde `db/05_user_permissions.sql`; faltaba el modelo, asi
+    que hasta ahora no habia forma de leerla desde la API.
+
+    `granted=False` es una **denegacion explicita y gana sobre cualquier rol**.
+    Es lo que permite quitarle *un* permiso a alguien sin sacarlo del rol ni
+    inventar un rol de excepcion por cada caso.
+
+    `reason` no es decorativo: la spec pide que toda excepcion fuera del rol
+    quede justificada, porque un permiso suelto sin motivo es indistinguible de
+    un error de configuracion cuando alguien lo audita seis meses despues.
+    """
+
+    __tablename__ = "user_permissions"
+
+    user_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    permission_id: Mapped[int] = mapped_column(
+        SmallInteger, ForeignKey("permissions.id"), primary_key=True
+    )
+    tenant_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    granted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    granted_by: Mapped[PyUUID | None] = mapped_column(UUID(as_uuid=True))
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
+
+    permission = relationship("Permission", lazy="joined")
+
+
 class Process(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "processes"
     __table_args__ = (

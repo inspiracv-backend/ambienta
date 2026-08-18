@@ -172,3 +172,73 @@ def exigir_admin_global(
             detail="Solo el Admin Global puede administrar empresas.",
         )
     return user
+
+
+CODIGO_SIN_PERMISO = "permiso_insuficiente"
+
+
+def exigir_permiso(codigo: str):
+    """Guarda de permiso para un endpoint (RF-08).
+
+    Se usa como `Depends(exigir_permiso("obligation.write"))`. Devuelve una
+    dependencia y no un booleano porque FastAPI necesita resolverla por
+    request, con su propia sesion.
+
+    **El codigo tiene que existir en la tabla `permissions`.** Uno inventado no
+    falla al escribirlo —es una cadena cualquiera— sino al usarlo, y en modo
+    desarrollo ni siquiera ahi, porque esta guarda no verifica sin Clerk. Da un
+    endpoint que en local anda perfecto y en produccion no puede llamar nadie.
+    Lo comprueba `test_permisos.py::TestCodigosUsadosEnLaApi`, que tambien lee
+    los ejemplos de estos docstrings: por eso el de arriba es un codigo real.
+
+    ## Por que el 403 dice cual permiso falta
+
+    Un 403 mudo obliga a adivinar. Devolver el codigo no filtra nada util a un
+    atacante —ya sabe que ruta llamo— y le ahorra media hora a quien configura
+    los roles de una empresa.
+
+    ## Sin Clerk configurado no verifica
+
+    Igual que `exigir_admin_global`: el modo de desarrollo confia enteramente
+    en quien llama, asi que exigir aca un permiso que nadie puede probar solo
+    haria imposible trabajar en local. La barrera vive donde importa.
+
+    ## Esto no reemplaza a RLS
+
+    Decide **si la operacion se permite**, no **que filas se ven**. El
+    aislamiento entre empresas lo sigue garantizando Row Level Security, que es
+    la unica barrera (CLAUDE.md §4). Un permiso concedido no deja ver datos de
+    otra empresa: la consulta simplemente devuelve cero filas.
+    """
+
+    def verificar(
+        user: CurrentUser = Depends(get_current_user),
+        db: Session = Depends(get_tenant_db),
+    ) -> CurrentUser:
+        if not get_settings().clerk_configured:
+            return user
+
+        from .services.permisos import tiene_permiso
+
+        fila = db.scalar(select(User).where(User.clerk_id == user.user_id))
+        if fila is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "codigo": CODIGO_SIN_PERMISO,
+                    "mensaje": "Tu usuario no esta registrado en esta empresa.",
+                    "permiso": codigo,
+                },
+            )
+        if not tiene_permiso(db, fila.id, codigo):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "codigo": CODIGO_SIN_PERMISO,
+                    "mensaje": "No tenes permiso para esta accion.",
+                    "permiso": codigo,
+                },
+            )
+        return user
+
+    return verificar
