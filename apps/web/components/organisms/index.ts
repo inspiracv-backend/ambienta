@@ -67,3 +67,6 @@ export { PermisosUsuarioModal } from './PermisosUsuarioModal/PermisosUsuarioModa
 export * from './AspectosAmbientalesTable';
 export * from './RiesgosOportunidadesTable';
 export * from './EquiposReguladosTable';
+export * from './CheckNormativaAplicable/CheckNormativaAplicable';
+export * from './AvisoNormasDesactualizadas/AvisoNormasDesactualizadas';
+export * from './PerfilNormativoCard/PerfilNormativoCard';

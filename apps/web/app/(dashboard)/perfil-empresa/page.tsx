@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/atoms';
-import { PerfilEmpresaWizard } from '@/components/organisms';
+import { PerfilEmpresaWizard, PerfilNormativoCard } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useTenants } from '@/lib/tenants-store';
 import { useDepartamentos } from '@/lib/departamentos-store';
@@ -43,18 +43,24 @@ export default function PerfilEmpresaPage() {
   const usuariosTenant = users.filter((u) => u.tenantId === tenant.id);
 
   return (
-    <PerfilEmpresaWizard
-      tenant={tenant}
-      departamentos={departamentos}
-      usuarios={usuariosTenant}
-      onUpdateDatosBasicos={(datos) => updateDatosBasicos(tenant.id, datos)}
-      onUpdateLogo={(logoUrl) => updateLogo(tenant.id, logoUrl)}
-      onAddPlant={(input) => addPlant(tenant.id, input)}
-      onAddDepartamento={(input) => addDepartamento({ tenantId: tenant.id, ...input })}
-      onCompletar={() => {
-        completarPerfilEmpresa(tenant.id);
-        router.push('/dashboard');
-      }}
-    />
+    <div className="flex flex-col gap-6">
+      {/* Va antes del wizard: sin sector la matriz legal no propone nada, y el
+          wizard completa datos que no desbloquean eso. */}
+      <PerfilNormativoCard tenant={tenant} />
+
+      <PerfilEmpresaWizard
+        tenant={tenant}
+        departamentos={departamentos}
+        usuarios={usuariosTenant}
+        onUpdateDatosBasicos={(datos) => updateDatosBasicos(tenant.id, datos)}
+        onUpdateLogo={(logoUrl) => updateLogo(tenant.id, logoUrl)}
+        onAddPlant={(input) => addPlant(tenant.id, input)}
+        onAddDepartamento={(input) => addDepartamento({ tenantId: tenant.id, ...input })}
+        onCompletar={() => {
+          completarPerfilEmpresa(tenant.id);
+          router.push('/dashboard');
+        }}
+      />
+    </div>
   );
 }

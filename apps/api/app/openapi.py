@@ -380,6 +380,13 @@ _ACCIONES: dict[str, tuple[str, str]] = {
         "oficial; despues de enviarla no se edita.",
     ),
     "stats": ("Obtener estadisticas", "Conteos agregados, calculados en la base y no en el cliente."),
+    "cobertura": (
+        "Obtener la cobertura de la clasificacion",
+        "Cuanta normativa falta clasificar y en que sectores. Una norma sin "
+        "clasificar no le llega a ninguna empresa, asi que sin esto el sistema "
+        "funciona y no propone nada. Se listan todos los sectores, incluidos "
+        "los que estan en cero: son los que senalan donde falta trabajo.",
+    ),
     "resumen": (
         "Obtener el resumen de cumplimiento",
         "Desglose por norma y por instalacion. El denominador son los articulos "

@@ -27,6 +27,7 @@ describe('navItemsParaRol — Superadmin (A0)', () => {
       '/plataforma',
       '/gestion-tenants',
       '/equipo',
+      '/clasificacion-normativa',
       '/soporte',
       '/chatbot',
       '/historial',
@@ -189,5 +190,24 @@ describe('consistencia del menú', () => {
         navItemsParaRol(r).some((i) => i.href === href),
       );
     expect(rolesDe('/usuarios')).toEqual(rolesDe('/perfil-empresa'));
+  });
+});
+
+describe('la clasificación normativa es ámbito plataforma', () => {
+  it('el Superadmin la ve y ningún rol de empresa la tiene', () => {
+    // `norm_sectors` no lleva `tenant_id`: una clasificación errada se propaga
+    // a TODAS las empresas del sector. Ponerla en el menú de tenant dejaría a
+    // un Admin Empresa cambiando la normativa de sus competidores.
+    expect(hrefs('superadmin')).toContain('/clasificacion-normativa');
+    for (const rol of ['admin_empresa', 'encargado', 'gestor'] as Role[]) {
+      expect(hrefs(rol)).not.toContain('/clasificacion-normativa');
+    }
+  });
+
+  it('la ruta se reconoce como de plataforma, no de tenant', () => {
+    // Si no, el TenantScopeGate la trataría como pantalla de empresa y el
+    // Superadmin —cuyo `tenantId` es null— no podría entrar.
+    expect(esRutaDePlataforma('/clasificacion-normativa')).toBe(true);
+    expect(esRutaDeTenant('/clasificacion-normativa')).toBe(false);
   });
 });

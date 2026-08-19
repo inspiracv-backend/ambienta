@@ -21,12 +21,22 @@ import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { MODULO_LABEL } from '@/lib/tenant-status';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
+import { leerTramo, type Tramo } from '@/lib/perfil-normativo';
 
 export interface NuevoTenantInput {
   nombre: string;
   pais: Pais;
   numeroIdentificacion: string;
   sector: string;
+  /**
+   * Sector CIIU. **Es lo que decide que normativa le aplica** a la empresa.
+   *
+   * Distinto de `sector`, que es texto libre y describe el giro. Sin este
+   * campo la matriz no puede proponer nada: queda en `sin_perfil`.
+   */
+  sectorId?: number;
+  /** Tramo por tamano. Afina la normativa recomendada. */
+  tramo?: Tramo;
   giro?: string;
   direccion?: string;
   sitioWeb?: string;
@@ -53,6 +63,7 @@ interface TenantsContextValue {
   updateLogo: (tenantId: string, logoUrl: string) => void;
   addPlant: (tenantId: string, input: { nombre: string; comuna: string; region: string }) => void;
   completarPerfilEmpresa: (tenantId: string) => void;
+  updatePerfilNormativo: (tenantId: string, perfil: { sectorId: number; tramo: Tramo }) => void;
 }
 
 const TenantsContext = createContext<TenantsContextValue | null>(null);
@@ -78,6 +89,10 @@ function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
       identificacion: { tipo: 'RUT', numero: String(raw.rut_tax_id ?? '') },
       pais: 'CL' as Pais,
       sector: String(raw.business_activity ?? ''),
+      // Los dos lados del viaje. Mapear solo la escritura daria un "guardado"
+      // que se deshace al recargar — es el error que ya costo `limiteUsuarios`.
+      sectorId: raw.sector_id == null ? undefined : Number(raw.sector_id),
+      tramo: leerTramo(raw.size_bracket) ?? undefined,
       giro: raw.business_activity ? String(raw.business_activity) : undefined,
       direccion: undefined,
       estado: raw.status === 'active' ? 'activo' : raw.status === 'suspended' ? 'suspendido' : 'activo',
@@ -173,6 +188,8 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
       identificacion: { tipo: documentoDePais(input.pais), numero: input.numeroIdentificacion },
       pais: input.pais,
       sector: input.sector,
+      sectorId: input.sectorId,
+      tramo: input.tramo,
       giro: input.giro,
       direccion: input.direccion,
       sitioWeb: input.sitioWeb,
@@ -195,13 +212,37 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     setTenants((prev) => [...prev, nuevo]);
 
-    api.post('/tenants/', {
-      legal_name: input.nombre,
-      rut_tax_id: input.numeroIdentificacion,
-      tenant_type: input.esGestor ? 'manager' : 'company',
-      business_activity: input.sector,
-      country_id: 1,
-    }).catch(() => {});
+    api
+      .post<Record<string, unknown>>('/tenants/', {
+        legal_name: input.nombre,
+        rut_tax_id: input.numeroIdentificacion,
+        tenant_type: input.esGestor ? 'manager' : 'company',
+        business_activity: input.sector,
+        sector_id: input.sectorId ?? null,
+        size_bracket: input.tramo ?? null,
+        country_id: 1,
+      })
+      .then((creado) => {
+        // **El id local es inventado.** Sin reconciliarlo, la fila que quedaba
+        // en pantalla apuntaba a `tenant-1723...`, que no existe en la base:
+        // cualquier accion posterior sobre la empresa recien creada —cambiar
+        // su plan, agregarle una planta— iba a un id inexistente y fallaba sin
+        // explicacion. Se reemplaza por el que devuelve la API.
+        const real = mapApiTenant(creado);
+        if (real) setTenants((prev) => prev.map((t) => (t.id === nuevo.id ? real : t)));
+      })
+      .catch((error) => {
+        // Antes esto era `.catch(() => {})`: la empresa quedaba en la lista
+        // como si existiera y desaparecia al recargar, sin que nadie supiera
+        // por que. Es el mismo silencio que escondio que el alta de no
+        // conformidades nunca habia funcionado.
+        setTenants((prev) => prev.filter((t) => t.id !== nuevo.id));
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo crear la empresa',
+          descripcion: mensajeDeError(error),
+        });
+      });
 
     registrar({
       entidadTipo: 'tenant',
@@ -416,6 +457,68 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /**
+   * Declara el sector y el tramo de una empresa ya creada.
+   *
+   * **Sin esto, `sin_perfil` es permanente para toda empresa existente.** El
+   * alta pide el sector desde ahora, pero las que ya estaban nacieron sin el —
+   * la columna es nueva— y no habia ninguna pantalla donde declararlo. El
+   * sistema informaba correctamente que faltaba el dato y no ofrecia camino
+   * para completarlo, que es una forma elegante de no funcionar.
+   */
+  function updatePerfilNormativo(
+    tenantId: string,
+    perfil: { sectorId: number; tramo: Tramo },
+  ) {
+    const anterior = tenants.find((t) => t.id === tenantId);
+    if (!anterior) return;
+
+    setTenants((prev) =>
+      prev.map((t) =>
+        t.id === tenantId ? { ...t, sectorId: perfil.sectorId, tramo: perfil.tramo } : t,
+      ),
+    );
+
+    api
+      .patch(`/tenants/${tenantId}`, {
+        sector_id: perfil.sectorId,
+        size_bracket: perfil.tramo,
+      })
+      .catch((error) => {
+        // Revierte al valor exacto anterior, no a `undefined`: si la empresa ya
+        // tenia sector y el cambio falla, dejarla sin ninguno seria un dano
+        // peor que el que se intentaba arreglar.
+        setTenants((prev) =>
+          prev.map((t) =>
+            t.id === tenantId
+              ? { ...t, sectorId: anterior.sectorId, tramo: anterior.tramo }
+              : t,
+          ),
+        );
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo guardar el perfil normativo',
+          descripcion: mensajeDeError(error),
+        });
+      });
+
+    registrar({
+      entidadTipo: 'tenant',
+      entidadId: tenantId,
+      entidadLabel: anterior.nombre,
+      tenantId,
+      accion: 'actualizado',
+      // Queda en el historial porque cambia que normativa le aplica a la
+      // empresa entera: no es un dato de ficha, es el criterio con el que se
+      // arma su matriz legal.
+      resumen: 'Declaro el perfil normativo de la empresa',
+      cambios: [
+        { campo: 'Sector CIIU', antes: anterior.sectorId?.toString() ?? null, despues: String(perfil.sectorId) },
+        { campo: 'Tramo por tamano', antes: anterior.tramo ?? null, despues: perfil.tramo },
+      ],
+    });
+  }
+
   function addPlant(tenantId: string, input: { nombre: string; comuna: string; region: string }) {
     const tenant = tenants.find((t) => t.id === tenantId);
     if (!tenant) return;
@@ -495,6 +598,7 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
         updateLogo,
         addPlant,
         completarPerfilEmpresa,
+        updatePerfilNormativo,
       }}
     >
       {children}
