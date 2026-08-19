@@ -393,6 +393,14 @@ _ACCIONES: dict[str, tuple[str, str]] = {
     ),
     "upcoming": ("Listar los vencimientos proximos", "Lo que vence dentro de la ventana consultada."),
     "overdue": ("Listar lo vencido", "Lo que ya paso su plazo y sigue sin cumplirse."),
+    "sincronizar": (
+        "Sincronizar con la normativa aplicable",
+        "Agrega a la matriz las normas que hoy le corresponden a la empresa. "
+        "**Nunca borra**: lo que dejo de corresponder se marca como no "
+        "aplicable, porque borrarlo eliminaria la evidencia de que en su "
+        "momento se evaluo. Lo agregado a mano se respeta siempre, y las "
+        "evaluaciones existentes no se pisan. Es idempotente.",
+    ),
     "generate-notifications": (
         "Generar las notificaciones pendientes",
         "Recorre los vencimientos y crea los avisos que falten. Es "

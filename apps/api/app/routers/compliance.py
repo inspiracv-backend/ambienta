@@ -6,10 +6,12 @@ from sqlalchemy.orm import Session
 from ..crud.compliance import crud_article_compliance, crud_matrix, crud_matrix_norm
 from ..deps import get_tenant_db, get_tenant_id
 from ..services.normativa_aplicable import calcular as calcular_normativa_aplicable
+from ..services.sincronizar_matriz import sincronizar as sincronizar_matriz
 from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.compliance import (
     NormaAplicableRead,
     NormativaAplicableRead,
+    SincronizacionRead,
     ArticleComplianceCreate,
     ArticleComplianceRead,
     ArticleComplianceUpdate,
@@ -201,3 +203,37 @@ def get_normativa_aplicable(
         recomendadas=[NormaAplicableRead(**vars(n)) for n in r.recomendadas],
         total=r.total,
     )
+
+
+@router.post(
+    "/matrices/{matrix_id}/sincronizar",
+    response_model=SincronizacionRead,
+    tags=["business-logic"],
+)
+def sincronizar_la_matriz(
+    matrix_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    """Lleva a la matriz la normativa que hoy le corresponde a la empresa.
+
+    **Se sincroniza, no se reemplaza.** Agrega lo que falta y nunca borra: lo
+    que dejo de corresponder se marca como no aplicable con su motivo, porque
+    borrarlo eliminaria la evidencia de que en su momento se evaluo — que es lo
+    que pide un fiscalizador al revisar un periodo pasado.
+
+    Lo agregado a mano se respeta siempre: que el calculo no encuentre una norma
+    no significa que no aplique, puede venir de un contrato o de la RCA.
+
+    Los articulos entran **sin evaluar**, no incumplidos. No haber evaluado no
+    es incumplir, y contarlo asi hundiria el porcentaje de la empresa el dia que
+    se le carga la matriz.
+
+    Es idempotente: correrlo dos veces deja el mismo estado.
+    """
+    if not crud_matrix.get(db, matrix_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Matrix not found")
+
+    r = sincronizar_matriz(db, matrix_id, tenant_id)
+    db.commit()
+    return SincronizacionRead(**vars(r))

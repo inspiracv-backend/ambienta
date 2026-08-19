@@ -6,11 +6,11 @@ Spec: `openspec/changes/sistema-actores-roles-rbac/specs/rbac/spec.md`.
 
 Son mas de 150 escrituras. Escribir `Depends(exigir_permiso("obligation.write"))`
 en cada una es una decision que se puede olvidar, y olvidarla **no falla**: deja
-el endpoint abierto y nadie se entera.
+el endpoint abierto y nadie se entera. El hueco se abre solo, igual que pasaba
+con el 401 y el 404 del contrato OpenAPI antes de derivarlos.
 
-(El codigo del ejemplo es real a proposito: `test_permisos.py` lee tambien los
-ejemplos de los docstrings, para que nadie copie uno inventado.) El hueco se abre solo, igual que pasaba con
-el 401 y el 404 del contrato OpenAPI antes de derivarlos.
+El codigo del ejemplo de arriba es real a proposito: `test_permisos.py` recorre
+tambien los ejemplos de los docstrings, para que nadie copie uno inventado.
 
 Derivandolo, un endpoint nuevo queda protegido sin que nadie se acuerde, y
 `test_permisos_de_rutas.py` falla si aparece uno cuya raiz no esta declarada.
