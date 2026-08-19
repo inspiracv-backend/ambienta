@@ -73,11 +73,11 @@ Ninguna de las dos cambia el modelo; se pueden responder mientras se construye:
 
 ## 6. Aviso de versión desactualizada
 
-- [ ] 6.1 Guardar en `matrix_norms` contra qué versión se evaluó
-- [ ] 6.2 Consulta que compara esa versión con la que hoy tiene `is_current`
-- [ ] 6.3 `GET /compliance/matrices/{id}/desactualizadas`
-- [ ] 6.4 Que las evaluaciones sobre la versión anterior **sigan visibles**
-- [ ] 6.5 Tests: versión nueva marca desactualizada; sin versión nueva no marca nada
+- [x] 6.1 Guardar en `matrix_norms` contra qué versión se evaluó — **ya existía** como `selected_version_id`, no hizo falta columna nueva
+- [x] 6.2 Consulta que compara esa versión con la que hoy tiene `is_current`
+- [x] 6.3 `GET /compliance/matrices/{id}/desactualizadas`
+- [x] 6.4 Que las evaluaciones sobre la versión anterior **sigan visibles**
+- [x] 6.5 Tests: versión nueva marca desactualizada; sin versión nueva no marca nada
 
 ## 7. Frontend
 
