@@ -436,3 +436,94 @@ class TestLaRespuestaDelEndpoint:
         with pytest.raises(HTTPException) as exc:
             resumen_de_la_matriz(uuid.uuid4(), db=db)
         assert exc.value.status_code == 404
+
+
+class TestLosTresNumerosNoSeContradicen:
+    """La pantalla y el resumen calculaban lo mismo con denominadores distintos.
+
+    Una empresa con un articulo cumplido y diecinueve sin evaluar veia **100 %**
+    en la matriz y **5 %** en el resumen. Los dos eran correctos y respondian
+    preguntas distintas; el problema era que salian de dos calculos separados,
+    asi que nadie podia saber cual mirar.
+
+    Ahora los tres salen del mismo conteo, y estan ligados por una identidad que
+    se comprueba aca: **el conservador es el producto de los otros dos**, salvo
+    una decima de redondeo. Si alguien cambia un denominador, esta prueba lo
+    dice.
+    """
+
+    def test_el_conservador_es_el_producto_de_los_otros_dos(self) -> None:
+        c = Conteo()
+        c.sumar("compliant", incluido=True)
+        for _ in range(19):
+            c.sumar("pending", incluido=True)
+
+        assert c.porcentaje_sobre_evaluados == 100.0
+        assert c.cobertura == 5.0
+        assert c.porcentaje == 5.0
+        # 100 % de lo evaluado x 5 % de cobertura = 5 % conservador.
+        assert c.porcentaje == round(
+            c.porcentaje_sobre_evaluados * c.cobertura / 100, 1
+        )
+
+    def test_la_identidad_se_mantiene_con_los_cinco_estados(self) -> None:
+        c = Conteo()
+        for estado, incluido in [
+            ("compliant", True),
+            ("compliant", True),
+            ("non_compliant", True),
+            ("partial", True),
+            ("pending", True),
+            ("pending", True),
+            ("not_applicable", True),
+            ("compliant", False),
+        ]:
+            c.sumar(estado, incluido)
+
+        assert (c.evaluados, c.evaluables) == (4, 6)
+        assert c.porcentaje_sobre_evaluados == 50.0
+        # **Con tolerancia de una decima, no exacto.** Los tres se redondean a
+        # un decimal por separado, asi que el producto de dos redondeados puede
+        # caer una decima del tercero: 50,0 x 66,7 da 33,4 y el conservador es
+        # 33,3. La identidad es de las razones, no de las cifras impresas, y
+        # decir "es exactamente el producto" seria falso.
+        assert abs(c.porcentaje_sobre_evaluados * c.cobertura / 100 - c.porcentaje) <= 0.1
+
+    def test_sin_evaluar_nada_el_cumplimiento_es_none_y_la_cobertura_cero(self) -> None:
+        """Distintos a proposito: no hay respuesta a "cuanto cumplimos", pero si
+        a "cuanto revisamos" — y la respuesta es cero, que es un dato."""
+        c = Conteo()
+        for _ in range(3):
+            c.sumar("pending", incluido=True)
+
+        assert c.porcentaje_sobre_evaluados is None
+        assert c.cobertura == 0.0
+        assert c.porcentaje == 0.0
+
+    def test_la_cobertura_no_esconde_lo_excluido(self) -> None:
+        """Excluir del cumplimiento es legitimo; esconder que nadie lo miro, no.
+
+        Aun asi el excluido sale de los dos denominadores: si contara en la
+        cobertura, excluir un articulo bajaria la cobertura sin que nadie dejara
+        de revisar nada. Lo que la prueba fija es que **la exclusion no inventa
+        cobertura tampoco**.
+        """
+        c = Conteo()
+        c.sumar("compliant", incluido=True)
+        c.sumar("pending", incluido=True)
+        c.sumar("pending", incluido=False)
+
+        assert c.excluidos == 1
+        assert c.evaluables == 2
+        assert c.cobertura == 50.0
+
+    def test_el_endpoint_devuelve_los_tres(self, db: Session) -> None:
+        from app.routers.compliance import resumen_de_la_matriz
+
+        matrix_id = _matriz(db, [("compliant", True), ("pending", True)])
+
+        cuerpo = resumen_de_la_matriz(matrix_id, db=db).model_dump()["total"]
+
+        assert cuerpo["porcentaje_sobre_evaluados"] == 100.0
+        assert cuerpo["cobertura"] == 50.0
+        assert cuerpo["porcentaje"] == 50.0
