@@ -6,6 +6,19 @@ import type { SemaforoStatus } from '@/components/atoms';
  * `incluidoEnCalculo` (RF-13, S-11) — NA y N_E (pendiente de evaluar) no cuentan
  * en el denominador. Réplica en el frontend de la vista SQL
  * `resumen_cumplimiento_requisito` documentada en el ADD (docs/arquitectura).
+ *
+ * ## Su equivalente en la API se llama distinto, a propósito
+ *
+ * Es `porcentaje_sobre_evaluados` en `GET /compliance/matrices/{id}/resumen`.
+ * **No es `porcentaje`.** Ese otro es el conservador —cuenta lo pendiente como
+ * no cumplido— y da un número más bajo sobre los mismos datos: una empresa con
+ * un artículo cumplido y diecinueve sin evaluar sale 100 % acá y 5 % allá.
+ *
+ * Los dos son correctos y responden preguntas distintas. Lo que sería un error
+ * es cambiar el denominador de solo uno de los dos lados: **si esta función
+ * cambia, `apps/api/app/services/resumen_cumplimiento.py` tiene que cambiar
+ * con ella**, o la pantalla y el informe dirán cosas distintas sobre la misma
+ * empresa sin que nada lo señale.
  */
 export function computeNormCompliance(norm: LegalNorm): number {
   const evaluables = norm.articulos.filter((a) => a.incluidoEnCalculo && (a.respuesta === 'SI' || a.respuesta === 'NO'));
@@ -28,6 +41,9 @@ export function computeNormCompliance(norm: LegalNorm): number {
  * sin revisar. `incluidoEnCalculo` no se aplica acá a propósito: excluir algo
  * del cálculo de cumplimiento es una decisión legítima, esconderlo de la
  * cobertura sería tapar que nadie lo miró.
+ *
+ * En la API es `cobertura`, del mismo endpoint. Misma advertencia que arriba:
+ * las dos definiciones tienen que moverse juntas.
  */
 export function computeNormCoverage(norm: LegalNorm): number {
   const aplicables = norm.articulos.filter((a) => a.respuesta !== 'NA');

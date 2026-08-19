@@ -48,7 +48,12 @@ def get_compliance_stats(db: Session, matrix_id: UUID) -> dict:
         "not_applicable": c.no_aplican,
         "excluded": c.excluidos,
         "evaluable_articles": c.evaluables,
+        "evaluated_articles": c.evaluados,
         "compliance_percentage": c.porcentaje,
+        # El que muestra la matriz en pantalla. Va acompanado de la cobertura:
+        # solo, un 100 % sobre dos articulos evaluados de veinte engana.
+        "compliance_percentage_of_evaluated": c.porcentaje_sobre_evaluados,
+        "coverage_percentage": c.cobertura,
     }
 
 

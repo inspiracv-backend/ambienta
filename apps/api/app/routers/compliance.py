@@ -277,7 +277,10 @@ def _conteo(c) -> ConteoRead:
         no_aplican=c.no_aplican,
         excluidos=c.excluidos,
         evaluables=c.evaluables,
+        evaluados=c.evaluados,
         porcentaje=c.porcentaje,
+        porcentaje_sobre_evaluados=c.porcentaje_sobre_evaluados,
+        cobertura=c.cobertura,
     )
 
 
@@ -303,6 +306,21 @@ def resumen_de_la_matriz(matrix_id: UUID, db: Session = Depends(get_tenant_db)):
 
     `porcentaje` es **`null`, no cero**. Cero significa "no cumple nada"; `null`
     significa "todavia no hay obligaciones que evaluar".
+
+    ## Tres numeros que no pueden contradecirse
+
+    La matriz en pantalla y este resumen calculaban lo mismo con denominadores
+    distintos, asi que una empresa con un articulo cumplido y diecinueve sin
+    evaluar veia **100 %** en una y **5 %** en el otro. Los dos eran correctos y
+    respondian preguntas distintas, asi que se devuelven ambos desde el mismo
+    conteo en vez de elegir uno:
+
+    - `porcentaje_sobre_evaluados` — de lo que se miro, cuanto se cumple
+    - `cobertura` — cuanto se alcanzo a mirar
+    - `porcentaje` — el conservador
+
+    **El tercero es el producto de los otros dos**, asi que describen la misma
+    realidad y no pueden desmentirse entre si.
     """
     if not crud_matrix.get(db, matrix_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Matrix not found")

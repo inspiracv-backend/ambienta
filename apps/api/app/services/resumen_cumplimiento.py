@@ -25,6 +25,25 @@ pantalla al leerlo.
 **`pending` cuenta en el denominador.** No haber evaluado no es incumplir, pero
 tampoco es cumplir: dejarlo fuera daria 100 % a una empresa que no evaluo nada.
 
+## Dos porcentajes, no uno, y por que no se contradicen
+
+La matriz en pantalla y este servicio calculaban lo mismo con denominadores
+distintos: la pantalla dejaba lo pendiente **fuera** del denominador y mostraba
+la cobertura al lado; aca entraba. Una empresa con un articulo cumplido y
+diecinueve sin evaluar veia **100 %** en la matriz y **5 %** en el resumen.
+
+Los dos numeros son correctos y responden preguntas distintas, asi que se
+devuelven los dos desde el mismo conteo en vez de elegir uno:
+
+- `porcentaje_sobre_evaluados` — de lo que se miro, cuanto se cumple
+- `cobertura` — cuanto se alcanzo a mirar
+- `porcentaje` — el conservador: lo pendiente cuenta como no cumplido
+
+No son tres verdades sueltas. **El tercero es el producto de los otros dos**
+—salvo una decima, porque cada uno se redondea por separado— asi que no pueden
+contradecirse: si la pantalla muestra 100 % de cumplimiento sobre 5 % de
+cobertura, el resumen dice 5 % y las tres cifras describen la misma realidad.
+
 ## Sin articulos que contar, el porcentaje es `None`
 
 No es cero. Cero significa "no cumple nada"; `None` significa "todavia no hay
@@ -78,11 +97,47 @@ class Conteo:
         return self.cumplen + self.no_cumplen + self.sin_evaluar
 
     @property
+    def evaluados(self) -> int:
+        """Los que alguien ya miro: `sin_evaluar` no entra."""
+        return self.cumplen + self.no_cumplen
+
+    @property
     def porcentaje(self) -> float | None:
-        """`None` cuando no hay nada que medir. **No es cero.**"""
+        """El numero conservador: lo pendiente cuenta como no cumplido.
+
+        `None` cuando no hay nada que medir. **No es cero.**
+        """
         if self.evaluables == 0:
             return None
         return round(self.cumplen / self.evaluables * 100, 1)
+
+    @property
+    def porcentaje_sobre_evaluados(self) -> float | None:
+        """De lo que se evaluo, cuanto se cumple. **Es el que muestra la matriz.**
+
+        Distinto de `porcentaje` en un solo punto: aca lo pendiente **no** entra
+        al denominador. Una norma con un articulo en SI y quince sin evaluar da
+        100 % — cierto sobre la muestra y enganoso sobre la norma.
+
+        Por eso nunca va solo: se lee junto a `cobertura`, y el par responde dos
+        preguntas distintas —"cuanto cumplimos" y "cuanto alcanzamos a
+        revisar"— en vez de esconder una dentro de la otra.
+        """
+        if self.evaluados == 0:
+            return None
+        return round(self.cumplen / self.evaluados * 100, 1)
+
+    @property
+    def cobertura(self) -> float | None:
+        """Cuanto se alcanzo a revisar de lo que la empresa debe cumplir.
+
+        **Los excluidos del calculo no salen de aca.** Excluir un articulo del
+        cumplimiento es una decision legitima; esconderlo de la cobertura seria
+        tapar que nadie lo miro. Es la misma regla que ya aplica la matriz.
+        """
+        if self.evaluables == 0:
+            return None
+        return round(self.evaluados / self.evaluables * 100, 1)
 
     def sumar(self, estado: str, incluido: bool) -> None:
         if not incluido:
