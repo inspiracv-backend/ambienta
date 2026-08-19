@@ -143,6 +143,23 @@ export const TenantSchema = z.object({
    */
   logoUrl: z.string().optional(),
 
+  // ── Perfil normativo ────────────────────────────────────────────────────
+  /**
+   * Sector CIIU. **Es el campo que decide qué normativa le aplica** a la
+   * empresa: las normas están clasificadas contra este catálogo.
+   *
+   * No confundir con `sector`, que está arriba y es texto libre. Ese describe
+   * el giro y sirve para mostrarlo en una ficha; dos empresas de la misma
+   * industria escriben cosas distintas y ninguna consulta las agrupa.
+   *
+   * Opcional porque **las empresas creadas antes de esto no lo tienen**, y eso
+   * no se puede esconder: es lo que hace que la matriz responda `sin_perfil`
+   * en vez de proponer normativa inventada.
+   */
+  sectorId: z.number().int().positive().optional(),
+  /** Tramo por tamaño (`micro`|`pequena`|`mediana`|`grande`). Afina la recomendación. */
+  tramo: z.enum(['micro', 'pequena', 'mediana', 'grande']).optional(),
+
   // ── Contexto de la organización (ISO 9001 §4.1) ─────────────────────────
   /** Determina obligaciones aplicables: hay umbrales normativos por tamaño. */
   numeroTrabajadores: z.number().int().nonnegative().optional(),

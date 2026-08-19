@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Building2, Info, X } from 'lucide-react';
 import {
@@ -23,19 +23,18 @@ import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { eventoUsuarioInvitado } from '@/lib/user-audit';
 import { MODULO_LABEL } from '@/lib/tenant-status';
 import { cn } from '@/lib/utils';
+import { cargarSectores, TRAMOS, type Sector, type Tramo } from '@/lib/perfil-normativo';
 
-const SECTORES = [
-  'Industrial',
-  'Minería',
-  'Agroindustria',
-  'Alimentos y bebidas',
-  'Gestión de residuos',
-  'Energía',
-  'Construcción',
-  'Forestal',
-  'Acuicultura',
-  'Otro',
-];
+/**
+ * El sector se elige del catálogo CIIU, no de una lista escrita aquí.
+ *
+ * Antes eran diez etiquetas inventadas en este archivo —'Industrial',
+ * 'Minería', 'Otro'— y el valor viajaba a `business_activity`, un texto libre.
+ * Se veía bien y no servía para nada: **las normas están clasificadas contra
+ * `sectors`**, así que ninguna de esas diez podía decidir qué le aplica a la
+ * empresa. Una empresa creada con 'Minería' quedaba sin normativa igual que
+ * una creada sin sector.
+ */
 
 /** Duración de un contrato anual. La demo usa `DIAS_DEMO_POR_DEFECTO`. */
 const DIAS_CONTRATO_ANUAL = 365;
@@ -73,7 +72,9 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
   const [nombre, setNombre] = useState('');
   const [pais, setPais] = useState<Pais>('CL');
   const [numeroIdentificacion, setNumeroIdentificacion] = useState('');
-  const [sector, setSector] = useState(SECTORES[0]!);
+  const [sectores, setSectores] = useState<Sector[]>([]);
+  const [sectorId, setSectorId] = useState<number | null>(null);
+  const [tramo, setTramo] = useState<Tramo | ''>('');
   const [giro, setGiro] = useState('');
   const [direccion, setDireccion] = useState('');
   const [sitioWeb, setSitioWeb] = useState('');
@@ -118,11 +119,19 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
     setModulos((prev) => (prev.includes(modulo) ? prev.filter((m) => m !== modulo) : [...prev, modulo]));
   }
 
+  // Se pide al abrir, no al montar: el modal vive en la pantalla de gestion y
+  // la mayoria de las visitas no crean ninguna empresa. `cargarSectores`
+  // cachea, asi que abrirlo dos veces no vuelve a pedirlo.
+  useEffect(() => {
+    if (open) void cargarSectores().then(setSectores);
+  }, [open]);
+
   function resetForm() {
     setNombre('');
     setPais('CL');
     setNumeroIdentificacion('');
-    setSector(SECTORES[0]!);
+    setSectorId(null);
+    setTramo('');
     setGiro('');
     setDireccion('');
     setSitioWeb('');
@@ -154,6 +163,11 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
     if (Number(diasVigencia) <= 0) next.diasVigencia = 'La vigencia debe ser mayor a 0 días.';
     if (Number(limiteUsuarios) <= 0) next.limiteUsuarios = 'El límite debe ser al menos 1.';
     if (modulos.length === 0) next.modulos = 'Habilita al menos un módulo.';
+    // Sin sector la empresa se crea igual, pero su matriz no puede proponer
+    // nada: queda en `sin_perfil`. Se exige aca, en el alta, porque completarlo
+    // despues significa que alguien tiene que darse cuenta de que falta.
+    if (!sectorId) next.sectorId = 'Elige el sector: sin él no se puede proponer normativa.';
+    if (!tramo) next.tramo = 'Elige el tramo por tamaño.';
 
     setErrors(next);
     if (Object.keys(next).length > 0) return;
@@ -162,7 +176,12 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
       nombre: nombre.trim(),
       pais,
       numeroIdentificacion: numeroIdentificacion.trim(),
-      sector,
+      // `sector` sigue siendo el texto que se muestra en la ficha; el que
+      // decide la normativa es `sectorId`. Se guarda el nombre del sector
+      // elegido para que ambos digan lo mismo en vez de divergir.
+      sector: sectores.find((x) => x.id === sectorId)?.nombre ?? '',
+      sectorId: sectorId ?? undefined,
+      tramo: tramo || undefined,
       giro: giro.trim() || undefined,
       direccion: direccion.trim() || undefined,
       sitioWeb: sitioWeb.trim() || undefined,
@@ -285,16 +304,47 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <FormField label="Sector" htmlFor={`${formId}-sector`} required>
+                    <FormField
+                      label="Sector económico"
+                      htmlFor={`${formId}-sector`}
+                      hint="Decide qué normativa se le propone"
+                      error={errors.sectorId}
+                      required
+                    >
                       <select
                         id={`${formId}-sector`}
                         className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-                        value={sector}
-                        onChange={(e) => setSector(e.target.value)}
+                        value={sectorId ?? ''}
+                        onChange={(e) => setSectorId(e.target.value ? Number(e.target.value) : null)}
                       >
-                        {SECTORES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
+                        <option value="">
+                          {sectores.length === 0 ? 'Cargando sectores…' : 'Selecciona un sector'}
+                        </option>
+                        {sectores.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.codigo} — {s.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+
+                    <FormField
+                      label="Tamaño"
+                      htmlFor={`${formId}-tramo`}
+                      hint="Afina la normativa recomendada"
+                      error={errors.tramo}
+                      required
+                    >
+                      <select
+                        id={`${formId}-tramo`}
+                        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                        value={tramo}
+                        onChange={(e) => setTramo(e.target.value as Tramo | '')}
+                      >
+                        <option value="">Selecciona un tramo</option>
+                        {TRAMOS.map((t) => (
+                          <option key={t.valor} value={t.valor}>
+                            {t.label} ({t.detalle})
                           </option>
                         ))}
                       </select>

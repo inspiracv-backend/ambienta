@@ -325,3 +325,33 @@ class NormSectorWrite(BaseModel):
         default=None,
         description="Acota la clasificacion a un articulo, cuando solo parte de la norma aplica",
     )
+
+
+# ── Cobertura de la clasificacion normativa (7.2) ─────────────────────────
+
+class CoberturaDeSectorRead(BaseModel):
+    sector_id: int
+    codigo: str
+    nombre: str
+    directas: int = Field(description="Obligatorias para el sector (`directa`)")
+    recomendadas: int = Field(description="`indirecta` + `referencial`: se proponen, no obligan")
+    total: int
+
+
+class CoberturaRead(BaseModel):
+    """Cuanta normativa falta clasificar, y donde.
+
+    Sin `norm_sectors` el sistema **funciona y no propone nada**: la matriz
+    responde `sector_sin_clasificar`, que se lee como un error tecnico cuando en
+    realidad es trabajo pendiente de una persona. Esto lo vuelve un numero.
+    """
+
+    normas_totales: int
+    normas_sin_clasificar: int = Field(
+        description="Normas sin ninguna fila en `norm_sectors`. Una norma con una "
+        "sola clasificacion ya fue revisada: no cuenta como pendiente"
+    )
+    sectores_sin_normativa: int = Field(
+        description="Sectores donde una empresa entraria y no recibiria nada"
+    )
+    por_sector: list[CoberturaDeSectorRead]

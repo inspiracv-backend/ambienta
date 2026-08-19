@@ -112,6 +112,10 @@ export const PLATFORM_NAV_ITEMS: readonly NavItem[] = [
   // Contraparte de "Usuarios y Roles": esa administra la gente de una empresa,
   // esta la del equipo de Ambienta.
   { label: 'Equipo de plataforma', href: '/equipo', icon: Users, roles: ['superadmin'], enabled: true },
+  // Clasificar normativa es ambito plataforma, no de una empresa: `norm_sectors`
+  // no lleva `tenant_id`, asi que una clasificacion errada se propaga a TODAS
+  // las empresas del sector. Por eso vive aca y no en el catalogo normativo.
+  { label: 'Clasificación normativa', href: '/clasificacion-normativa', icon: BookMarked, roles: ['superadmin'], enabled: true },
   { label: 'Soporte', href: '/soporte', icon: LifeBuoy, roles: ['superadmin'], enabled: true },
   { label: 'Chatbot', href: '/chatbot', icon: Bot, roles: ['superadmin'], enabled: true },
   { label: 'Historial', href: '/historial', icon: History, roles: ['superadmin'], enabled: true },
@@ -140,7 +144,13 @@ const TENANT_SCOPED_PREFIXES = [
 ] as const;
 
 /** Rutas del ámbito plataforma: solo el Superadmin. */
-const PLATFORM_SCOPED_PREFIXES = ['/plataforma', '/gestion-tenants', '/equipo', '/soporte'] as const;
+const PLATFORM_SCOPED_PREFIXES = [
+  '/plataforma',
+  '/gestion-tenants',
+  '/equipo',
+  '/soporte',
+  '/clasificacion-normativa',
+] as const;
 
 export function esRutaDeTenant(pathname: string): boolean {
   return TENANT_SCOPED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

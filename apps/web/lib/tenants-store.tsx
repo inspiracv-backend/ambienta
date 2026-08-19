@@ -21,12 +21,22 @@ import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { MODULO_LABEL } from '@/lib/tenant-status';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
+import { leerTramo, type Tramo } from '@/lib/perfil-normativo';
 
 export interface NuevoTenantInput {
   nombre: string;
   pais: Pais;
   numeroIdentificacion: string;
   sector: string;
+  /**
+   * Sector CIIU. **Es lo que decide que normativa le aplica** a la empresa.
+   *
+   * Distinto de `sector`, que es texto libre y describe el giro. Sin este
+   * campo la matriz no puede proponer nada: queda en `sin_perfil`.
+   */
+  sectorId?: number;
+  /** Tramo por tamano. Afina la normativa recomendada. */
+  tramo?: Tramo;
   giro?: string;
   direccion?: string;
   sitioWeb?: string;
@@ -78,6 +88,10 @@ function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
       identificacion: { tipo: 'RUT', numero: String(raw.rut_tax_id ?? '') },
       pais: 'CL' as Pais,
       sector: String(raw.business_activity ?? ''),
+      // Los dos lados del viaje. Mapear solo la escritura daria un "guardado"
+      // que se deshace al recargar — es el error que ya costo `limiteUsuarios`.
+      sectorId: raw.sector_id == null ? undefined : Number(raw.sector_id),
+      tramo: leerTramo(raw.size_bracket) ?? undefined,
       giro: raw.business_activity ? String(raw.business_activity) : undefined,
       direccion: undefined,
       estado: raw.status === 'active' ? 'activo' : raw.status === 'suspended' ? 'suspendido' : 'activo',
@@ -173,6 +187,8 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
       identificacion: { tipo: documentoDePais(input.pais), numero: input.numeroIdentificacion },
       pais: input.pais,
       sector: input.sector,
+      sectorId: input.sectorId,
+      tramo: input.tramo,
       giro: input.giro,
       direccion: input.direccion,
       sitioWeb: input.sitioWeb,
@@ -195,13 +211,37 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     setTenants((prev) => [...prev, nuevo]);
 
-    api.post('/tenants/', {
-      legal_name: input.nombre,
-      rut_tax_id: input.numeroIdentificacion,
-      tenant_type: input.esGestor ? 'manager' : 'company',
-      business_activity: input.sector,
-      country_id: 1,
-    }).catch(() => {});
+    api
+      .post<Record<string, unknown>>('/tenants/', {
+        legal_name: input.nombre,
+        rut_tax_id: input.numeroIdentificacion,
+        tenant_type: input.esGestor ? 'manager' : 'company',
+        business_activity: input.sector,
+        sector_id: input.sectorId ?? null,
+        size_bracket: input.tramo ?? null,
+        country_id: 1,
+      })
+      .then((creado) => {
+        // **El id local es inventado.** Sin reconciliarlo, la fila que quedaba
+        // en pantalla apuntaba a `tenant-1723...`, que no existe en la base:
+        // cualquier accion posterior sobre la empresa recien creada —cambiar
+        // su plan, agregarle una planta— iba a un id inexistente y fallaba sin
+        // explicacion. Se reemplaza por el que devuelve la API.
+        const real = mapApiTenant(creado);
+        if (real) setTenants((prev) => prev.map((t) => (t.id === nuevo.id ? real : t)));
+      })
+      .catch((error) => {
+        // Antes esto era `.catch(() => {})`: la empresa quedaba en la lista
+        // como si existiera y desaparecia al recargar, sin que nadie supiera
+        // por que. Es el mismo silencio que escondio que el alta de no
+        // conformidades nunca habia funcionado.
+        setTenants((prev) => prev.filter((t) => t.id !== nuevo.id));
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo crear la empresa',
+          descripcion: mensajeDeError(error),
+        });
+      });
 
     registrar({
       entidadTipo: 'tenant',

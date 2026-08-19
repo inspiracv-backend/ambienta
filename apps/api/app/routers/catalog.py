@@ -16,6 +16,8 @@ from ..models.organization import User
 from ..auth import CurrentUser
 from ..deps import exigir_admin_global, get_db
 from ..schemas.catalog import (
+    CoberturaDeSectorRead,
+    CoberturaRead,
     CountryRead,
     LegalArticleRead,
     LegalNormCreate,
@@ -30,6 +32,7 @@ from ..schemas.catalog import (
     SectorRead,
     SectorUpdate,
 )
+from ..services.cobertura_clasificacion import calcular as calcular_cobertura
 from ._comun import borrar_o_404, obtener_o_404
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -133,6 +136,42 @@ def list_norm_articles(norm_id: UUID, db: Session = Depends(get_db)):
 # trabajo. **Escribir exige Admin Global**, porque `norm_sectors` no lleva
 # `tenant_id`: una clasificacion errada se propaga a TODAS las empresas de ese
 # sector, no solo a la de quien la escribio.
+
+
+@router.get("/clasificacion/cobertura", response_model=CoberturaRead)
+def cobertura_de_la_clasificacion(db: Session = Depends(get_db)):
+    """Cuanta normativa falta clasificar, y en que sectores.
+
+    Todo el mecanismo de normativa aplicable descansa en `norm_sectors`: una
+    norma sin clasificar no le llega a ninguna empresa. Como la tabla nace
+    vacia, el sistema **funciona y no propone nada**, y la unica senal es que la
+    matriz responde `sector_sin_clasificar`.
+
+    Se listan **todos** los sectores, incluidos los que estan en cero. Son los
+    que importan: un sector ausente de la lista se lee como "no existe", y uno
+    en cero se lee como "aca falta trabajo", que es lo cierto.
+
+    Leer no exige nada: saber que falta clasificar es informacion de trabajo.
+    Clasificar si exige Admin Global, porque `norm_sectors` no lleva
+    `tenant_id` y un error se propaga a todas las empresas del sector.
+    """
+    c = calcular_cobertura(db)
+    return CoberturaRead(
+        normas_totales=c.normas_totales,
+        normas_sin_clasificar=c.normas_sin_clasificar,
+        sectores_sin_normativa=c.sectores_sin_normativa,
+        por_sector=[
+            CoberturaDeSectorRead(
+                sector_id=s.sector_id,
+                codigo=s.codigo,
+                nombre=s.nombre,
+                directas=s.directas,
+                recomendadas=s.recomendadas,
+                total=s.total,
+            )
+            for s in c.por_sector
+        ],
+    )
 
 
 @router.get("/norms/{norm_id}/sectors", response_model=list[NormSectorRead])
