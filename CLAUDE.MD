@@ -194,20 +194,28 @@ No hace falta cuenta de Clerk: sin `CLERK_JWKS_URL` la API acepta el header
 
 ## Estado del proyecto
 
-**Actualizado 17-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
+**Actualizado 19-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
 de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 
 | Area | Estado |
 |---|---|
 | Base de datos | **Completa y verificada.** 52 tablas, 38 con RLS, 9 smoke tests en verde |
-| API | **96 rutas, 212 operaciones.** Swagger con titulo y explicacion en las 206 de negocio. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
+| API | **107 rutas, 223 operaciones.** Swagger con titulo y explicacion en **las 221 de negocio, sin excepciones**. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
 | Auth — Google SSO | **Verificado en local el 17-ago.** Entrada con `oauth_google`, el claim `tenant_id` viaja y la API responde 200. **Falta para produccion:** credenciales propias (hoy usa las compartidas de Clerk) y el webhook. Ver abajo |
 | Auth — Microsoft SSO | **Sin configurar.** Exige registro en Entra ID, y ahi el tipo de cuenta tiene que ser *cualquier directorio + cuentas personales*: con "solo este directorio" ningun cliente puede entrar |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
-| Frontend — escrituras | **70 %.** 26 de 37 acciones llegan a la base. Las 11 restantes tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
+| Frontend — escrituras | **74 %.** 29 de 39 acciones llegan a la base. Las 10 restantes tienen causa documentada en su propio docstring. El conteo anterior (26 de 37) estaba mal por dentro: decia 10 pendientes y listaba 11 — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
+| Normativa aplicable | **Funcionando de punta a punta.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas con el motivo de cada una, y sincronizar la matriz agrega sin borrar. **Bloqueado por datos, no por codigo:** `norm_sectors` esta vacia — ver abajo |
 | worker · ai-service | Sin implementar |
+
+**El CORE funciona y no propone nada, porque `norm_sectors` esta vacia.** Nadie
+ha clasificado ninguna norma contra ningun sector, asi que toda empresa recibe
+`sector_sin_clasificar` y su matriz queda vacia. **Es trabajo de negocio, no un
+bug**, y se lee mal: el estado parece un error tecnico. La pantalla
+`/clasificacion-normativa` (solo Superadmin) lo convierte en un numero visible:
+cuantas normas no miro nadie y que sectores estan en cero.
 
 **Lo que hay que saber al tomar el repo:** conectar una escritura **no es
 agregar un `PATCH`**. Es un viaje de ida y vuelta, y hacer solo un lado engana
@@ -256,8 +264,18 @@ e `is_active`, columnas que no existen, sin que nada lo detectara. **Contrastar
 contra `db/01_schema.sql` y los modelos antes de escribir cualquier mapeo.**
 
 **Los tests pueden ser vacuos.** Romper a proposito lo que un test dice
-proteger y confirmar que falla. Se hizo con las dos propiedades de seguridad de
-Clerk y con la del webhook.
+proteger y confirmar que falla. Es rutina en este repo y sigue encontrando
+cosas: una prueba del historial afirmaba `Array.isArray(...)` —que pasa con
+cualquier cosa— y al escribirla de verdad aparecio que sin sesion
+`useRegistrarAuditoria` sale temprano, asi que comprobaba un no-op.
+
+**Los medidores tambien pueden mentir, y es peor.** Un test falso falla una vez;
+un numero falso se cita despues como un hecho. Ya paso con el "62 % conectado"
+que era 57 %, con la cobertura de Swagger que reporto 206 titulos derivados
+cuando eran 0, y con tres versiones seguidas de un script que conto las
+escrituras del frontend y dio tres cifras distintas y falsas. **Un medidor nuevo
+tiene que reproducir casos ya verificados a mano antes de que se publique su
+resultado.**
 
 **El aislamiento falla en silencio, pero ahora falla cerrado.** Un endpoint
 escrito con `get_db` en vez de `get_tenant_db`, o una consulta puesta despues
@@ -271,8 +289,15 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 84 funciones de prueba, 10 archivos
-cd apps/web && npx vitest run           # 190 tests
+cd apps/api && python -m pytest         # 233 pruebas, 22 archivos
+cd apps/web && npx vitest run           # 292 pruebas, 24 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
+```
+
+`db/run.sh` necesita `psql` en el PATH del host. Sin el, las mismas
+comprobaciones corren dentro del contenedor:
+
+```bash
+docker compose exec -T postgres psql -U ambienta -d ambienta -v ON_ERROR_STOP=1 -f /dev/stdin < db/02_smoke_test.sql
 ```
 

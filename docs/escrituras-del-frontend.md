@@ -1,7 +1,16 @@
 # Escrituras del frontend: qué llega a la base y qué no
 
-**13-ago-2026.** Medido acción por acción sobre las funciones que mutan estado
-en los 12 stores, cruzado con el contrato OpenAPI y con los mappers de lectura.
+**19-ago-2026.** Medido con un script que **se valida contra ocho casos
+comprobados a mano antes de imprimir ningún total**: si no los reproduce, no
+publica nada.
+
+Esa guarda no es ceremonia. Las tres primeras versiones del medidor dieron tres
+números distintos y los tres falsos — cortaban el cuerpo de la función en la
+primera llave anidada, perdían la llamada partida en dos líneas (`api` y
+`.post(...)`) por buscar la cadena literal `api.`, y confundían la llave de un
+tipo de parámetro con la del cuerpo de la función. Un medidor que no se puede
+verificar es peor que no medir, porque su número se cita después como si fuera
+un hecho.
 
 ---
 
@@ -9,14 +18,30 @@ en los 12 stores, cruzado con el contrato OpenAPI y con los mappers de lectura.
 
 | | Acciones |
 |---|---|
-| Llegan a la base | **27** |
+| Llegan a la base | **29** |
 | Solo estado local | 10 |
-| **Total** | **37** |
+| **Total** | **39** |
 
-**73 % conectado.** Antes de esta tanda era 62 % — pero ese 62 % estaba
-inflado.
+**74 % conectado.**
 
-### Dos de las que se contaban como conectadas no llegaban
+### Dos correcciones al conteo anterior, que decía 27 de 37
+
+No es que se hayan conectado dos acciones más: **el conteo anterior estaba mal
+por dentro**. Su encabezado decía 10 acciones sin conectar y su propia tabla
+listaba 11.
+
+- **`tenants.completarPerfilEmpresa` ya estaba conectada.** Figuraba bajo
+  "Necesita una decisión" porque `TenantUpdate` no aceptaba `rut_tax_id`. Esa
+  decisión se tomó y el campo se agregó —está documentado en el docstring de
+  `TenantUpdate`— pero nadie volvió a la tabla. Hoy manda giro y RUT, revierte
+  si la API responde 403 y avisa.
+- **`legal-matrix` tiene 4 acciones, no 3.** Se contaba 3 de 3 y se declaraba
+  "cerrada" mientras `addNorm` seguía sin conectar, en la misma página.
+
+Es el mismo patrón que este documento ya describe en otro lado: un número que
+se ve mejor de lo que está, y que nadie vuelve a medir porque se ve bien.
+
+### Antes de esta tanda ya se había corregido otra sobreestimación
 
 Se contaba "manda un `POST`" como "llega a la base". No es lo mismo, y la
 diferencia no se ve leyendo el código:
@@ -30,21 +55,33 @@ diferencia no se ve leyendo el código:
   CHECK. Existe `/nonconformities/{id}/close`, que además rechaza el cierre si
   quedan planes de acción abiertos.
 
-**El número real antes de esta tanda era 21 de 37, no 23.** Una escritura que
-manda una petición que la base rechaza es indistinguible de una que no manda
-nada — salvo que da más confianza, que es peor.
+Una escritura que manda una petición que la base rechaza es indistinguible de
+una que no manda nada — salvo que da más confianza, que es peor.
+
+### Y `createTenant` engañaba de una tercera forma
+
+El `POST` salía y la fila se creaba, así que cualquier medición la daba por
+conectada. Pero el store insertaba la empresa en pantalla con un id inventado
+—`tenant-${Date.now()}`— y **nunca lo reconciliaba con el que devolvía la API**.
+La empresa recién creada apuntaba a una fila inexistente: cambiarle el plan o
+agregarle una planta fallaba sin explicación. Y si la API rechazaba el alta,
+`.catch(() => {})` la dejaba en la lista como si existiera hasta la próxima
+recarga.
+
+**Escribir bien no es solo que la petición salga.** Es que lo que queda en
+pantalla corresponda a lo que quedó en la base.
 
 | Store | Conectadas |
 |---|---|
-| `obligations` | 3 / 3 |
-| `tenants` | 7 / 8 |
-| `users` | 5 / 8 |
+| `tenants` | **9 / 9** |
 | `audits` | **4 / 4** |
+| `obligations` | **3 / 3** |
+| `users` | 5 / 8 |
+| `legal-matrix` | 3 / 4 |
 | `support-tickets` | 2 / 4 |
 | `departamentos` | 1 / 2 |
 | `notifications` | 1 / 2 |
 | `plan-accion` | 1 / 2 |
-| `legal-matrix` | **3 / 3** |
 | `gestores` | 0 / 1 |
 
 ---
@@ -94,7 +131,7 @@ arreglarla.
 | Acción | Causa |
 |---|---|
 | `users.updatePlants` | **Desacuerdo de modelo.** El único vínculo es `user_roles.facility_id`, y su PK `(user_id, role_id)` admite **una** planta por rol. La pantalla modela `plantIds` en plural |
-| `users.updatePermisos` | `user_permissions` existe como tabla, sin API. Depende de RBAC (0 de 33 tareas) |
+| `users.updatePermisos` | `user_permissions` existe como tabla. **El RBAC ya funciona en la API** —permiso efectivo, guarda derivada de la ruta, rol `servicio_lectura`— pero falta el endpoint que administre las excepciones por usuario, y la pantalla que lo consuma |
 | `users.updateDescriptorCargo` | `UserUpdate` no acepta ese campo |
 | `support.setVisibilidad` | `SupportTicketUpdate` acepta `status`, `priority` y `assigned_to`. No hay visibilidad por ticket |
 | `notifications.updatePreferences` | No hay tabla ni endpoint de preferencias por usuario. `rules` y `templates` son configuración de empresa |
@@ -109,11 +146,11 @@ arreglarla.
 | `support.addCorreccion` | Ya no está bloqueada por las no conformidades: ahora depende de que el ticket modele la corrección |
 | `gestores.addContrato` | `client_tenant_id` sale de datos de ejemplo: la sub-tenancy no existe |
 
-### Necesita una decisión
+### Resueltas, que estaban listadas como pendientes
 
-| Acción | Decisión pendiente |
+| Acción | Cómo se resolvió |
 |---|---|
-| `tenants.completarPerfilEmpresa` | El perfil se considera completo con giro **y RUT**, y `TenantUpdate` no acepta `rut_tax_id`. ¿Se vuelve editable, o el perfil se completa por otro camino? |
+| ~~`tenants.completarPerfilEmpresa`~~ | **Ya está conectada.** La decisión —¿se vuelve editable el RUT?— se tomó: `TenantUpdate` lo acepta, y solo para el Admin Global. Manda giro y RUT, revierte si la API responde 403 y avisa. Seguía en esta tabla porque nadie volvió a mirarla |
 
 ---
 
@@ -153,8 +190,29 @@ validar; cuando alguno de esos campos se estabilice, merece columna propia.
    crea la fila si no existe y la edita si ya está.
 4. ~~**Excluir un artículo del porcentaje** (RF-24).~~ **Hecho.** Vive en
    `article_compliance.attributes`, con esquema declarado en `packages/shared`.
-   **La matriz legal quedó cerrada: 3 de 3.**
-5. **Las tareas del plan de acción** necesitan modelo propio: es migración,
+   Queda `addNorm`: la matriz legal está en **3 de 4**, no cerrada como decía
+   antes esta línea.
+5. ~~**El perfil normativo de la empresa.**~~ **Hecho.** El alta pide sector
+   CIIU y tramo, y `updatePerfilNormativo` deja declararlos en una empresa ya
+   creada. Sin esa segunda acción toda empresa anterior quedaba en `sin_perfil`
+   para siempre: el sistema decía correctamente que faltaba el dato y no
+   ofrecía ningún camino para completarlo.
+6. **Las tareas del plan de acción** necesitan modelo propio: es migración,
    endpoints y pantalla. Ya está decidido que van como entidad, no como lista
    dentro del plan.
-6. Lo demás depende de decisiones del equipo o de modelo nuevo.
+7. Lo demás depende de decisiones del equipo o de modelo nuevo.
+
+---
+
+## Cómo se volvió a medir
+
+El script vive en el scratchpad, no en el repo, porque **lo que importa no es la
+herramienta sino la disciplina**: cuenta las acciones declaradas en cada
+`ContextValue`, delimita el cuerpo de cada una contando llaves, y sigue **un
+nivel de delegación** —`setIncluidoEnCalculo` no llama a la API: llama a
+`guardarInclusion`, que sí—.
+
+Antes de imprimir cualquier total comprueba ocho acciones cuyo estado real está
+verificado leyendo el código. Si falla una sola, no publica nada. Las tres
+versiones anteriores del script habrían pasado ese filtro en cero casos, y las
+tres estaban a punto de escribir un número en este documento.
