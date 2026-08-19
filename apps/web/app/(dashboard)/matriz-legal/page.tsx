@@ -5,7 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Settings2 } from 'lucide-react';
 import { Spinner } from '@/components/atoms';
-import { LegalMatrixTable } from '@/components/organisms';
+import {
+  AvisoNormasDesactualizadas,
+  CheckNormativaAplicable,
+  LegalMatrixTable,
+} from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
 import { useTenants } from '@/lib/tenants-store';
@@ -59,7 +63,22 @@ export default function MatrizLegalPage() {
         </Link>
       </div>
 
+      {/* Antes de la matriz: que normas cambiaron de version desde que se
+          evaluaron. Va arriba porque cambia como se lee lo que hay debajo. */}
+      <AvisoNormasDesactualizadas />
+
       <LegalMatrixTable norms={visibleNorms} plants={scopedPlants} />
+
+      <section className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Normativa aplicable a la empresa</h2>
+          <p className="text-sm text-slate-500">
+            Lo que le corresponde segun su sector y tamano. Es una propuesta para revisar: nada de
+            esto entra a la matriz hasta que alguien lo decida.
+          </p>
+        </div>
+        <CheckNormativaAplicable />
+      </section>
     </div>
   );
 }
