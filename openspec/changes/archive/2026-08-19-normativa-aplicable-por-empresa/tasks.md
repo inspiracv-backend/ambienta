@@ -90,7 +90,7 @@ Ninguna de las dos cambia el modelo; se pueden responder mientras se construye:
 
 ## 8. Cierre
 
-- [ ] 8.1 Actualizar `docs/escrituras-del-frontend.md` con las acciones nuevas
-- [ ] 8.2 Actualizar el estado en `CLAUDE.md`
-- [ ] 8.3 Verificar: `python -m pytest`, `npx vitest run`, `bash db/run.sh --with-tests`
-- [ ] 8.4 Archivar el cambio
+- [x] 8.1 Actualizar `docs/escrituras-del-frontend.md` con las acciones nuevas
+- [x] 8.2 Actualizar el estado en `CLAUDE.md`
+- [x] 8.3 Verificar: `python -m pytest`, `npx vitest run`, `bash db/run.sh --with-tests`
+- [x] 8.4 Archivar el cambio
