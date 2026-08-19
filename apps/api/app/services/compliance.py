@@ -4,60 +4,51 @@ from uuid import UUID
 from sqlalchemy import select, and_, func
 from sqlalchemy.orm import Session
 
-from ..models.compliance import ArticleCompliance, MatrixNorm, TenantLegalMatrix
+from ..models.compliance import ArticleCompliance, TenantLegalMatrix
 from ..models.catalog import FacilityNormAssignment
+from .resumen_cumplimiento import resumir
 
 
 def get_compliance_stats(db: Session, matrix_id: UUID) -> dict:
+    """Los totales de la matriz. **El calculo vive en `resumen_cumplimiento`.**
+
+    Antes contaba aparte, y contaba mal en dos formas:
+
+    - **Ignoraba `attributes.incluidoEnCalculo`** (RF-24), asi que excluir un
+      articulo en la pantalla no movia el porcentaje. La funcionalidad existia y
+      no hacia nada.
+    - Metia `partial`, `not_applicable` y `pending` en la misma bolsa
+      (`not_evaluated`), que son tres cosas distintas: cumplir a medias, no
+      tener la obligacion, y no haber mirado todavia.
+
+    Delega en `resumir()` en vez de arreglar la copia: dos calculos del mismo
+    numero se desincronizan sin que nadie lo note, y quien mire el que este mal
+    no tiene forma de saber cual era.
+
+    `compliance_percentage` puede ser **`None`**: sin articulos que medir no es
+    0 % —que significaria "no cumple nada"— sino que todavia no hay nada que
+    medir.
+    """
     matrix = db.get(TenantLegalMatrix, matrix_id)
     if not matrix:
         raise ValueError("Matrix not found")
 
-    norms = db.scalars(
-        select(MatrixNorm).where(
-            and_(
-                MatrixNorm.matrix_id == matrix_id,
-                MatrixNorm.deleted_at.is_(None),
-            )
-        )
-    ).all()
-
-    total_articles = 0
-    compliant = 0
-    non_compliant = 0
-    not_evaluated = 0
-
-    for norm in norms:
-        articles = db.scalars(
-            select(ArticleCompliance).where(
-                and_(
-                    ArticleCompliance.matrix_norm_id == norm.id,
-                    ArticleCompliance.deleted_at.is_(None),
-                )
-            )
-        ).all()
-
-        for art in articles:
-            total_articles += 1
-            if art.compliance_status == "compliant":
-                compliant += 1
-            elif art.compliance_status == "non_compliant":
-                non_compliant += 1
-            else:
-                not_evaluated += 1
-
-    pct = round((compliant / total_articles * 100), 1) if total_articles > 0 else 0.0
+    r = resumir(db, matrix_id)
+    c = r.total
 
     return {
         "matrix_id": str(matrix_id),
         "period_year": matrix.period_year,
         "status": matrix.status,
-        "total_norms": len(norms),
-        "total_articles": total_articles,
-        "compliant": compliant,
-        "non_compliant": non_compliant,
-        "not_evaluated": not_evaluated,
-        "compliance_percentage": pct,
+        "total_norms": len(r.por_norma),
+        "total_articles": c.evaluables + c.no_aplican + c.excluidos,
+        "compliant": c.cumplen,
+        "non_compliant": c.no_cumplen,
+        "not_evaluated": c.sin_evaluar,
+        "not_applicable": c.no_aplican,
+        "excluded": c.excluidos,
+        "evaluable_articles": c.evaluables,
+        "compliance_percentage": c.porcentaje,
     }
 
 

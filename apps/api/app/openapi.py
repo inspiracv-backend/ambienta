@@ -380,6 +380,13 @@ _ACCIONES: dict[str, tuple[str, str]] = {
         "oficial; despues de enviarla no se edita.",
     ),
     "stats": ("Obtener estadisticas", "Conteos agregados, calculados en la base y no en el cliente."),
+    "resumen": (
+        "Obtener el resumen de cumplimiento",
+        "Desglose por norma y por instalacion. El denominador son los articulos "
+        "que la empresa debe cumplir: no entran los excluidos del calculo "
+        "(RF-24) ni los marcados como no aplicables. Un articulo parcial cuenta "
+        "como no cumplido. Sin nada que medir el porcentaje es `null`, no cero.",
+    ),
     "summary": ("Obtener el resumen", "Vista agregada del estado actual, lista para mostrar."),
     "metrics": (
         "Obtener las metricas del tablero",

@@ -198,3 +198,48 @@ class NormaDesactualizadaRead(BaseModel):
     version_evaluada: UUID
     version_vigente: UUID
     evaluaciones_sobre_la_anterior: int
+
+
+# ── Resumen de cumplimiento (#109) ────────────────────────────────────────
+
+class ConteoRead(BaseModel):
+    """Como esta repartido un grupo de articulos.
+
+    `porcentaje` es **`None`, no cero**, cuando no hay nada que medir. Cero
+    significa "no cumple nada"; `None` significa "todavia no hay obligaciones
+    que evaluar". Mostrar 0 % a una empresa recien creada seria una acusacion
+    falsa.
+    """
+
+    cumplen: int
+    no_cumplen: int
+    sin_evaluar: int
+    no_aplican: int
+    excluidos: int
+    evaluables: int = Field(
+        description="El denominador: lo que la empresa debe cumplir. No incluye "
+        "los excluidos del calculo (RF-24) ni los marcados como no aplicables"
+    )
+    porcentaje: float | None
+
+
+class ResumenPorNormaRead(BaseModel):
+    norm_id: UUID
+    matrix_norm_id: UUID
+    title: str
+    applicability: str
+    conteo: ConteoRead
+
+
+class ResumenPorInstalacionRead(BaseModel):
+    facility_id: UUID | None = Field(
+        default=None, description="`null` = evaluado a nivel empresa, sin planta concreta"
+    )
+    nombre: str
+    conteo: ConteoRead
+
+
+class ResumenDeMatrizRead(BaseModel):
+    total: ConteoRead
+    por_norma: list[ResumenPorNormaRead]
+    por_instalacion: list[ResumenPorInstalacionRead]
