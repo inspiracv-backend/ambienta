@@ -206,7 +206,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Auth — Microsoft SSO | **Sin configurar.** Exige registro en Entra ID, y ahi el tipo de cuenta tiene que ser *cualquier directorio + cuentas personales*: con "solo este directorio" ningun cliente puede entrar |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **70 %.** 26 de 37 acciones llegan a la base. Las 11 restantes tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
-| RBAC | **Sin empezar.** 0 de 33 tareas |
+| RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
 | worker · ai-service | Sin implementar |
 
 **Lo que hay que saber al tomar el repo:** conectar una escritura **no es

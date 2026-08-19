@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import check_database
 from .errores import manejar_error_de_integridad
-from .deps import get_admin_db
+from .deps import exigir_permiso_de_la_ruta, get_admin_db
 from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .routers import (
     audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
@@ -38,6 +38,17 @@ app = FastAPI(
     description=DESCRIPCION,
     openapi_tags=TAGS_METADATA,
 )
+
+# ── Guarda de permisos, una sola vez para toda la API ─────────────────────
+#
+# Va aca y no endpoint por endpoint porque son mas de 150 escrituras: ponerlo a
+# mano es una decision que se puede olvidar, y **olvidarla no falla** — deja el
+# endpoint abierto y nadie se entera. Es el mismo motivo por el que el 401 y el
+# 404 del contrato OpenAPI se derivan de la ruta en vez de escribirse.
+#
+# Que permiso exige cada ruta lo decide `permisos_de_rutas.py`. Las rutas sin
+# sesion —`/health`, el webhook de Clerk— quedan fuera porque su raiz esta
+# declarada como exenta, no porque la guarda las saltee por accidente.
 
 # El contrato se arma en `openapi.py`: FastAPI describe los caminos felices y
 # calla los errores, y un contrato que no dice como falla obliga a descubrirlo
@@ -81,26 +92,29 @@ def health_db(response: Response, db: Session = Depends(get_admin_db)) -> dict:
 api_v1_prefix = "/api/v1"
 # Sin dependencia de auth a proposito: quien llama es Clerk, no un usuario con
 # sesion, y la autenticidad se comprueba con la firma HMAC del payload.
+# El webhook NO lleva la guarda: quien llama es Clerk, no un usuario. No hay
+# sesion de la cual sacar permisos, y colgarsela lo haria fallar con 401
+# antes siquiera de verificar la firma HMAC.
 app.include_router(webhooks.router, prefix=api_v1_prefix)
-app.include_router(dashboard.router, prefix=api_v1_prefix)
-app.include_router(tenants.router, prefix=api_v1_prefix)
-app.include_router(facilities.router, prefix=api_v1_prefix)
-app.include_router(contratos.router, prefix=api_v1_prefix)
-app.include_router(users.router, prefix=api_v1_prefix)
-app.include_router(departments.router, prefix=api_v1_prefix)
-app.include_router(processes.router, prefix=api_v1_prefix)
-app.include_router(integraciones.router, prefix=api_v1_prefix)
-app.include_router(obligations.router, prefix=api_v1_prefix)
-app.include_router(declaraciones.router, prefix=api_v1_prefix)
-app.include_router(plantillas.router, prefix=api_v1_prefix)
-app.include_router(audits.router, prefix=api_v1_prefix)
-app.include_router(catalog.router, prefix=api_v1_prefix)
-app.include_router(compliance.router, prefix=api_v1_prefix)
-app.include_router(documents.router, prefix=api_v1_prefix)
+app.include_router(dashboard.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(tenants.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(facilities.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(contratos.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(users.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(departments.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(processes.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(integraciones.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(obligations.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(declaraciones.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(plantillas.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(audits.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(catalog.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(compliance.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(documents.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(iso14001.router, prefix=api_v1_prefix)
-app.include_router(notifications.router, prefix=api_v1_prefix)
-app.include_router(support.router, prefix=api_v1_prefix)
-app.include_router(system.router, prefix=api_v1_prefix)
+app.include_router(notifications.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(support.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(system.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 
 
 @app.get("/api/v1", tags=["meta"])
