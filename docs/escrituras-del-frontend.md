@@ -9,8 +9,8 @@ en los 12 stores, cruzado con el contrato OpenAPI y con los mappers de lectura.
 
 | | Acciones |
 |---|---|
-| Llegan a la base | **26** |
-| Solo estado local | 11 |
+| Llegan a la base | **27** |
+| Solo estado local | 10 |
 | **Total** | **37** |
 
 **70 % conectado.** Antes de esta tanda era 62 % — pero ese 62 % estaba
@@ -44,7 +44,7 @@ nada — salvo que da más confianza, que es peor.
 | `departamentos` | 1 / 2 |
 | `notifications` | 1 / 2 |
 | `plan-accion` | 1 / 2 |
-| `legal-matrix` | 2 / 3 |
+| `legal-matrix` | **3 / 3** |
 | `gestores` | 0 / 1 |
 
 ---

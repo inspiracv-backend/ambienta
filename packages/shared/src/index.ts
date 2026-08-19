@@ -1,5 +1,6 @@
 export * from './schemas/tenant';
 export * from './schemas/tenant-settings';
+export * from './schemas/evaluacion-attributes';
 export * from './schemas/user';
 export * from './schemas/obligation';
 export * from './schemas/legal-norm';

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Articulo, LegalNorm, TipoDocumento } from '@ambienta/shared';
+import { cuentaParaElCalculo, fusionarAttributes } from '@ambienta/shared';
 import { mockLegalNorms } from '@/mocks/catalog';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
@@ -112,6 +113,15 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   /** `norma` → id de esa norma **dentro de la matriz de esta empresa**. */
   const matrizNormaRef = useRef(new Map<string, string>());
 
+  /**
+   * `articulo` → los `attributes` que ya tiene guardados su evaluación.
+   *
+   * Hace falta para **fusionar** en vez de reemplazar: sin esto, escribir
+   * `incluidoEnCalculo` borraría cualquier otra clave que otra pantalla haya
+   * dejado ahí, y el destrozo solo se vería al recargar una tercera.
+   */
+  const attributesRef = useRef(new Map<string, Record<string, unknown>>());
+
   useEffect(() => {
     if (!user?.tenantId) { setLoading(false); return; }
     let cancelled = false;
@@ -176,7 +186,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
       normas: Record<string, unknown>[],
       evaluaciones: Map<
         string,
-        { ac: string; estado: string; forma?: string; responsableId?: string }
+        { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }
       >,
     ): Promise<Map<string, Articulo[]>> {
       const mapa = new Map<string, Articulo[]>();
@@ -206,7 +216,10 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
               ...(evaluacion?.responsableId
                 ? { responsableId: evaluacion.responsableId }
                 : {}),
-              incluidoEnCalculo: true,
+              // **Ausente es incluido.** Tratar "no dice nada" como excluido
+              // sacaria del calculo a todos los articulos que nadie toco —o sea
+              // casi todos— y el porcentaje quedaria sobre un punado de filas.
+              incluidoEnCalculo: cuentaParaElCalculo(evaluacion?.attributes),
             };
           }),
         );
@@ -228,7 +241,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
      * artículo.
      */
     async function evaluacionesPorArticulo(): Promise<
-      Map<string, { ac: string; estado: string; forma?: string; responsableId?: string }>
+      Map<string, { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }>
     > {
       const filas = await api
         .get<Record<string, unknown>[]>('/compliance/article-compliance', {
@@ -237,7 +250,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         .catch(() => []);
       const mapa = new Map<
         string,
-        { ac: string; estado: string; forma?: string; responsableId?: string }
+        { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }
       >();
       for (const f of filas) {
         mapa.set(String(f.article_id), {
@@ -245,7 +258,15 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
           estado: String(f.compliance_status ?? ''),
           ...(f.compliance_method ? { forma: String(f.compliance_method) } : {}),
           ...(f.responsible_user_id ? { responsableId: String(f.responsible_user_id) } : {}),
+          // Crudo a proposito: lo que se necesita al escribir es lo que ESTA
+          // guardado, para fusionar sobre eso. Normalizarlo aca perderia las
+          // claves que este esquema todavia no conoce.
+          attributes: (f.attributes ?? {}) as Record<string, unknown>,
         });
+        attributesRef.current.set(
+          String(f.article_id),
+          (f.attributes ?? {}) as Record<string, unknown>,
+        );
       }
       return mapa;
     }
@@ -462,8 +483,123 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /**
+   * Excluir o volver a incluir un artículo del porcentaje de cumplimiento
+   * (RF-24).
+   *
+   * Vive en `article_compliance.attributes`, que es un jsonb. Se **fusiona,
+   * nunca se reemplaza**: mandar el objeto entero borraría lo que escribieron
+   * otras pantallas, y el destrozo solo se vería al recargar una tercera. Es
+   * exactamente el error que ya se corrigió en `tenants.settings`.
+   *
+   * Si el artículo nunca se evaluó no hay fila que parchear, así que la
+   * primera exclusión **crea** la evaluación en estado pendiente. Excluir no es
+   * evaluar: el artículo sigue sin responder, solo deja de contar.
+   */
   function setIncluidoEnCalculo(normId: string, articuloId: string, incluido: boolean) {
-    updateArticulo(normId, articuloId, { incluidoEnCalculo: incluido });
+    const anterior = norms
+      .find((n) => n.id === normId)
+      ?.articulos.find((a) => a.id === articuloId);
+    if (!anterior) return;
+
+    setNorms((prev) =>
+      prev.map((n) =>
+        n.id !== normId
+          ? n
+          : {
+              ...n,
+              articulos: n.articulos.map((a) =>
+                a.id === articuloId ? { ...a, incluidoEnCalculo: incluido } : a,
+              ),
+            },
+      ),
+    );
+
+    registrar({
+      entidadTipo: 'norma',
+      entidadId: normId,
+      entidadLabel: norms.find((n) => n.id === normId)?.nombre ?? normId,
+      tenantId: user!.tenantId!,
+      accion: 'actualizado',
+      resumen: incluido
+        ? 'Volvió a incluir el artículo en el cálculo'
+        : 'Excluyó el artículo del cálculo',
+      cambios: [
+        {
+          campo: 'Cuenta para el porcentaje',
+          antes: anterior.incluidoEnCalculo ? 'Sí' : 'No',
+          despues: incluido ? 'Sí' : 'No',
+        },
+      ],
+    });
+
+    guardarInclusion(normId, articuloId, incluido, anterior);
+  }
+
+  function guardarInclusion(
+    normId: string,
+    articuloId: string,
+    incluido: boolean,
+    anterior: Articulo,
+  ) {
+    if (!user?.tenantId) return;
+    const opts = { tenantId: user.tenantId };
+
+    function revertir(error: unknown) {
+      setNorms((prev) =>
+        prev.map((n) =>
+          n.id !== normId
+            ? n
+            : {
+                ...n,
+                articulos: n.articulos.map((a) => (a.id === articuloId ? anterior : a)),
+              },
+        ),
+      );
+      mostrarToast({
+        tipo: 'error',
+        mensaje: 'No se pudo cambiar si el artículo cuenta para el cálculo',
+        descripcion: mensajeDeError(error),
+      });
+    }
+
+    // Ausente significa incluido, así que solo se escribe la exclusión. Guardar
+    // `true` en miles de artículos que nadie tocó sería ruido.
+    const parche = fusionarAttributes(attributesRef.current.get(articuloId), {
+      incluidoEnCalculo: incluido,
+    });
+    attributesRef.current.set(articuloId, parche);
+
+    const yaEvaluado = evaluacionRef.current.get(articuloId);
+    if (yaEvaluado) {
+      api
+        .patch(`/compliance/article-compliance/${yaEvaluado}`, { attributes: parche }, opts)
+        .catch(revertir);
+      return;
+    }
+
+    const matrixNormId = matrizNormaRef.current.get(normId);
+    if (!matrixNormId) {
+      revertir(new Error('Agregala a la matriz legal antes de configurar sus artículos.'));
+      return;
+    }
+
+    api
+      .post<Record<string, unknown>>(
+        '/compliance/article-compliance',
+        {
+          matrix_norm_id: matrixNormId,
+          article_id: articuloId,
+          // Pendiente: excluir no es evaluar. El artículo sigue sin responder.
+          compliance_status: 'pending',
+          attributes: parche,
+        },
+        opts,
+      )
+      .then((creada) => {
+        if (creada?.id) evaluacionRef.current.set(articuloId, String(creada.id));
+      })
+      .catch(revertir);
   }
 
   /**
