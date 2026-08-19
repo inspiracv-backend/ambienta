@@ -17,7 +17,11 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-from app.services.sincronizar_matriz import MOTIVO_YA_NO_APLICA, sincronizar
+from app.services.sincronizar_matriz import (
+    MOTIVO_YA_NO_APLICA,
+    desactualizadas,
+    sincronizar,
+)
 
 URL = os.getenv(
     "DATABASE_URL",
@@ -342,3 +346,87 @@ class TestSinNormativa:
 
         assert r.sin_calcular == "sin_perfil"
         assert _evaluaciones(db, matrix_id) == antes
+
+
+class TestVersionDesactualizada:
+    """Avisar que hay version nueva, sin invalidar lo evaluado (grupo 6)."""
+
+    def _version_nueva(self, db: Session, norm_id):
+        """Publica una version mas nueva y la deja como vigente."""
+        nueva = uuid.uuid4()
+        db.execute(text("UPDATE legal_norm_versions SET is_current = false WHERE norm_id = :n"),
+                   {"n": norm_id})
+        db.execute(
+            text(
+                "INSERT INTO legal_norm_versions "
+                "(id, norm_id, valid_from, is_current, content_hash) "
+                "VALUES (:i, :n, CURRENT_DATE, true, :h)"
+            ),
+            {"i": nueva, "n": norm_id, "h": uuid.uuid4().hex + uuid.uuid4().hex},
+        )
+        return nueva
+
+    def test_sin_version_nueva_no_marca_nada(self, db: Session) -> None:
+        matrix_id, _, _ = _preparar(db)
+        sincronizar(db, matrix_id, TENANT)
+
+        assert desactualizadas(db, matrix_id) == []
+
+    def test_una_version_nueva_marca_la_norma(self, db: Session) -> None:
+        matrix_id, norm_id, _ = _preparar(db)
+        sincronizar(db, matrix_id, TENANT)
+        nueva = self._version_nueva(db, norm_id)
+
+        avisos = desactualizadas(db, matrix_id)
+
+        assert len(avisos) == 1
+        assert avisos[0].norm_id == norm_id
+        assert avisos[0].version_vigente == nueva
+        assert avisos[0].version_evaluada != nueva
+
+    def test_las_evaluaciones_de_la_version_anterior_siguen_visibles(
+        self, db: Session
+    ) -> None:
+        """No se invalidan solas.
+
+        Se hicieron sobre el texto que regia entonces, y esa es la respuesta
+        correcta ante una auditoria de ese periodo.
+        """
+        matrix_id, norm_id, _ = _preparar(db)
+        sincronizar(db, matrix_id, TENANT)
+        db.execute(
+            text(
+                "UPDATE article_compliance SET compliance_status = 'compliant' "
+                "WHERE matrix_norm_id IN (SELECT id FROM matrix_norms WHERE matrix_id = :m)"
+            ),
+            {"m": matrix_id},
+        )
+        self._version_nueva(db, norm_id)
+
+        avisos = desactualizadas(db, matrix_id)
+
+        assert avisos[0].evaluaciones_sobre_la_anterior > 0
+        siguen = db.execute(
+            text(
+                "SELECT count(*) FROM article_compliance ac "
+                "JOIN matrix_norms mn ON mn.id = ac.matrix_norm_id "
+                "WHERE mn.matrix_id = :m AND ac.compliance_status = 'compliant'"
+            ),
+            {"m": matrix_id},
+        ).scalar_one()
+        assert siguen == avisos[0].evaluaciones_sobre_la_anterior
+
+    def test_una_norma_que_ya_no_aplica_no_genera_aviso(self, db: Session) -> None:
+        """No se esta evaluando contra ninguna version: el aviso seria ruido."""
+        matrix_id, norm_id, _ = _preparar(db)
+        sincronizar(db, matrix_id, TENANT)
+        db.execute(
+            text(
+                "UPDATE matrix_norms SET applicability = 'not_applicable' "
+                "WHERE matrix_id = :m"
+            ),
+            {"m": matrix_id},
+        )
+        self._version_nueva(db, norm_id)
+
+        assert desactualizadas(db, matrix_id) == []

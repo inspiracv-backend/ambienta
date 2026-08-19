@@ -6,11 +6,15 @@ from sqlalchemy.orm import Session
 from ..crud.compliance import crud_article_compliance, crud_matrix, crud_matrix_norm
 from ..deps import get_tenant_db, get_tenant_id
 from ..services.normativa_aplicable import calcular as calcular_normativa_aplicable
-from ..services.sincronizar_matriz import sincronizar as sincronizar_matriz
+from ..services.sincronizar_matriz import (
+    desactualizadas as normas_desactualizadas,
+    sincronizar as sincronizar_matriz,
+)
 from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.compliance import (
     NormaAplicableRead,
     NormativaAplicableRead,
+    NormaDesactualizadaRead,
     SincronizacionRead,
     ArticleComplianceCreate,
     ArticleComplianceRead,
@@ -237,3 +241,24 @@ def sincronizar_la_matriz(
     r = sincronizar_matriz(db, matrix_id, tenant_id)
     db.commit()
     return SincronizacionRead(**vars(r))
+
+
+@router.get(
+    "/matrices/{matrix_id}/desactualizadas",
+    response_model=list[NormaDesactualizadaRead],
+)
+def listar_desactualizadas(matrix_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Normas de la matriz que se evaluaron contra una version que ya no rige.
+
+    **Compara versiones, no fechas.** Una norma puede tener correcciones que no
+    cambian el articulado; el esquema ya distingue versiones por contenido, asi
+    que usar fechas reintroduciria falsos positivos que el versionado evita.
+
+    **Las evaluaciones sobre la version anterior siguen visibles y validas.** Se
+    hicieron sobre el texto que regia entonces, y esa es la respuesta correcta
+    ante una auditoria de ese periodo. Esto avisa; no migra ni invalida nada.
+    """
+    if not crud_matrix.get(db, matrix_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Matrix not found")
+
+    return [NormaDesactualizadaRead(**vars(n)) for n in normas_desactualizadas(db, matrix_id)]

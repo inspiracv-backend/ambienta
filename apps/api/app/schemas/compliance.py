@@ -181,3 +181,20 @@ class SincronizacionRead(BaseModel):
             "clasifico normas para el suyo. En ese caso NO se toco nada"
         ),
     )
+
+
+class NormaDesactualizadaRead(BaseModel):
+    """Una norma de la matriz evaluada contra una version que ya no rige.
+
+    `evaluaciones_sobre_la_anterior` **no** significa trabajo perdido: esas
+    evaluaciones se hicieron sobre el texto que regia entonces, y esa es la
+    respuesta correcta ante una auditoria de ese periodo. El numero esta para
+    dimensionar el esfuerzo de revisar, no para alarmar.
+    """
+
+    matrix_norm_id: UUID
+    norm_id: UUID
+    title: str
+    version_evaluada: UUID
+    version_vigente: UUID
+    evaluaciones_sobre_la_anterior: int
