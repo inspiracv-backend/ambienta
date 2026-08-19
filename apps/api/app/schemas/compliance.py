@@ -158,3 +158,26 @@ class NormativaAplicableRead(BaseModel):
     obligatorias: list[NormaAplicableRead]
     recomendadas: list[NormaAplicableRead]
     total: int
+
+
+class SincronizacionRead(BaseModel):
+    """Que cambio al sincronizar la matriz.
+
+    Se devuelven los numeros y no un "ok" porque la promesa del servicio es
+    verificable: **`evaluaciones_conservadas` no puede bajar**. Si baja, algo
+    borro trabajo hecho, y eso tiene que poder verse sin abrir la base.
+    """
+
+    normas_agregadas: int
+    normas_ya_estaban: int
+    normas_marcadas_no_aplicables: int
+    articulos_agregados: int
+    evaluaciones_conservadas: int
+    sin_calcular: str | None = Field(
+        default=None,
+        description=(
+            "Presente cuando el calculo no pudo correr: 'sin_perfil' si la "
+            "empresa no declaro su sector, 'sector_sin_clasificar' si nadie "
+            "clasifico normas para el suyo. En ese caso NO se toco nada"
+        ),
+    )

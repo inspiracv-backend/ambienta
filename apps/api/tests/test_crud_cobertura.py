@@ -39,6 +39,11 @@ SIN_CRUD_COMPLETO = {
     "/support/chatbot": "una conversacion no se edita; se cierra o se retira entera",
     "/obligations/tasks": "las tareas se listan dentro de su obligacion, no sueltas",
     "/documents": "las versiones se listan dentro de su documento",
+    "/compliance/matrices/sincronizar": (
+        "no es un recurso: es una operacion sobre la matriz. No hay una "
+        "sincronizacion que listar, leer o borrar — lo que queda es su efecto "
+        "sobre las normas de esa matriz"
+    ),
     "/compliance/normativa-aplicable": (
         "no es un recurso: es un calculo derivado del perfil de la empresa y de "
         "la clasificacion del catalogo. No hay nada que crear, editar ni borrar "

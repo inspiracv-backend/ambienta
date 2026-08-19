@@ -61,15 +61,15 @@ Ninguna de las dos cambia el modelo; se pueden responder mientras se construye:
 
 ## 5. Generación de la matriz
 
-- [ ] 5.1 Servicio que sincroniza la matriz: agrega lo que falta, **nunca borra**
-- [ ] 5.2 Incorporar los artículos de la versión **vigente** de cada norma, en estado sin evaluar
-- [ ] 5.3 Conservar las evaluaciones existentes al recalcular
-- [ ] 5.4 Marcar como **ya no aplicable** lo que dejó de corresponder, sin borrarlo
-- [ ] 5.5 Respetar siempre lo agregado a mano: un recálculo no lo quita
-- [ ] 5.6 `POST /compliance/matrices/{id}/sincronizar`
-- [ ] 5.7 Tests del viaje completo: generar, evaluar, regenerar y **comprobar que la evaluación sobrevive**
-- [ ] 5.8 **Romper a propósito** la idempotencia y confirmar que el test lo detecta
-- [ ] 5.9 Medir con datos reales cuántas filas genera una empresa típica, y dejar el número escrito
+- [x] 5.1 Servicio que sincroniza la matriz: agrega lo que falta, **nunca borra**
+- [x] 5.2 Incorporar los artículos de la versión **vigente** de cada norma, en estado sin evaluar
+- [x] 5.3 Conservar las evaluaciones existentes al recalcular
+- [x] 5.4 Marcar como **ya no aplicable** lo que dejó de corresponder, sin borrarlo
+- [x] 5.5 Respetar siempre lo agregado a mano: un recálculo no lo quita
+- [x] 5.6 `POST /compliance/matrices/{id}/sincronizar`
+- [x] 5.7 Tests del viaje completo: generar, evaluar, regenerar y **comprobar que la evaluación sobrevive**
+- [x] 5.8 **Romper a propósito** la idempotencia y confirmar que el test lo detecta
+- [x] 5.9 Medido: **4 evaluaciones en 196 ms**, segunda corrida +0 filas en 13 ms. **Pero la muestra es chica**: el seed solo tiene 2 normas con articulado, así que esto NO valida la preocupación del diseño (30 normas × 200 artículos = 6.000 filas). Hay que volver a medir cuando la ingesta BCN cargue normas reales
 
 ## 6. Aviso de versión desactualizada
 

@@ -79,6 +79,11 @@ class MatrixNorm(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
         String(28), nullable=False, server_default="pending_analysis"
     )
     applicability_reason: Mapped[str | None] = mapped_column(Text)
+    # Como entro esta norma a la matriz. Importa porque un recalculo **no puede
+    # quitar** lo que alguien agrego a mano: que el calculo no la encuentre no
+    # significa que no aplique — puede venir de un contrato o de la RCA.
+    # Ver db/08_perfil_normativo.sql.
+    inclusion_source: Mapped[str | None] = mapped_column(String(16))
     owner_user_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
     )
