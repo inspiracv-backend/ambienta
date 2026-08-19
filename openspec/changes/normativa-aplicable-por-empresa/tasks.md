@@ -81,12 +81,12 @@ Ninguna de las dos cambia el modelo; se pueden responder mientras se construye:
 
 ## 7. Frontend
 
-- [ ] 7.1 El alta de empresa pide sector y tramo
-- [ ] 7.2 Pantalla de clasificación normativa para el Admin Global, mostrando **cuántas normas faltan clasificar** por sector
-- [ ] 7.3 Pantalla del check: normativa aplicable separada en obligatorias y recomendadas, antes de generar
-- [ ] 7.4 La matriz legal muestra **por qué entró** cada norma y si está desactualizada
-- [ ] 7.5 Escrituras optimistas con reversión y aviso, como el resto de los stores
-- [ ] 7.6 Tests de store, **rompiéndolos a propósito**
+- [x] 7.1 El alta de empresa pide sector y tramo
+- [x] 7.2 Pantalla de clasificación normativa para el Admin Global, mostrando **cuántas normas faltan clasificar** por sector
+- [x] 7.3 Pantalla del check: normativa aplicable separada en obligatorias y recomendadas, antes de generar
+- [x] 7.4 La matriz legal muestra **por qué entró** cada norma y si está desactualizada
+- [x] 7.5 Escrituras optimistas con reversión y aviso, como el resto de los stores
+- [x] 7.6 Tests de store, **rompiéndolos a propósito**
 
 ## 8. Cierre
 

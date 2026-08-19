@@ -7,6 +7,7 @@ import { ToastProvider, useToast } from './toast-store';
 import { SessionProvider } from './session';
 import { UsersProvider } from './users-store';
 import { ApiError } from './api-client';
+import { useAuditLog } from './audit-log-store';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -271,5 +272,76 @@ describe('el perfil normativo da la vuelta completa', () => {
     await waitFor(() => expect(r.result.current.t.tenants).toHaveLength(1));
 
     expect(r.result.current.t.tenants[0].tramo).toBeUndefined();
+  });
+});
+
+describe('declarar el perfil normativo de una empresa existente', () => {
+  it('manda el sector y el tramo a la API', async () => {
+    // Sin esta acción, `sin_perfil` es permanente para toda empresa creada
+    // antes de que la columna existiera: el sistema informaba que faltaba el
+    // dato y no ofrecía ningún camino para completarlo.
+    const { result } = await montar({});
+
+    act(() => result.current.t.updatePerfilNormativo(TENANT, { sectorId: 3, tramo: 'mediana' }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    const [ruta, cuerpo] = patch.mock.calls[0] as [string, Record<string, unknown>];
+    expect(ruta).toBe(`/tenants/${TENANT}`);
+    expect(cuerpo).toEqual({ sector_id: 3, size_bracket: 'mediana' });
+  });
+
+  it('la pantalla muestra el cambio antes de que la API conteste', async () => {
+    const { result } = await montar({});
+
+    act(() => result.current.t.updatePerfilNormativo(TENANT, { sectorId: 3, tramo: 'mediana' }));
+
+    expect(result.current.t.tenants[0].sectorId).toBe(3);
+    expect(result.current.t.tenants[0].tramo).toBe('mediana');
+  });
+
+  it('si la API rechaza, vuelve al valor anterior y lo dice', async () => {
+    get.mockImplementation((ruta: string) =>
+      Promise.resolve(
+        ruta.startsWith('/tenants')
+          ? [{ ...tenantApi({}), sector_id: 5, size_bracket: 'grande' }]
+          : [],
+      ),
+    );
+    const r = renderHook(() => ({ t: useTenants(), toast: useToast() }), { wrapper });
+    await waitFor(() => expect(r.result.current.t.tenants).toHaveLength(1));
+    patch.mockRejectedValue(new ApiError(422, 'Unprocessable Entity', { detail: 'Sector inválido' }));
+
+    act(() => r.result.current.t.updatePerfilNormativo(TENANT, { sectorId: 3, tramo: 'micro' }));
+
+    await waitFor(() => expect(r.result.current.toast.toasts.length).toBeGreaterThan(0));
+    // Vuelve al valor exacto anterior, no a vacío: si la empresa ya tenía
+    // sector, dejarla sin ninguno sería un daño peor que el que se arreglaba.
+    expect(r.result.current.t.tenants[0].sectorId).toBe(5);
+    expect(r.result.current.t.tenants[0].tramo).toBe('grande');
+    expect(r.result.current.toast.toasts[0].descripcion).toContain('Sector inválido');
+  });
+
+  it('queda en el historial, con el valor anterior y el nuevo', async () => {
+    // No es un dato de ficha. Es el criterio con el que se arma la matriz
+    // legal de la empresa entera, así que quién lo cambió y desde qué valor
+    // tiene que quedar registrado.
+    // Sin sesión, `useRegistrarAuditoria` sale temprano y no registra nada.
+    // Es correcto —una acción sin actor no es auditable— pero significa que
+    // sin este paso la prueba comprobaría un no-op y pasaría igual.
+    window.localStorage.setItem('ambienta.mockUserId', 'user-admin-empresa');
+    const r = renderHook(
+      () => ({ t: useTenants(), toast: useToast(), log: useAuditLog() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(r.result.current.t.tenants.length).toBeGreaterThan(0));
+    const antes = r.result.current.log.entries.length;
+
+    act(() => r.result.current.t.updatePerfilNormativo(TENANT, { sectorId: 3, tramo: 'mediana' }));
+
+    await waitFor(() => expect(r.result.current.log.entries.length).toBe(antes + 1));
+    const entrada = r.result.current.log.entries.find((e) => e.entidadId === TENANT);
+    expect(entrada?.resumen).toMatch(/perfil normativo/i);
+    expect(entrada?.cambios.map((c) => c.campo)).toEqual(['Sector CIIU', 'Tramo por tamano']);
+    expect(entrada?.cambios[0].despues).toBe('3');
   });
 });

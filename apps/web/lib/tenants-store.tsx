@@ -63,6 +63,7 @@ interface TenantsContextValue {
   updateLogo: (tenantId: string, logoUrl: string) => void;
   addPlant: (tenantId: string, input: { nombre: string; comuna: string; region: string }) => void;
   completarPerfilEmpresa: (tenantId: string) => void;
+  updatePerfilNormativo: (tenantId: string, perfil: { sectorId: number; tramo: Tramo }) => void;
 }
 
 const TenantsContext = createContext<TenantsContextValue | null>(null);
@@ -456,6 +457,68 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /**
+   * Declara el sector y el tramo de una empresa ya creada.
+   *
+   * **Sin esto, `sin_perfil` es permanente para toda empresa existente.** El
+   * alta pide el sector desde ahora, pero las que ya estaban nacieron sin el —
+   * la columna es nueva— y no habia ninguna pantalla donde declararlo. El
+   * sistema informaba correctamente que faltaba el dato y no ofrecia camino
+   * para completarlo, que es una forma elegante de no funcionar.
+   */
+  function updatePerfilNormativo(
+    tenantId: string,
+    perfil: { sectorId: number; tramo: Tramo },
+  ) {
+    const anterior = tenants.find((t) => t.id === tenantId);
+    if (!anterior) return;
+
+    setTenants((prev) =>
+      prev.map((t) =>
+        t.id === tenantId ? { ...t, sectorId: perfil.sectorId, tramo: perfil.tramo } : t,
+      ),
+    );
+
+    api
+      .patch(`/tenants/${tenantId}`, {
+        sector_id: perfil.sectorId,
+        size_bracket: perfil.tramo,
+      })
+      .catch((error) => {
+        // Revierte al valor exacto anterior, no a `undefined`: si la empresa ya
+        // tenia sector y el cambio falla, dejarla sin ninguno seria un dano
+        // peor que el que se intentaba arreglar.
+        setTenants((prev) =>
+          prev.map((t) =>
+            t.id === tenantId
+              ? { ...t, sectorId: anterior.sectorId, tramo: anterior.tramo }
+              : t,
+          ),
+        );
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo guardar el perfil normativo',
+          descripcion: mensajeDeError(error),
+        });
+      });
+
+    registrar({
+      entidadTipo: 'tenant',
+      entidadId: tenantId,
+      entidadLabel: anterior.nombre,
+      tenantId,
+      accion: 'actualizado',
+      // Queda en el historial porque cambia que normativa le aplica a la
+      // empresa entera: no es un dato de ficha, es el criterio con el que se
+      // arma su matriz legal.
+      resumen: 'Declaro el perfil normativo de la empresa',
+      cambios: [
+        { campo: 'Sector CIIU', antes: anterior.sectorId?.toString() ?? null, despues: String(perfil.sectorId) },
+        { campo: 'Tramo por tamano', antes: anterior.tramo ?? null, despues: perfil.tramo },
+      ],
+    });
+  }
+
   function addPlant(tenantId: string, input: { nombre: string; comuna: string; region: string }) {
     const tenant = tenants.find((t) => t.id === tenantId);
     if (!tenant) return;
@@ -535,6 +598,7 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
         updateLogo,
         addPlant,
         completarPerfilEmpresa,
+        updatePerfilNormativo,
       }}
     >
       {children}
