@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..crud.compliance import crud_article_compliance, crud_matrix, crud_matrix_norm
 from ..deps import get_tenant_db, get_tenant_id
 from ..services.normativa_aplicable import calcular as calcular_normativa_aplicable
+from ..services.resumen_cumplimiento import resumir as resumir_cumplimiento
 from ..services.sincronizar_matriz import (
     desactualizadas as normas_desactualizadas,
     sincronizar as sincronizar_matriz,
@@ -14,7 +15,11 @@ from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.compliance import (
     NormaAplicableRead,
     NormativaAplicableRead,
+    ConteoRead,
     NormaDesactualizadaRead,
+    ResumenDeMatrizRead,
+    ResumenPorInstalacionRead,
+    ResumenPorNormaRead,
     SincronizacionRead,
     ArticleComplianceCreate,
     ArticleComplianceRead,
@@ -262,3 +267,63 @@ def listar_desactualizadas(matrix_id: UUID, db: Session = Depends(get_tenant_db)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Matrix not found")
 
     return [NormaDesactualizadaRead(**vars(n)) for n in normas_desactualizadas(db, matrix_id)]
+
+
+def _conteo(c) -> ConteoRead:
+    return ConteoRead(
+        cumplen=c.cumplen,
+        no_cumplen=c.no_cumplen,
+        sin_evaluar=c.sin_evaluar,
+        no_aplican=c.no_aplican,
+        excluidos=c.excluidos,
+        evaluables=c.evaluables,
+        porcentaje=c.porcentaje,
+    )
+
+
+@router.get("/matrices/{matrix_id}/resumen", response_model=ResumenDeMatrizRead)
+def resumen_de_la_matriz(matrix_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Como va el cumplimiento, desglosado por norma y por instalacion.
+
+    ## Que entra al porcentaje
+
+    El denominador son los articulos que la empresa **debe cumplir**. Quedan
+    fuera los **excluidos del calculo** (RF-24) —sin esto la exclusion seria
+    decorativa— y los marcados **no aplicables**: un articulo que no le toca a
+    la empresa no es una obligacion suya, y contarlo la penalizaria.
+
+    `partial` cuenta como **no cumplido**: dar por cumplido lo que se cumple a
+    medias sobreestima el porcentaje ante un auditor.
+
+    `pending` **si** cuenta en el denominador. No haber evaluado no es
+    incumplir, pero tampoco es cumplir — dejarlo fuera daria 100 % a una empresa
+    que no evaluo nada.
+
+    ## Cuando no hay nada que medir
+
+    `porcentaje` es **`null`, no cero**. Cero significa "no cumple nada"; `null`
+    significa "todavia no hay obligaciones que evaluar".
+    """
+    if not crud_matrix.get(db, matrix_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Matrix not found")
+
+    r = resumir_cumplimiento(db, matrix_id)
+    return ResumenDeMatrizRead(
+        total=_conteo(r.total),
+        por_norma=[
+            ResumenPorNormaRead(
+                norm_id=n.norm_id,
+                matrix_norm_id=n.matrix_norm_id,
+                title=n.title,
+                applicability=n.applicability,
+                conteo=_conteo(n.conteo),
+            )
+            for n in r.por_norma
+        ],
+        por_instalacion=[
+            ResumenPorInstalacionRead(
+                facility_id=p.facility_id, nombre=p.nombre, conteo=_conteo(p.conteo)
+            )
+            for p in r.por_instalacion
+        ],
+    )
