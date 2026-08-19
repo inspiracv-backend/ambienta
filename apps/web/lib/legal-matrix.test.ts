@@ -3,6 +3,7 @@ import type { Articulo, LegalNorm } from '@ambienta/shared';
 import {
   articuloSemaforo,
   computeNormCompliance,
+  computeNormCoverage,
   countArticulosEnIncumplimiento,
   normSemaforo,
 } from './legal-matrix';
@@ -104,3 +105,35 @@ describe('normSemaforo', () => {
     expect(normSemaforo(0)).toBe('no_cumple');
   });
 });
+
+describe('las dos definiciones tienen un equivalente en la API', () => {
+  /**
+   * La pantalla y el informe calculaban lo mismo con denominadores distintos, y
+   * nada lo señalaba. Estas pruebas fijan las dos definiciones del lado del
+   * frontend; sus contrapartes viven en
+   * `apps/api/tests/test_resumen_cumplimiento.py`.
+   *
+   * No pueden ejecutarse juntas —son dos runtimes— así que lo que las ata es el
+   * caso: **un artículo cumplido y diecinueve sin evaluar**, con los tres
+   * números escritos a mano en los dos lados. Si alguien mueve un denominador,
+   * una de las dos suites falla.
+   *
+   * De paso: `computeNormCoverage` no tenia ninguna prueba. Es el indicador que
+   * existe precisamente para que nadie lea el cumplimiento como si fuera el
+   * estado de la norma entera, y estaba sin cubrir.
+   */
+  const UNO_CUMPLIDO_Y_DIECINUEVE_SIN_EVALUAR: LegalNorm = norma([
+    articulo({ id: 'ok', respuesta: 'SI' }),
+    ...Array.from({ length: 19 }, (_, i) => articulo({ id: `p${i}`, respuesta: 'N_E' })),
+  ]);
+
+  it('el cumplimiento da 100 %: es cierto sobre la muestra', () => {
+    // `porcentaje_sobre_evaluados` en la API.
+    expect(computeNormCompliance(UNO_CUMPLIDO_Y_DIECINUEVE_SIN_EVALUAR)).toBe(1);
+  });
+
+  it('la cobertura da 5 %, que es lo que impide leer ese 100 % como estar al día', () => {
+    // `cobertura` en la API. El par se muestra junto por esto exactamente.
+    expect(computeNormCoverage(UNO_CUMPLIDO_Y_DIECINUEVE_SIN_EVALUAR)).toBeCloseTo(0.05, 3);
+  });
+})

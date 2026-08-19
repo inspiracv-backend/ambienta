@@ -220,7 +220,21 @@ class ConteoRead(BaseModel):
         description="El denominador: lo que la empresa debe cumplir. No incluye "
         "los excluidos del calculo (RF-24) ni los marcados como no aplicables"
     )
-    porcentaje: float | None
+    evaluados: int = Field(description="Los que alguien ya miro: sin_evaluar no entra")
+    porcentaje: float | None = Field(
+        description="El conservador: lo pendiente cuenta como no cumplido"
+    )
+    porcentaje_sobre_evaluados: float | None = Field(
+        description="De lo que se evaluo, cuanto se cumple. **Es el que muestra la "
+        "matriz en pantalla.** Nunca va solo: una norma con un articulo en SI y "
+        "quince sin evaluar da 100 %, cierto sobre la muestra y enganoso sobre la "
+        "norma. Se lee junto a `cobertura`"
+    )
+    cobertura: float | None = Field(
+        description="Cuanto se alcanzo a revisar. Los excluidos del calculo NO "
+        "salen de aca: excluir del cumplimiento es legitimo, esconder que nadie "
+        "lo miro no lo es"
+    )
 
 
 class ResumenPorNormaRead(BaseModel):
