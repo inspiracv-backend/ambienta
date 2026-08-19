@@ -9,11 +9,11 @@ en los 12 stores, cruzado con el contrato OpenAPI y con los mappers de lectura.
 
 | | Acciones |
 |---|---|
-| Llegan a la base | **26** |
-| Solo estado local | 11 |
+| Llegan a la base | **27** |
+| Solo estado local | 10 |
 | **Total** | **37** |
 
-**70 % conectado.** Antes de esta tanda era 62 % — pero ese 62 % estaba
+**73 % conectado.** Antes de esta tanda era 62 % — pero ese 62 % estaba
 inflado.
 
 ### Dos de las que se contaban como conectadas no llegaban
@@ -44,7 +44,7 @@ nada — salvo que da más confianza, que es peor.
 | `departamentos` | 1 / 2 |
 | `notifications` | 1 / 2 |
 | `plan-accion` | 1 / 2 |
-| `legal-matrix` | 2 / 3 |
+| `legal-matrix` | **3 / 3** |
 | `gestores` | 0 / 1 |
 
 ---
@@ -83,7 +83,7 @@ apuntaría a identificadores inventados.
 
 ---
 
-## Las 11 que no llegan a la base
+## Las 10 que no llegan a la base
 
 Ninguna es "falta de tiempo". Cada una tiene una causa concreta, y está escrita
 también en el docstring de su función, que es donde la va a leer quien intente
@@ -150,9 +150,11 @@ validar; cuando alguno de esos campos se estabilice, merece columna propia.
 2. ~~**Exponer `GET /catalog/countries`.**~~ **Hecho** (PR #171). Falta que el
    formulario de alta de normas lo consuma.
 3. ~~**Cruzar el articulado con `article_compliance`.**~~ **Hecho.** Evaluar
-   crea la fila si no existe y la edita si ya está. La matriz legal quedó
-   cerrada de punta a punta.
-4. **Las tareas del plan de acción** necesitan modelo propio: es migración,
+   crea la fila si no existe y la edita si ya está.
+4. ~~**Excluir un artículo del porcentaje** (RF-24).~~ **Hecho.** Vive en
+   `article_compliance.attributes`, con esquema declarado en `packages/shared`.
+   **La matriz legal quedó cerrada: 3 de 3.**
+5. **Las tareas del plan de acción** necesitan modelo propio: es migración,
    endpoints y pantalla. Ya está decidido que van como entidad, no como lista
    dentro del plan.
-5. Lo demás depende de decisiones del equipo o de modelo nuevo.
+6. Lo demás depende de decisiones del equipo o de modelo nuevo.

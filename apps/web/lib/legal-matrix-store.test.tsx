@@ -6,6 +6,7 @@ import { AuditLogProvider } from './audit-log-store';
 import { ToastProvider } from './toast-store';
 import { SessionProvider } from './session';
 import { UsersProvider } from './users-store';
+import { ApiError } from './api-client';
 import { iniciarSesionComo } from '@/test/utils';
 
 vi.mock('next/navigation', () => ({
@@ -18,6 +19,7 @@ vi.mock('@/mocks/catalog', () => ({ mockLegalNorms: [] }));
 
 const get = vi.fn();
 const post = vi.fn();
+const patch = vi.fn();
 
 vi.mock('./api-client', async (importarReal) => {
   const real = await importarReal<typeof import('./api-client')>();
@@ -25,7 +27,7 @@ vi.mock('./api-client', async (importarReal) => {
     ...real,
     api: {
       get: (...a: unknown[]) => get(...a),
-      patch: vi.fn(() => Promise.resolve({})),
+      patch: (...a: unknown[]) => patch(...a),
       post: (...a: unknown[]) => post(...a),
       delete: vi.fn(),
     },
@@ -99,6 +101,7 @@ const articuloApi = (extra: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   post.mockResolvedValue({ id: AC });
+  patch.mockResolvedValue({});
   window.localStorage.clear();
 });
 
@@ -216,5 +219,104 @@ describe('cruce con la evaluación de la empresa', () => {
     act(() => result.current.updateArticulo(NORMA, ARTICULO, { respuesta: 'SI' }));
 
     await waitFor(() => expect(result.current.norms[0]!.articulos[0]!.respuesta).toBe('N_E'));
+  });
+});
+
+
+describe('qué artículos cuentan para el porcentaje (RF-24)', () => {
+  it('un artículo sin nada guardado cuenta', async () => {
+    /**
+     * **Ausente es incluido.** Tratar "no dice nada" como excluido sacaría del
+     * cálculo a todos los artículos que nadie tocó —o sea casi todos— y el
+     * porcentaje quedaría calculado sobre un puñado de filas.
+     */
+    const { result } = await montar([articuloApi()], []);
+
+    expect(result.current.norms[0]!.articulos[0]!.incluidoEnCalculo).toBe(true);
+  });
+
+  it('lee la exclusión guardada en `attributes`', async () => {
+    const { result } = await montar(
+      [articuloApi()],
+      [
+        {
+          id: AC,
+          article_id: ARTICULO,
+          compliance_status: 'pending',
+          attributes: { incluidoEnCalculo: false },
+        },
+      ],
+    );
+
+    expect(result.current.norms[0]!.articulos[0]!.incluidoEnCalculo).toBe(false);
+  });
+
+  it('excluir lo manda a la API, no se queda en pantalla', async () => {
+    const { result } = await montar(
+      [articuloApi()],
+      [{ id: AC, article_id: ARTICULO, compliance_status: 'pending', attributes: {} }],
+    );
+
+    act(() => result.current.setIncluidoEnCalculo(NORMA, ARTICULO, false));
+
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    const [ruta, cuerpo] = patch.mock.calls[0]!;
+    expect(ruta).toBe(`/compliance/article-compliance/${AC}`);
+    expect((cuerpo as { attributes: Record<string, unknown> }).attributes.incluidoEnCalculo).toBe(
+      false,
+    );
+  });
+
+  it('fusiona con lo que ya estaba, no lo reemplaza', async () => {
+    /**
+     * `attributes` es un jsonb compartido. Mandar el objeto entero borraría lo
+     * que escribieron otras pantallas, y el destrozo solo se vería al recargar
+     * una tercera. Es el error que ya se corrigió en `tenants.settings`.
+     */
+    const { result } = await montar(
+      [articuloApi()],
+      [
+        {
+          id: AC,
+          article_id: ARTICULO,
+          compliance_status: 'pending',
+          attributes: { motivoExclusion: 'no aplica a esta faena' },
+        },
+      ],
+    );
+
+    act(() => result.current.setIncluidoEnCalculo(NORMA, ARTICULO, false));
+
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    const enviado = (patch.mock.calls[0]![1] as { attributes: Record<string, unknown> })
+      .attributes;
+    expect(enviado.incluidoEnCalculo).toBe(false);
+    expect(enviado.motivoExclusion).toBe('no aplica a esta faena');
+  });
+
+  it('sin evaluación previa la crea, en estado pendiente', async () => {
+    /** Excluir no es evaluar: el artículo sigue sin responder. */
+    const { result } = await montar([articuloApi()], []);
+
+    act(() => result.current.setIncluidoEnCalculo(NORMA, ARTICULO, false));
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const cuerpo = post.mock.calls[0]![1] as Record<string, unknown>;
+    expect(cuerpo.compliance_status).toBe('pending');
+    expect((cuerpo.attributes as Record<string, unknown>).incluidoEnCalculo).toBe(false);
+  });
+
+  it('revierte y avisa cuando la API rechaza', async () => {
+    const { result } = await montar(
+      [articuloApi()],
+      [{ id: AC, article_id: ARTICULO, compliance_status: 'pending', attributes: {} }],
+    );
+    patch.mockRejectedValue(
+      new ApiError(422, 'Unprocessable Entity', { detail: 'jsonb invalido' }),
+    );
+
+    act(() => result.current.setIncluidoEnCalculo(NORMA, ARTICULO, false));
+
+    await waitFor(() => expect(result.current.norms[0]!.articulos[0]!.incluidoEnCalculo).toBe(true));
   });
 });
