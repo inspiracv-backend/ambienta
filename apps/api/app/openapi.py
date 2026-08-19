@@ -393,6 +393,14 @@ _ACCIONES: dict[str, tuple[str, str]] = {
     ),
     "upcoming": ("Listar los vencimientos proximos", "Lo que vence dentro de la ventana consultada."),
     "overdue": ("Listar lo vencido", "Lo que ya paso su plazo y sigue sin cumplirse."),
+    "desactualizadas": (
+        "Listar las normas con version desactualizada",
+        "Normas de la matriz que se evaluaron contra una version que ya no "
+        "rige. **Compara versiones, no fechas**: una norma puede tener "
+        "correcciones que no cambian el articulado. Las evaluaciones sobre la "
+        "version anterior siguen visibles y validas — se hicieron sobre el "
+        "texto que regia entonces. Esto avisa; no migra ni invalida nada.",
+    ),
     "sincronizar": (
         "Sincronizar con la normativa aplicable",
         "Agrega a la matriz las normas que hoy le corresponden a la empresa. "

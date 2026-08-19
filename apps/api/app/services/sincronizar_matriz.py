@@ -35,7 +35,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models.catalog import LegalArticle, LegalNormVersion
+from ..models.catalog import LegalArticle, LegalNorm, LegalNormVersion
 from ..models.compliance import ArticleCompliance, MatrixNorm, TenantLegalMatrix
 from .normativa_aplicable import calcular
 
@@ -209,3 +209,92 @@ def _sembrar_articulos(db: Session, fila: MatrixNorm, tenant_id: UUID) -> int:
         )
         creados += 1
     return creados
+
+
+@dataclass(frozen=True)
+class NormaDesactualizada:
+    """Una norma de la matriz que se evaluo contra una version que ya no rige."""
+
+    matrix_norm_id: UUID
+    norm_id: UUID
+    title: str
+    version_evaluada: UUID
+    version_vigente: UUID
+    #: Cuantas evaluaciones se hicieron sobre la version anterior. **No se
+    #: invalidan**: se hicieron sobre el texto que regia entonces, y esa es la
+    #: respuesta correcta ante una auditoria de ese periodo.
+    evaluaciones_sobre_la_anterior: int
+
+
+def desactualizadas(db: Session, matrix_id: UUID) -> list[NormaDesactualizada]:
+    """Que normas de la matriz quedaron con una version vieja.
+
+    ## Por que compara versiones y no fechas
+
+    Una norma puede tener correcciones que no cambian el articulado. El esquema
+    ya distingue versiones con `content_hash`, asi que comparar
+    `selected_version_id` contra la que tiene `is_current` da la respuesta
+    exacta; comparar fechas reintroduciria falsos positivos que el versionado ya
+    evita.
+
+    ## Lo que esto NO hace
+
+    No migra las evaluaciones ni las invalida. Avisa. Pasar una evaluacion de
+    una version a otra es otro problema —los articulos pueden haberse
+    renumerado, partido o desaparecido— y merece su propio cambio.
+    """
+    filas = db.execute(
+        select(
+            MatrixNorm.id,
+            MatrixNorm.norm_id,
+            MatrixNorm.selected_version_id,
+            LegalNormVersion.id,
+        )
+        .join(
+            LegalNormVersion,
+            (LegalNormVersion.norm_id == MatrixNorm.norm_id)
+            & LegalNormVersion.is_current.is_(True)
+            & LegalNormVersion.deleted_at.is_(None),
+        )
+        .where(
+            MatrixNorm.matrix_id == matrix_id,
+            MatrixNorm.deleted_at.is_(None),
+            # Una norma que ya no aplica no necesita aviso de version: no se
+            # esta evaluando contra ninguna.
+            MatrixNorm.applicability != "not_applicable",
+            MatrixNorm.selected_version_id != LegalNormVersion.id,
+        )
+    ).all()
+
+    if not filas:
+        return []
+
+    titulos = dict(
+        db.execute(
+            select(LegalNorm.id, LegalNorm.title).where(
+                LegalNorm.id.in_([f[1] for f in filas])
+            )
+        ).all()
+    )
+
+    resultado = []
+    for mn_id, norm_id, evaluada, vigente in filas:
+        hechas = db.scalar(
+            select(func.count())
+            .select_from(ArticleCompliance)
+            .where(
+                ArticleCompliance.matrix_norm_id == mn_id,
+                ArticleCompliance.compliance_status != "pending",
+            )
+        )
+        resultado.append(
+            NormaDesactualizada(
+                matrix_norm_id=mn_id,
+                norm_id=norm_id,
+                title=titulos.get(norm_id, ""),
+                version_evaluada=evaluada,
+                version_vigente=vigente,
+                evaluaciones_sobre_la_anterior=hechas or 0,
+            )
+        )
+    return resultado
