@@ -2,7 +2,7 @@
 from collections.abc import Generator
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -242,3 +242,56 @@ def exigir_permiso(codigo: str):
         return user
 
     return verificar
+
+
+def exigir_permiso_de_la_ruta(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_tenant_db),
+) -> CurrentUser:
+    """Guarda de permisos derivada de la ruta, para todos los endpoints.
+
+    Se aplica una sola vez —como dependencia de la aplicacion— en vez de
+    escribirse en cada endpoint. Son mas de 150 escrituras: ponerlo a mano es
+    una decision que se puede olvidar, y **olvidarla no falla**, deja el
+    endpoint abierto y nadie se entera.
+
+    Que permiso exige cada ruta lo decide `permisos_de_rutas.py`, y
+    `test_permisos_de_rutas.py` falla si aparece una raiz sin declarar.
+
+    ## Sin Clerk configurado no verifica
+
+    Igual que las otras guardas: el modo de desarrollo confia enteramente en
+    quien llama, asi que exigir aca un permiso que nadie puede probar solo
+    haria imposible trabajar en local.
+
+    ## Esto no reemplaza a RLS
+
+    Decide **si la operacion se permite**, no **que filas se ven**. El
+    aislamiento entre empresas lo sigue garantizando Row Level Security, que es
+    la unica barrera (CLAUDE.md §4).
+    """
+    if not get_settings().clerk_configured:
+        return user
+
+    from .permisos_de_rutas import permiso_requerido
+
+    ruta = request.scope.get("route")
+    camino = getattr(ruta, "path", None) or request.url.path
+    codigo = permiso_requerido(camino, request.method)
+    if codigo is None:
+        return user
+
+    from .services.permisos import tiene_permiso
+
+    fila = db.scalar(select(User).where(User.clerk_id == user.user_id))
+    if fila is None or not tiene_permiso(db, fila.id, codigo):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "codigo": CODIGO_SIN_PERMISO,
+                "mensaje": "No tenes permiso para esta accion.",
+                "permiso": codigo,
+            },
+        )
+    return user
