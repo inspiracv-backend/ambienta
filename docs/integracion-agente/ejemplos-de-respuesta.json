@@ -1,0 +1,239 @@
+{
+  "me_con_identidad": {
+    "modo_desarrollo": false,
+    "usuario": {
+      "id": "d0000000-0000-0000-0000-000000000001",
+      "clerk_id": "user_2captura_ejemplo",
+      "email": "carlos.mendoza@mineraandes.cl",
+      "nombre": "Carlos Mendoza Reyes",
+      "tipo": "tenant_admin",
+      "estado": "active",
+      "department_id": "c0000000-0000-0000-0000-000000000003"
+    },
+    "empresa": {
+      "id": "a0000000-0000-0000-0000-000000000001",
+      "nombre": "Minera Andes SpA",
+      "nombre_comercial": "Minera Andes",
+      "rut": "76.123.456-7",
+      "tipo": "company",
+      "sector": {
+        "id": 3,
+        "codigo": "C",
+        "nombre": "Industria manufacturera"
+      },
+      "sector_id": 3,
+      "tramo": "mediana",
+      "giro": "Extracción de minerales metálicos no ferrosos"
+    },
+    "roles": [
+      "admin_empresa"
+    ],
+    "permisos": [
+      "action_plan.read",
+      "action_plan.write",
+      "audit.read",
+      "audit.write",
+      "audit_log.read",
+      "catalog.read",
+      "catalog.write",
+      "chatbot.use",
+      "company_profile.read",
+      "company_profile.write",
+      "document.read",
+      "document.write",
+      "environmental_aspect.read",
+      "environmental_aspect.write",
+      "equipment.read",
+      "equipment.write",
+      "legal_matrix.approve",
+      "legal_matrix.article.evaluate",
+      "legal_matrix.read",
+      "legal_matrix.write",
+      "manager.read",
+      "manager.write",
+      "nonconformity.close",
+      "nonconformity.read",
+      "nonconformity.write",
+      "notification.configure",
+      "obligation.read",
+      "obligation.submit",
+      "obligation.write",
+      "report.generate",
+      "risk_opportunity.read",
+      "risk_opportunity.write",
+      "role.manage",
+      "task.read",
+      "task.write",
+      "user.read",
+      "user.write"
+    ],
+    "acotado": false,
+    "instalaciones": [],
+    "departamentos": []
+  },
+  "me_modo_desarrollo": {
+    "modo_desarrollo": true,
+    "usuario": null,
+    "empresa": {
+      "id": "a0000000-0000-0000-0000-000000000001",
+      "nombre": "Minera Andes SpA",
+      "nombre_comercial": "Minera Andes",
+      "rut": "76.123.456-7",
+      "tipo": "company",
+      "sector": {
+        "id": 3,
+        "codigo": "C",
+        "nombre": "Industria manufacturera"
+      },
+      "sector_id": 3,
+      "tramo": "mediana",
+      "giro": "Extracción de minerales metálicos no ferrosos"
+    },
+    "roles": [],
+    "permisos": [],
+    "acotado": false,
+    "instalaciones": [],
+    "departamentos": []
+  },
+  "normativa_aplicable": {
+    "estado": "con_normativa",
+    "sector_id": 3,
+    "obligatorias": [
+      {
+        "norm_id": "f1000000-0000-0000-0000-000000000003",
+        "title": "Norma de Emisión para Centrales Termoeléctricas",
+        "norm_type": "decreto_supremo",
+        "norm_number": "13/2011",
+        "sector_id": 3,
+        "applicability_level": "directa",
+        "rationale": null
+      }
+    ],
+    "recomendadas": [],
+    "total": 1
+  },
+  "resumen_vigente": {
+    "total": {
+      "cumplen": 2,
+      "no_cumplen": 2,
+      "sin_evaluar": 1,
+      "no_aplican": 1,
+      "excluidos": 0,
+      "evaluables": 5,
+      "evaluados": 4,
+      "porcentaje": 40.0,
+      "porcentaje_sobre_evaluados": 50.0,
+      "cobertura": 80.0
+    },
+    "por_norma": [
+      {
+        "norm_id": "f1000000-0000-0000-0000-000000000005",
+        "matrix_norm_id": "a0000011-0000-0000-0000-000000000003",
+        "title": "Ley Marco para la Gestión de Residuos, la Responsabilidad Extendida del Productor y Fomento al Reciclaje (Ley REP)",
+        "applicability": "applicable",
+        "conteo": {
+          "cumplen": 0,
+          "no_cumplen": 0,
+          "sin_evaluar": 0,
+          "no_aplican": 0,
+          "excluidos": 0,
+          "evaluables": 0,
+          "evaluados": 0,
+          "porcentaje": null,
+          "porcentaje_sobre_evaluados": null,
+          "cobertura": null
+        }
+      },
+      {
+        "norm_id": "f1000000-0000-0000-0000-000000000001",
+        "matrix_norm_id": "a0000011-0000-0000-0000-000000000001",
+        "title": "Ley sobre Bases Generales del Medio Ambiente",
+        "applicability": "applicable",
+        "conteo": {
+          "cumplen": 2,
+          "no_cumplen": 1,
+          "sin_evaluar": 0,
+          "no_aplican": 1,
+          "excluidos": 0,
+          "evaluables": 3,
+          "evaluados": 3,
+          "porcentaje": 66.7,
+          "porcentaje_sobre_evaluados": 66.7,
+          "cobertura": 100.0
+        }
+      },
+      {
+        "norm_id": "f1000000-0000-0000-0000-000000000006",
+        "matrix_norm_id": "a0000011-0000-0000-0000-000000000004",
+        "title": "Norma de Emisión para la Regulación de Contaminantes Asociados a las Descargas de Residuos Líquidos",
+        "applicability": "applicable",
+        "conteo": {
+          "cumplen": 0,
+          "no_cumplen": 0,
+          "sin_evaluar": 0,
+          "no_aplican": 0,
+          "excluidos": 0,
+          "evaluables": 0,
+          "evaluados": 0,
+          "porcentaje": null,
+          "porcentaje_sobre_evaluados": null,
+          "cobertura": null
+        }
+      },
+      {
+        "norm_id": "f1000000-0000-0000-0000-000000000004",
+        "matrix_norm_id": "a0000011-0000-0000-0000-000000000002",
+        "title": "Reglamento Sanitario sobre Manejo de Residuos Peligrosos",
+        "applicability": "applicable",
+        "conteo": {
+          "cumplen": 0,
+          "no_cumplen": 1,
+          "sin_evaluar": 1,
+          "no_aplican": 0,
+          "excluidos": 0,
+          "evaluables": 2,
+          "evaluados": 1,
+          "porcentaje": 0.0,
+          "porcentaje_sobre_evaluados": 0.0,
+          "cobertura": 50.0
+        }
+      },
+      {
+        "norm_id": "f1000000-0000-0000-0000-000000000008",
+        "matrix_norm_id": "a0000011-0000-0000-0000-000000000005",
+        "title": "Resolución que establece obligaciones de reporte al RETC",
+        "applicability": "applicable",
+        "conteo": {
+          "cumplen": 0,
+          "no_cumplen": 0,
+          "sin_evaluar": 0,
+          "no_aplican": 0,
+          "excluidos": 0,
+          "evaluables": 0,
+          "evaluados": 0,
+          "porcentaje": null,
+          "porcentaje_sobre_evaluados": null,
+          "cobertura": null
+        }
+      }
+    ],
+    "por_instalacion": [
+      {
+        "facility_id": "b0000000-0000-0000-0000-000000000001",
+        "nombre": "Planta Calama",
+        "conteo": {
+          "cumplen": 2,
+          "no_cumplen": 2,
+          "sin_evaluar": 1,
+          "no_aplican": 1,
+          "excluidos": 0,
+          "evaluables": 5,
+          "evaluados": 4,
+          "porcentaje": 40.0,
+          "porcentaje_sobre_evaluados": 50.0,
+          "cobertura": 80.0
+        }
+      }
+    ]
+  }
+}
