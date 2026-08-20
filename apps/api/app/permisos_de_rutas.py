@@ -78,6 +78,13 @@ SIN_GUARDA_DE_PERMISO: dict[str, str] = {
         "filas, asi que no hay nada que un permiso agregue"
     ),
     "system": "salud y diagnostico del esquema; no lee datos de negocio",
+    "me": (
+        "preguntar quien soy y que puedo hacer **no puede exigir un permiso**: "
+        "seria circular, porque la respuesta legitima puede ser 'ninguno' y "
+        "entonces nadie podria ni averiguarlo. Devuelve la fila propia y la de "
+        "la empresa del token, que RLS ya acota; no expone nada que quien llama "
+        "no pudiera leer por otro camino"
+    ),
 }
 
 #: Operaciones que no son CRUD y tienen permiso propio.
