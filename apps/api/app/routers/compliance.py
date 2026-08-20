@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 from ..crud.compliance import crud_article_compliance, crud_matrix, crud_matrix_norm
 from ..deps import get_tenant_db, get_tenant_id
 from ..services.normativa_aplicable import calcular as calcular_normativa_aplicable
+from sqlalchemy import select
+
+from ..models.compliance import TenantLegalMatrix
 from ..services.resumen_cumplimiento import resumir as resumir_cumplimiento
 from ..services.sincronizar_matriz import (
     desactualizadas as normas_desactualizadas,
@@ -282,6 +285,46 @@ def _conteo(c) -> ConteoRead:
         porcentaje_sobre_evaluados=c.porcentaje_sobre_evaluados,
         cobertura=c.cobertura,
     )
+
+
+@router.get("/resumen", response_model=ResumenDeMatrizRead)
+def resumen_vigente(db: Session = Depends(get_tenant_db)):
+    """Como va el cumplimiento **ahora**, sin tener que saber que matriz mirar.
+
+    Es el mismo desglose que `/matrices/{matrix_id}/resumen`, sobre la matriz
+    del periodo mas reciente.
+
+    ## Por que existe y no se deja que cada cliente la busque
+
+    Sin esto, todo el que consuma la API tiene que listar las matrices,
+    ordenarlas por periodo y quedarse con la primera. Dos clientes escribiendo
+    esa misma regla es dos oportunidades de escribirla distinto — y el error no
+    se ve: uno responde sobre la matriz del ano pasado y el numero es perfecto,
+    solo que del periodo equivocado. Ya paso una vez con el porcentaje de
+    cumplimiento, calculado con dos denominadores distintos en la pantalla y en
+    el resumen.
+
+    **Se ordena por periodo, no se toma la primera que devuelva la base.** El
+    orden de una consulta sin `ORDER BY` no esta garantizado.
+
+    ## Sin ninguna matriz
+
+    Responde **404**, no un resumen en cero. Una empresa que todavia no genero
+    su matriz no esta al 0 % de cumplimiento: no tiene nada que cumplir
+    todavia, y devolver ceros la acusaria de algo que no hizo.
+    """
+    matriz = db.scalars(
+        select(TenantLegalMatrix)
+        .where(TenantLegalMatrix.deleted_at.is_(None))
+        .order_by(TenantLegalMatrix.period_year.desc())
+        .limit(1)
+    ).first()
+    if matriz is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Esta empresa todavia no tiene una matriz de cumplimiento.",
+        )
+    return resumen_de_la_matriz(matriz.id, db=db)
 
 
 @router.get("/matrices/{matrix_id}/resumen", response_model=ResumenDeMatrizRead)

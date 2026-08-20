@@ -207,15 +207,32 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **74 %.** 29 de 39 acciones llegan a la base. Las 10 restantes tienen causa documentada en su propio docstring. El conteo anterior (26 de 37) estaba mal por dentro: decia 10 pendientes y listaba 11 — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
-| Normativa aplicable | **Funcionando de punta a punta.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas con el motivo de cada una, y sincronizar la matriz agrega sin borrar. **Bloqueado por datos, no por codigo:** `norm_sectors` esta vacia — ver abajo |
+| Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | worker · ai-service | Sin implementar |
 
-**El CORE funciona y no propone nada, porque `norm_sectors` esta vacia.** Nadie
-ha clasificado ninguna norma contra ningun sector, asi que toda empresa recibe
-`sector_sin_clasificar` y su matriz queda vacia. **Es trabajo de negocio, no un
-bug**, y se lee mal: el estado parece un error tecnico. La pantalla
-`/clasificacion-normativa` (solo Superadmin) lo convierte en un numero visible:
-cuantas normas no miro nadie y que sectores estan en cero.
+**El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
+leerlo con cuidado porque son dos estados distintos con arreglos opuestos:
+
+| Estado | Que falta | Quien lo arregla |
+|---|---|---|
+| `sin_perfil` | La empresa no declaro su sector | La empresa, en Perfil Empresa |
+| `sector_sin_clasificar` | Nadie clasifico normas para ese sector | Nosotros |
+
+**Hoy el estado es `sin_perfil`**: las dos empresas del seed tienen
+`tenants.sector_id` en NULL. `norm_sectors` **no esta vacia** —tiene 10 filas y
+las 8 normas del catalogo estan clasificadas sobre 4 sectores— asi que basta
+declarar el sector de una empresa para que el CORE proponga normativa. Ya se
+comprobo: con `sector_id = 3` la empresa recibe una norma obligatoria.
+
+Lo que si es trabajo pendiente de clasificacion: **17 de los 21 sectores CIIU
+estan en cero**. Una empresa de construccion, comercio o transporte entra y no
+recibe nada. Eso limita a que rubros se le puede vender, no impide demostrar el
+sistema. La pantalla `/clasificacion-normativa` (solo Superadmin) lo muestra
+sector por sector.
+
+**Esta entrada estuvo mal escrita hasta el 20-ago** y decia que `norm_sectors`
+estaba vacia. Es el error que este mismo archivo advierte dos secciones mas
+abajo: un dato afirmado sin medirlo, que despues se cita como un hecho.
 
 **Lo que hay que saber al tomar el repo:** conectar una escritura **no es
 agregar un `PATCH`**. Es un viaje de ida y vuelta, y hacer solo un lado engana
