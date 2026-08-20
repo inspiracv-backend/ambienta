@@ -39,10 +39,24 @@ devuelven los dos desde el mismo conteo en vez de elegir uno:
 - `cobertura` — cuanto se alcanzo a mirar
 - `porcentaje` — el conservador: lo pendiente cuenta como no cumplido
 
-No son tres verdades sueltas. **El tercero es el producto de los otros dos**
-—salvo una decima, porque cada uno se redondea por separado— asi que no pueden
-contradecirse: si la pantalla muestra 100 % de cumplimiento sobre 5 % de
-cobertura, el resumen dice 5 % y las tres cifras describen la misma realidad.
+No son tres verdades sueltas: salen del mismo conteo. En aritmetica exacta
+`porcentaje = porcentaje_sobre_evaluados x cobertura / 100`, asi que describen
+la misma realidad — si la pantalla muestra 100 % de cumplimiento sobre 5 % de
+cobertura, el resumen dice 5 %.
+
+**Pero no derives uno de los otros dos.** Lo que se devuelve son los tres
+redondeados a una decimal por separado, y eso rompe la identidad de dos formas:
+
+- **El error de redondeo se acumula hasta 0,14 puntos**, no una decima. Con
+  cumplen=57, no_cumplen=22, sin_evaluar=1 sale `porcentaje` 71,2 mientras el
+  producto de los otros dos da 71,3336. En un barrido de 0 a 60 por contador hay
+  782 combinaciones que pasan de una decima.
+- **Las guardas son asimetricas.** Con `evaluables > 0` y `evaluados == 0` —una
+  matriz generada que nadie evaluo todavia— `porcentaje_sobre_evaluados` es
+  `None` mientras `porcentaje` y `cobertura` valen 0,0, y el producto queda
+  indefinido.
+
+Cada campo se lee tal como viene.
 
 ## Sin articulos que contar, el porcentaje es `None`
 
@@ -110,6 +124,26 @@ class Conteo:
         if self.evaluables == 0:
             return None
         return round(self.cumplen / self.evaluables * 100, 1)
+
+    @property
+    def razon_cumplimiento(self) -> float | None:
+        """La razon sin redondear, para comprobar la identidad entre los tres.
+
+        Existe solo para las pruebas: **la identidad se cumple exacta sobre las
+        razones y no sobre los porcentajes publicados**, que se redondean por
+        separado. Afirmarla sobre los redondeados fue un error que estuvo
+        escrito en el docstring de este modulo.
+        """
+        if self.evaluados == 0:
+            return None
+        return self.cumplen / self.evaluados
+
+    @property
+    def razon_cobertura(self) -> float | None:
+        """La cobertura sin redondear. Ver `razon_cumplimiento`."""
+        if self.evaluables == 0:
+            return None
+        return self.evaluados / self.evaluables
 
     @property
     def porcentaje_sobre_evaluados(self) -> float | None:

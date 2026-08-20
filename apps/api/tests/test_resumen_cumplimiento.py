@@ -446,10 +446,14 @@ class TestLosTresNumerosNoSeContradicen:
     preguntas distintas; el problema era que salian de dos calculos separados,
     asi que nadie podia saber cual mirar.
 
-    Ahora los tres salen del mismo conteo, y estan ligados por una identidad que
-    se comprueba aca: **el conservador es el producto de los otros dos**, salvo
-    una decima de redondeo. Si alguien cambia un denominador, esta prueba lo
-    dice.
+    Ahora los tres salen del mismo conteo, ligados por una identidad que se
+    comprueba aca: **el conservador es el producto de los otros dos, sobre las
+    razones sin redondear**. Si alguien cambia un denominador, estas pruebas lo
+    dicen.
+
+    Sobre los porcentajes publicados la identidad **no** se sostiene, y eso
+    tambien esta fijado abajo: el redondeo por separado desvia hasta 0,14
+    puntos, y con nada evaluado el producto queda indefinido.
     """
 
     def test_el_conservador_es_el_producto_de_los_otros_dos(self) -> None:
@@ -461,10 +465,40 @@ class TestLosTresNumerosNoSeContradicen:
         assert c.porcentaje_sobre_evaluados == 100.0
         assert c.cobertura == 5.0
         assert c.porcentaje == 5.0
-        # 100 % de lo evaluado x 5 % de cobertura = 5 % conservador.
-        assert c.porcentaje == round(
-            c.porcentaje_sobre_evaluados * c.cobertura / 100, 1
+        assert c.razon_cumplimiento * c.razon_cobertura == pytest.approx(0.05)
+
+    def test_el_producto_de_los_redondeados_NO_vuelve_al_tercero(self) -> None:
+        """La identidad vale sobre las razones, **no sobre lo que se publica**.
+
+        El docstring de este modulo llego a decir "salvo una decima". Es falso:
+        el error de redondeo se acumula hasta 0,14 puntos. Esta prueba fija el
+        contraejemplo para que nadie vuelva a escribir la tolerancia.
+        """
+        c = Conteo(cumplen=57, no_cumplen=22, sin_evaluar=1)
+
+        assert (c.porcentaje, c.porcentaje_sobre_evaluados, c.cobertura) == (
+            71.2,
+            72.2,
+            98.8,
         )
+        desvio = abs(c.porcentaje_sobre_evaluados * c.cobertura / 100 - c.porcentaje)
+        assert desvio > 0.1
+        # Sobre las razones si cierra.
+        assert c.razon_cumplimiento * c.razon_cobertura == pytest.approx(57 / 80)
+
+    def test_con_nada_evaluado_el_producto_queda_indefinido(self) -> None:
+        """**Las guardas son asimetricas y hay que saberlo.**
+
+        Con articulos que cumplir y ninguno evaluado —una matriz recien
+        generada— `porcentaje_sobre_evaluados` es `None` mientras los otros dos
+        valen 0,0. Un cliente que multiplique para derivar el tercero revienta
+        justo en el estado mas comun de una empresa nueva.
+        """
+        c = Conteo(sin_evaluar=10)
+
+        assert c.porcentaje_sobre_evaluados is None
+        assert c.porcentaje == 0.0
+        assert c.cobertura == 0.0
 
     def test_la_identidad_se_mantiene_con_los_cinco_estados(self) -> None:
         c = Conteo()
@@ -482,12 +516,12 @@ class TestLosTresNumerosNoSeContradicen:
 
         assert (c.evaluados, c.evaluables) == (4, 6)
         assert c.porcentaje_sobre_evaluados == 50.0
-        # **Con tolerancia de una decima, no exacto.** Los tres se redondean a
-        # un decimal por separado, asi que el producto de dos redondeados puede
-        # caer una decima del tercero: 50,0 x 66,7 da 33,4 y el conservador es
-        # 33,3. La identidad es de las razones, no de las cifras impresas, y
-        # decir "es exactamente el producto" seria falso.
-        assert abs(c.porcentaje_sobre_evaluados * c.cobertura / 100 - c.porcentaje) <= 0.1
+        # **La identidad se comprueba sobre las razones, no sobre los
+        # porcentajes publicados.** Los tres se redondean por separado, asi que
+        # el producto de dos redondeados no vuelve al tercero.
+        assert c.razon_cumplimiento * c.razon_cobertura == pytest.approx(
+            c.cumplen / c.evaluables
+        )
 
     def test_sin_evaluar_nada_el_cumplimiento_es_none_y_la_cobertura_cero(self) -> None:
         """Distintos a proposito: no hay respuesta a "cuanto cumplimos", pero si
