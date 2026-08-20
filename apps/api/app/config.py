@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # Vacia por defecto para que usarla sea una decision, no un descuido.
     database_admin_url: str = ""
 
+    #: Donde caen los JSON de la rotacion mensual del registro de actividades.
+    #:
+    #: Hoy es disco del servidor. **Cuando exista la cuenta de Backblaze esto se
+    #: cambia por su bucket** y no hay que tocar la tarea: la ruta es lo unico
+    #: que sabe donde escribe.
+    ruta_archivo_auditoria: str = "/var/lib/ambienta/auditoria"
+
     # Origenes permitidos por CORS, separados por coma.
     cors_origins: str = "http://localhost:3000"
 
