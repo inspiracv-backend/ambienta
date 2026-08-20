@@ -383,9 +383,17 @@ class TestLoQueNecesitaUnaIntegracion:
         if not antes:
             pytest.skip("El usuario de prueba no tiene roles que vencer")
 
+        # **Se mueven las dos fechas, no solo `valid_to`.** El CHECK
+        # `ck_user_roles_vigencia` exige `valid_to > valid_from`, asi que vencer
+        # el rol dejando `valid_from` donde estaba solo funciona si el dato es
+        # mas viejo que un dia. En local el seed lleva tiempo y pasaba; en CI la
+        # base se crea en el momento y fallaba. La prueba dependia de la edad de
+        # los datos, que es una forma silenciosa de no probar nada estable.
         db.execute(
             text(
-                "UPDATE user_roles SET valid_to = now() - interval '1 day' "
+                "UPDATE user_roles "
+                "SET valid_from = now() - interval '10 days', "
+                "    valid_to   = now() - interval '1 day' "
                 "WHERE user_id = :u"
             ),
             {"u": uid},
