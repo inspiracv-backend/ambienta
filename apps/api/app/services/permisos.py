@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from ..models.organization import (
     Permission,
+    Role,
     RolePermission,
     UserPermission,
     UserRole,
@@ -65,6 +66,32 @@ def permisos_de_roles(db: Session, user_id: UUID) -> set[str]:
     # explicitamente que ese rol NO da ese permiso. Se ignora al unir, en vez
     # de tratarla como concesion.
     return {codigo for codigo, concedido in filas if concedido}
+
+
+def roles_vigentes(db: Session, user_id: UUID) -> list[str]:
+    """Los codigos de rol que la persona tiene **hoy**.
+
+    Misma regla de vigencia que `permisos_de_roles`, y por el mismo motivo: un
+    rol vencido no es un rol. Se comparte el criterio en vez de repetirlo porque
+    dos definiciones de "vigente" se desincronizan sin que nada falle — una
+    diria que la persona es encargada y la otra le negaria los permisos.
+
+    **Es una etiqueta, no una regla.** Para decidir si una accion se permite
+    esta `permisos_efectivos`, que ademas aplica las excepciones individuales.
+    Ramificar sobre el rol se salta la denegacion individual, que es justo el
+    mecanismo para quitarle algo a alguien sin sacarlo del rol.
+    """
+    ahora = _ahora()
+    filas = db.execute(
+        select(Role.code)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(
+            UserRole.user_id == user_id,
+            UserRole.valid_from <= ahora,
+            or_(UserRole.valid_to.is_(None), UserRole.valid_to > ahora),
+        )
+    ).all()
+    return sorted({codigo for (codigo,) in filas})
 
 
 def excepciones_del_usuario(db: Session, user_id: UUID) -> tuple[set[str], set[str]]:

@@ -32,9 +32,19 @@ from sqlalchemy.orm import Session
 from ..auth import CurrentUser
 from ..config import get_settings
 from ..deps import get_current_user, get_tenant_db
+from ..models.catalog import Sector
 from ..models.organization import Tenant, User
-from ..schemas.identidad import EmpresaDeLaSesion, IdentidadRead, UsuarioDeLaSesion
-from ..services.permisos import alcance_del_usuario, permisos_efectivos
+from ..schemas.identidad import (
+    EmpresaDeLaSesion,
+    IdentidadRead,
+    SectorDeLaEmpresa,
+    UsuarioDeLaSesion,
+)
+from ..services.permisos import (
+    alcance_del_usuario,
+    permisos_efectivos,
+    roles_vigentes,
+)
 
 router = APIRouter(prefix="/me", tags=["identidad"])
 
@@ -90,11 +100,28 @@ def quien_soy(
             },
         )
 
+    # El sector se resuelve entero —codigo y nombre— y no solo el id: el id es
+    # una clave interna que no explica nada, y quien consuma esto necesita poder
+    # decir "le aplica porque es industria manufacturera", no "porque es 3".
+    sector = None
+    if empresa.sector_id is not None:
+        fila_sector = db.execute(
+            select(Sector.id, Sector.code, Sector.name).where(
+                Sector.id == empresa.sector_id
+            )
+        ).first()
+        if fila_sector is not None:
+            sector = SectorDeLaEmpresa(
+                id=fila_sector[0], codigo=fila_sector[1], nombre=fila_sector[2]
+            )
+
     datos_empresa = EmpresaDeLaSesion(
         id=empresa.id,
         nombre=empresa.legal_name,
         nombre_comercial=empresa.trade_name,
         rut=empresa.rut_tax_id,
+        tipo=empresa.tenant_type,
+        sector=sector,
         sector_id=empresa.sector_id,
         tramo=empresa.size_bracket,
         giro=empresa.business_activity,
@@ -105,6 +132,7 @@ def quien_soy(
             modo_desarrollo=True,
             usuario=None,
             empresa=datos_empresa,
+            roles=[],
             permisos=[],
             acotado=False,
             instalaciones=[],
@@ -127,6 +155,7 @@ def quien_soy(
         )
 
     instalaciones, departamentos = alcance_del_usuario(db, fila.id)
+    roles = roles_vigentes(db, fila.id)
 
     return IdentidadRead(
         modo_desarrollo=False,
@@ -140,6 +169,7 @@ def quien_soy(
             department_id=fila.department_id,
         ),
         empresa=datos_empresa,
+        roles=roles,
         permisos=sorted(permisos_efectivos(db, fila.id)),
         # Se dice explicito en vez de dejar que el cliente interprete la lista
         # vacia, que significa lo contrario de lo que parece.
