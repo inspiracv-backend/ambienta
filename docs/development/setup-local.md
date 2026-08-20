@@ -107,6 +107,63 @@ Tres cosas que cuestan una tarde si no se saben:
 
    En el VPS el webhook sí llega y esto no hace falta.
 
+## Consumir la API desde fuera (agente de IA, integraciones)
+
+Para quien no viene a tocar el frontend sino a **leer datos desde otro
+servicio**. En modo desarrollo no hace falta token: basta declarar de que
+empresa se esta hablando.
+
+```bash
+curl -H "X-Tenant-Id: a0000000-0000-0000-0000-000000000001"   http://localhost:8000/api/v1/me
+```
+
+**Ese header solo funciona con Clerk apagado.** Si tu `.env` tiene
+`CLERK_JWKS_URL`, la API lo ignora y exige un JWT — es lo correcto, pero
+sorprende cuando uno prueba en una maquina configurada y en otra no.
+
+### Las dos empresas sembradas
+
+| `X-Tenant-Id` | Empresa | `tenant_type` |
+|---|---|---|
+| `a0000000-0000-0000-0000-000000000001` | Minera Andes SpA | `company` (cliente directo) |
+| `a0000000-0000-0000-0000-000000000002` | EcoGestion Consultoria Ambiental | `manager` (gestor) |
+
+Sirven para probar los dos casos: **el tipo de empresa cambia como se administra
+su normativa**, y con una sola no se nota.
+
+### Los tres endpoints del agente
+
+```bash
+GET /api/v1/me                              # quien habla: usuario, empresa, sector, tramo, roles
+GET /api/v1/compliance/normativa-aplicable  # que normas le aplican, y por que
+GET /api/v1/compliance/resumen              # como va el cumplimiento
+```
+
+Tres trampas que cuestan tiempo:
+
+1. **Filtrar por `tramo`, no por numero de empleados.** El sistema filtra la
+   normativa por tramo (`micro`/`pequena`/`mediana`/`grande`). El numero de
+   empleados **no existe en la base**: filtrar por el da otra cosa.
+
+2. **En `normativa-aplicable`, mirar `estado` antes que las listas.** Una lista
+   vacia tiene tres causas y **solo una significa "no tiene obligaciones"**. Las
+   otras dos —falta declarar el sector, faltan normas clasificadas— significan
+   que todavia no se sabe. Responder "esta al dia" ahi le dice a una empresa que
+   no debe nada cuando nadie miro.
+
+3. **En `resumen` hay tres porcentajes y no son intercambiables.**
+   `porcentaje_sobre_evaluados` da 100 % con un articulo cumplido y diecinueve
+   sin evaluar. Va siempre con `cobertura`, o se usa `porcentaje`, que ya los
+   combina. **No derivar uno de los otros dos**: se redondean por separado y las
+   guardas son asimetricas.
+
+### La pantalla del chatbot ya existe
+
+`/chatbot` esta construida, con el panel de conversacion armado y alimentado por
+respuestas de ejemplo (`apps/web/mocks/chatbot`). El trabajo es **reemplazar esa
+fuente**, no construir la interfaz. Para persistir el hilo estan
+`/support/chatbot` y `/support/chatbot/{id}/messages`.
+
 ## Sin Docker (modo hibrido)
 
 Levantar solo las bases de datos en Docker y las apps en el host:
