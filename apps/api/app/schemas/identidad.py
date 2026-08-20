@@ -25,6 +25,19 @@ class UsuarioDeLaSesion(BaseModel):
     department_id: UUID | None = None
 
 
+class SectorDeLaEmpresa(BaseModel):
+    """El sector CIIU con su codigo, no solo el id.
+
+    El id es una clave interna que no le dice nada a nadie; el codigo (`C`) y el
+    nombre son los que sirven para explicar **por que** una norma le aplica a la
+    empresa.
+    """
+
+    id: int
+    codigo: str
+    nombre: str
+
+
 class EmpresaDeLaSesion(BaseModel):
     """La empresa contra la que se esta consultando.
 
@@ -37,8 +50,17 @@ class EmpresaDeLaSesion(BaseModel):
     nombre: str
     nombre_comercial: str | None = None
     rut: str | None = None
+    tipo: str = Field(
+        description="`company` (cliente directo) · `manager` (gestor que administra "
+        "otras) · `managed_client` (cliente de un gestor) · `platform` (nosotros). "
+        "**Son cuatro, no dos:** tratar `managed_client` como `company` pierde que "
+        "su normativa la administra un tercero"
+    )
+    sector: SectorDeLaEmpresa | None = Field(
+        default=None, description="`null` = la empresa no declaro su sector"
+    )
     sector_id: int | None = Field(
-        default=None, description="Sector CIIU. `null` = perfil normativo sin declarar"
+        default=None, description="El id suelto, por comodidad. Mismo dato que `sector.id`"
     )
     tramo: str | None = Field(
         default=None, description="`micro` | `pequena` | `mediana` | `grande`"
@@ -61,6 +83,12 @@ class IdentidadRead(BaseModel):
     )
     usuario: UsuarioDeLaSesion | None
     empresa: EmpresaDeLaSesion
+    roles: list[str] = Field(
+        description="Codigos de los roles **vigentes**: `admin_empresa`, "
+        "`encargado_ambiental`, `operador`, `servicio_lectura`. Un rol con "
+        "`valid_to` pasado no aparece. Para decidir si una accion se permite usa "
+        "`permisos`, no esto: el rol es una etiqueta, el permiso es la regla"
+    )
     permisos: list[str] = Field(
         description="Lo que esta persona puede hacer, ya resuelto: roles mas "
         "concesiones individuales, menos las denegaciones. **La denegacion gana.** "
