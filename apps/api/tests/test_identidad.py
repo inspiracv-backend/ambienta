@@ -296,3 +296,103 @@ class TestElAlcance:
 
         assert r.acotado is True
         assert fid in r.instalaciones
+
+
+class TestLoQueNecesitaUnaIntegracion:
+    """Los campos que pidio quien construye el agente, y por que estos.
+
+    El pedido fue: usuario, compania, **tipo de compania**, sector, y **su rol**.
+    Los tres ultimos no estaban, y cada uno se equivoca de una forma distinta si
+    se resuelve mal.
+    """
+
+    def test_dice_si_la_empresa_es_gestor_o_cliente(
+        self, db: Session, monkeypatch
+    ) -> None:
+        """`tenant_type` decide como se administra su normativa.
+
+        Son **cuatro** valores, no dos. Tratar `managed_client` como `company`
+        pierde que su normativa la lleva un tercero.
+        """
+        _con_clerk(monkeypatch)
+        _usuario_con_clerk(db, "user_2prueba_identidad")
+
+        r = quien_soy(user=_Sesion("user_2prueba_identidad"), db=db)
+
+        assert r.empresa.tipo in {"company", "manager", "managed_client", "platform"}
+
+    def test_el_sector_viene_con_codigo_y_nombre_no_solo_el_id(
+        self, db: Session, monkeypatch
+    ) -> None:
+        """El id no explica nada.
+
+        Quien consuma esto tiene que poder decir "le aplica porque es industria
+        manufacturera", no "porque es 3".
+        """
+        _con_clerk(monkeypatch)
+        _usuario_con_clerk(db, "user_2prueba_identidad")
+        sid = db.execute(text("SELECT id FROM sectors WHERE code = 'C'")).scalar()
+        db.execute(
+            text("UPDATE tenants SET sector_id = :s WHERE id = :t"),
+            {"s": sid, "t": TENANT},
+        )
+
+        r = quien_soy(user=_Sesion("user_2prueba_identidad"), db=db)
+
+        assert r.empresa.sector is not None
+        assert r.empresa.sector.codigo == "C"
+        assert r.empresa.sector.nombre != ""
+        # El id suelto sigue estando, y coincide.
+        assert r.empresa.sector_id == r.empresa.sector.id
+
+    def test_sin_sector_declarado_el_objeto_es_null(
+        self, db: Session, monkeypatch
+    ) -> None:
+        """`null`, no un sector inventado con nombre vacio."""
+        _con_clerk(monkeypatch)
+        _usuario_con_clerk(db, "user_2prueba_identidad")
+        db.execute(
+            text("UPDATE tenants SET sector_id = NULL WHERE id = :t"), {"t": TENANT}
+        )
+
+        r = quien_soy(user=_Sesion("user_2prueba_identidad"), db=db)
+
+        assert r.empresa.sector is None
+        assert r.empresa.sector_id is None
+
+    def test_devuelve_los_roles_vigentes(self, db: Session, monkeypatch) -> None:
+        _con_clerk(monkeypatch)
+        uid = _usuario_con_clerk(db, "user_2prueba_identidad")
+        from app.services.permisos import roles_vigentes
+
+        r = quien_soy(user=_Sesion("user_2prueba_identidad"), db=db)
+
+        assert r.roles == roles_vigentes(db, uid)
+        assert r.roles  # el usuario sembrado tiene al menos uno
+
+    def test_un_rol_vencido_no_aparece(self, db: Session, monkeypatch) -> None:
+        """"Fue encargado" no es "es encargado".
+
+        Sin el filtro de vigencia, alguien conserva su etiqueta despues de que
+        se le retiro — y los permisos ya la respetan, asi que el rol y los
+        permisos se contradirian en la misma respuesta.
+        """
+        _con_clerk(monkeypatch)
+        uid = _usuario_con_clerk(db, "user_2prueba_identidad")
+        antes = quien_soy(user=_Sesion("user_2prueba_identidad"), db=db).roles
+        if not antes:
+            pytest.skip("El usuario de prueba no tiene roles que vencer")
+
+        db.execute(
+            text(
+                "UPDATE user_roles SET valid_to = now() - interval '1 day' "
+                "WHERE user_id = :u"
+            ),
+            {"u": uid},
+        )
+
+        despues = quien_soy(user=_Sesion("user_2prueba_identidad"), db=db)
+
+        assert despues.roles == []
+        # Y los permisos se van con el, que es la razon de filtrar.
+        assert despues.permisos == []
