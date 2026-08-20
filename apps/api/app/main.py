@@ -25,6 +25,7 @@ from .routers import (
     audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
     documents,
     facilities,
+    identidad,
     integraciones, iso14001, notifications, obligations, processes, support, system,
     plantillas, tenants,
     users, webhooks,
@@ -96,6 +97,10 @@ api_v1_prefix = "/api/v1"
 # sesion de la cual sacar permisos, y colgarsela lo haria fallar con 401
 # antes siquiera de verificar la firma HMAC.
 app.include_router(webhooks.router, prefix=api_v1_prefix)
+# `/me` va sin guarda de permiso a proposito: preguntar que puedo hacer no
+# puede exigir poder hacer algo. Ver `SIN_GUARDA_DE_PERMISO` en
+# `permisos_de_rutas.py`, donde queda escrito el motivo.
+app.include_router(identidad.router, prefix=api_v1_prefix)
 app.include_router(dashboard.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(tenants.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(facilities.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])

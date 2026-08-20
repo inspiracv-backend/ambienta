@@ -65,6 +65,15 @@ vacia inesperada es el sintoma de esa falla, no una fuga.
 
 TAGS_METADATA: list[dict[str, Any]] = [
     {
+        "name": "identidad",
+        "description": (
+            "Quien esta llamando, de que empresa, y que puede hacer. **Es la "
+            "primera llamada de cualquier integracion:** el token dice contra "
+            "que empresa consultar, pero no dice quien es quien llama ni cual "
+            "es su UUID interno, que es el que esperan los demas endpoints."
+        ),
+    },
+    {
         "name": "health",
         "description": (
             "Sondas de vida y de disponibilidad. `/health` no toca la base; "
@@ -380,6 +389,13 @@ _ACCIONES: dict[str, tuple[str, str]] = {
         "oficial; despues de enviarla no se edita.",
     ),
     "stats": ("Obtener estadisticas", "Conteos agregados, calculados en la base y no en el cliente."),
+    "me": (
+        "Saber quien esta llamando",
+        "Identidad, empresa, permisos efectivos y alcance, en una sola llamada. "
+        "Sin esto un servicio tendria que traerse la nomina entera para "
+        "encontrar su propia fila, y seguiria sin conocer su UUID interno: el "
+        "JWT lleva el id del proveedor de identidad, que es otro.",
+    ),
     "cobertura": (
         "Obtener la cobertura de la clasificacion",
         "Cuanta normativa falta clasificar y en que sectores. Una norma sin "

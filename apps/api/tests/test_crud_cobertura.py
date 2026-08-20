@@ -39,10 +39,20 @@ SIN_CRUD_COMPLETO = {
     "/support/chatbot": "una conversacion no se edita; se cierra o se retira entera",
     "/obligations/tasks": "las tareas se listan dentro de su obligacion, no sueltas",
     "/documents": "las versiones se listan dentro de su documento",
+    "/me": (
+        "no es un recurso: es la identidad de quien llama, derivada del token. "
+        "No hay nada que crear ni borrar — se cambia editando el usuario, no el "
+        "reflejo de la sesion"
+    ),
     "/catalog/clasificacion/cobertura": (
         "no es un recurso: es el conteo de que normas estan clasificadas contra "
         "que sectores. Se deriva de `norm_sectors`, y se cambia clasificando "
         "normas, no editando el conteo"
+    ),
+    "/compliance/resumen": (
+        "no es un recurso: es el mismo conteo que "
+        "`/compliance/matrices/{id}/resumen`, resuelto sobre la matriz del "
+        "periodo vigente para que ningun cliente tenga que averiguar cual es"
     ),
     "/compliance/matrices/resumen": (
         "no es un recurso: es el conteo de la matriz desglosado por norma y por "
