@@ -119,6 +119,10 @@ class Resultado:
     #: clasificacion por sector.
     adoptadas: int = 0
     versiones_nuevas: int = 0
+    articulos_nuevos: int = 0
+    #: Normas de las que se pudo bajar el texto. Las demas quedan con sus
+    #: metadatos y su historial, que ya valen por si solos.
+    con_texto: int = 0
     #: Normas cuya version vigente cambio. **Son las que hay que mirar**: alguna
     #: empresa puede tener su matriz evaluada contra el texto anterior.
     con_version_nueva: list[str] = field(default_factory=list)
@@ -313,8 +317,69 @@ def _hash_de_version(v: VersionBCN) -> str:
     return hashlib.sha256(v.uri.encode("utf-8")).hexdigest()
 
 
-def sincronizar(db: Session, normas: list[NormaBCN]) -> Resultado:
-    """Escribe las normas y sus versiones. Devuelve que cambio.
+def _guardar_articulado(
+    db: Session, version_id, texto: TextoDeNorma, ahora: datetime
+) -> int:
+    """Escribe el articulado de una version. Devuelve cuantos articulos entraron.
+
+    `external_article_id` guarda el `idParte` de Ley Chile, que es estable: por
+    eso reimportar actualiza en vez de duplicar.
+
+    **Un articulo derogado se guarda igual**, marcado con `effective_to`. Sacarlo
+    dejaria huecos en la numeracion y volveria imposible responder que decia la
+    norma en un periodo pasado — que es media auditoria.
+    """
+    entraron = 0
+    for a in texto.articulos:
+        ya = db.execute(
+            text(
+                "SELECT id FROM legal_articles "
+                "WHERE norm_version_id = :v AND external_article_id = :e"
+            ),
+            {"v": version_id, "e": a.id_parte},
+        ).scalar()
+
+        datos = {
+            "v": version_id,
+            "e": a.id_parte,
+            "tipo": a.tipo,
+            "num": a.numero[:40],
+            "texto": a.texto,
+            "orden": a.orden,
+            "desde": a.fecha_version,
+            # `effective_to` marca el articulo derogado sin borrarlo.
+            "hasta": a.fecha_version if a.derogado else None,
+        }
+
+        if ya:
+            db.execute(
+                text(
+                    "UPDATE legal_articles SET article_type = :tipo, "
+                    "article_number = :num, content = :texto, display_order = :orden, "
+                    "effective_from = :desde, effective_to = :hasta WHERE id = :id"
+                ),
+                {**datos, "id": ya},
+            )
+            continue
+
+        db.execute(
+            text(
+                "INSERT INTO legal_articles "
+                "(norm_version_id, external_article_id, article_type, "
+                " article_number, content, display_order, effective_from, "
+                " effective_to) "
+                "VALUES (:v, :e, :tipo, :num, :texto, :orden, :desde, :hasta)"
+            ),
+            datos,
+        )
+        entraron += 1
+    return entraron
+
+
+def sincronizar(
+    db: Session, normas: list[NormaBCN], *, con_texto: bool = True
+) -> Resultado:
+    """Escribe las normas, sus versiones y su articulado. Devuelve que cambio.
 
     **No hace `commit`.** Quien llama decide, para poder correrlo en seco.
 
@@ -495,6 +560,79 @@ def sincronizar(db: Session, normas: list[NormaBCN]) -> Resultado:
             )
             r.versiones_nuevas += 1
 
+        # ── El texto manda sobre SPARQL para la vigencia ─────────────────
+        #
+        # SPARQL da el historial de versiones, pero se quedo atras: para la Ley
+        # 19.300 dice que la ultima es de 2010-11-13 y Ley Chile dice
+        # **2024-04-10**. Marcar la de 2010 como vigente le diria a una empresa
+        # que cumple con un texto que tiene catorce anos de atraso.
+        texto = None
+        if con_texto:
+            try:
+                texto = descargar_texto(n.leychile_code)
+            except Exception:  # noqa: BLE001
+                # Que falle la descarga del texto **no debe perder la norma**:
+                # los metadatos y el historial de versiones ya se guardaron y
+                # valen por si solos. Se reintenta en la proxima corrida.
+                logger.warning(
+                    "No se pudo bajar el texto de %s; se guarda sin articulado",
+                    n.leychile_code,
+                    exc_info=True,
+                )
+
+        if texto is not None and texto.fecha_version is not None:
+            r.con_texto += 1
+            db.execute(
+                text("UPDATE legal_norms SET status = :st WHERE id = :id"),
+                {
+                    "st": "derogada" if texto.derogada else "vigente",
+                    "id": norm_id,
+                },
+            )
+
+            # La version que Ley Chile declara vigente puede no estar entre las
+            # que dio SPARQL. Si no esta, se crea: es la que rige.
+            chash = hashlib.sha256(
+                f"{n.uri}@{texto.fecha_version}".encode()
+            ).hexdigest()
+            version_id = db.execute(
+                text(
+                    "SELECT id FROM legal_norm_versions "
+                    "WHERE norm_id = :n AND content_hash = :h"
+                ),
+                {"n": norm_id, "h": chash},
+            ).scalar()
+
+            if version_id is None:
+                version_id = db.execute(
+                    text(
+                        "INSERT INTO legal_norm_versions "
+                        "(norm_id, version_label, valid_from, is_current, "
+                        " external_version_id, content_hash, source_retrieved_at) "
+                        "VALUES (:n, :etiqueta, :desde, true, :ext, :h, :ahora) "
+                        "RETURNING id"
+                    ),
+                    {
+                        "n": norm_id,
+                        "etiqueta": f"Texto vigente al {texto.fecha_version:%d-%m-%Y}",
+                        "desde": texto.fecha_version,
+                        "ext": f"leychile@{texto.fecha_version}"[:100],
+                        "h": chash,
+                        "ahora": ahora,
+                    },
+                ).scalar_one()
+                r.versiones_nuevas += 1
+
+            db.execute(
+                text(
+                    "UPDATE legal_norm_versions SET is_current = (id = :id), "
+                    "source_retrieved_at = :ahora WHERE norm_id = :n"
+                ),
+                {"id": version_id, "ahora": ahora, "n": norm_id},
+            )
+            r.articulos_nuevos += _guardar_articulado(db, version_id, texto, ahora)
+            continue
+
         # **Solo una version puede estar vigente.** La norma sembrada traia la
         # suya marcada, y al adoptarla quedaban dos: la de ejemplo y la real.
         # Dos vigentes rompen la deteccion de matrices desactualizadas —no hay
@@ -516,3 +654,124 @@ def sincronizar(db: Session, normas: list[NormaBCN]) -> Resultado:
             r.con_version_nueva.append(n.titulo)
 
     return r
+
+
+# ── El texto de la norma, desde el XML de Ley Chile ───────────────────────
+#
+# **La vigencia sale de aca, no de SPARQL.** SPARQL da el historial de versiones
+# y sirve para descubrir normas, pero se quedo atras: para la Ley 19.300 dice
+# que la ultima version es de 2010-11-13 y el XML dice **2024-04-10**. Catorce
+# anos de diferencia, y decirle a una empresa que cumple con el texto de 2010 es
+# justo el error que este sistema existe para evitar.
+
+#: Sin esto el sitio de Ley Chile responde **401 a todo**, incluida su propia
+#: pagina de documentacion. No es autenticacion: es que rechaza a quien no se
+#: identifica como navegador. Se perdio media tarde diagnosticandolo como un
+#: problema de credenciales, que era la explicacion obvia y equivocada.
+NAVEGADOR = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+XML_NORMA = "https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma={codigo}"
+ESQUEMA = "{http://www.leychile.cl/esquemas}"
+
+#: Como se traduce `tipoParte` al vocabulario de `legal_articles`, que tiene
+#: CHECK. Los transitorios se distinguen por el atributo `transitorio`, no por
+#: el tipo: hay "Articulo Transitorio" pero tambien articulos comunes marcados
+#: como transitorios.
+TIPO_DE_PARTE = {
+    "Artículo": "article",
+    "Artículo Transitorio": "transitory",
+    "Título": "subsection",
+    "Párrafo": "paragraph",
+}
+
+
+@dataclass
+class ArticuloBCN:
+    id_parte: str
+    tipo: str
+    numero: str
+    texto: str
+    orden: int
+    derogado: bool
+    #: **Cada articulo tiene su propia fecha de version.** En la Ley 19.300 el
+    #: articulo 1 es de 1994 y el 2 de 2023: la norma no cambia entera de golpe.
+    fecha_version: date | None
+
+
+@dataclass
+class TextoDeNorma:
+    codigo: str
+    #: La fecha de la version vigente **segun Ley Chile**, que es la que manda.
+    fecha_version: date | None
+    derogada: bool
+    articulos: list[ArticuloBCN] = field(default_factory=list)
+
+
+def _numero_de_articulo(texto: str, orden: int) -> str:
+    """El numero tal como lo escribe la ley: `Articulo 1°`, `TITULO I`.
+
+    Se saca del texto porque el XML no lo trae como campo. Si no se reconoce se
+    usa el orden — **nunca queda vacio**: `article_number` es NOT NULL y un
+    articulo sin identificar no se puede citar en una auditoria.
+    """
+    import re
+
+    # Se quitan comillas y espacios del principio: varios titulos vienen como
+    # `"TITULO I`, y sin esto caian al numero por defecto.
+    limpio = " ".join(texto.split()).lstrip("\"' “”")[:120]
+    m = re.match(
+        r"^(Art[íi]culo\s+[\w°ºsº]+"
+        r"|T[ÍI]TULO\s+[IVXLC]+"
+        r"|P[áa]rrafo\s+\S+)",
+        limpio,
+        re.IGNORECASE,
+    )
+    return m.group(1).strip() if m else f"Parte {orden}"
+
+
+def descargar_texto(codigo_leychile: str, timeout: int = 90) -> TextoDeNorma:
+    """El texto completo y vigente de una norma, con su articulado.
+
+    No exige clave: se comprobo que responde igual con y sin ella. Lo que si
+    exige es identificarse como navegador — ver `NAVEGADOR`.
+    """
+    import xml.etree.ElementTree as ET
+
+    req = urllib.request.Request(
+        XML_NORMA.format(codigo=codigo_leychile), headers={"User-Agent": NAVEGADOR}
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
+        raiz = ET.fromstring(r.read())
+
+    texto = TextoDeNorma(
+        codigo=codigo_leychile,
+        fecha_version=_fecha(raiz.get("fechaVersion")),
+        derogada=raiz.get("derogado") == "derogado",
+    )
+
+    for orden, e in enumerate(raiz.iter(f"{ESQUEMA}EstructuraFuncional"), start=1):
+        nodo = e.find(f"{ESQUEMA}Texto")
+        contenido = (nodo.text or "").strip() if nodo is not None else ""
+        if not contenido:
+            continue
+
+        tipo = TIPO_DE_PARTE.get(e.get("tipoParte", ""), "article")
+        if e.get("transitorio") == "transitorio":
+            tipo = "transitory"
+
+        texto.articulos.append(
+            ArticuloBCN(
+                id_parte=e.get("idParte") or f"orden-{orden}",
+                tipo=tipo,
+                numero=_numero_de_articulo(contenido, orden),
+                texto=contenido,
+                orden=orden,
+                derogado=e.get("derogado") == "derogado",
+                fecha_version=_fecha(e.get("fechaVersion")),
+            )
+        )
+
+    return texto

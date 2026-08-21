@@ -271,7 +271,7 @@ class TestAdoptarLoSembrado:
             text("SELECT count(*) FROM legal_norms WHERE norm_number = '19300'")
         ).scalar_one()
 
-        r = bcn.sincronizar(db, [_norma()])
+        r = bcn.sincronizar(db, [_norma()], con_texto=False)
 
         assert r.adoptadas == 1
         assert r.nuevas == 0
@@ -284,12 +284,12 @@ class TestAdoptarLoSembrado:
         """Sincronizar **no puede destruir trabajo humano.**"""
         antes = db.execute(text("SELECT count(*) FROM norm_sectors")).scalar_one()
 
-        bcn.sincronizar(db, [_norma()])
+        bcn.sincronizar(db, [_norma()], con_texto=False)
 
         assert db.execute(text("SELECT count(*) FROM norm_sectors")).scalar_one() == antes
 
     def test_le_pone_el_identificador_real_de_la_fuente(self, db: Session) -> None:
-        bcn.sincronizar(db, [_norma()])
+        bcn.sincronizar(db, [_norma()], con_texto=False)
 
         ext = db.execute(
             text("SELECT external_norm_id FROM legal_norms WHERE norm_number = '19300'")
@@ -298,7 +298,7 @@ class TestAdoptarLoSembrado:
 
     def test_una_norma_que_no_estaba_se_crea(self, db: Session) -> None:
         numero = f"P{uuid.uuid4().hex[:6]}"
-        r = bcn.sincronizar(db, [_norma(numero=numero, codigo=numero)])
+        r = bcn.sincronizar(db, [_norma(numero=numero, codigo=numero)], con_texto=False)
 
         assert r.nuevas == 1
         assert r.adoptadas == 0
@@ -311,7 +311,7 @@ class TestUnaSolaVersionVigente:
         La norma sembrada traia la suya marcada; al adoptarla quedaban dos, y no
         hay contra cual comparar. Nada lo delata: las dos filas son validas.
         """
-        bcn.sincronizar(db, [_norma()])
+        bcn.sincronizar(db, [_norma()], con_texto=False)
 
         vigentes = db.execute(
             text(
@@ -322,8 +322,15 @@ class TestUnaSolaVersionVigente:
         ).scalar_one()
         assert vigentes == 1
 
-    def test_la_vigente_es_la_que_dice_la_fuente(self, db: Session) -> None:
-        bcn.sincronizar(db, [_norma()])
+    def test_sin_texto_la_vigente_es_la_mas_nueva_de_sparql(
+        self, db: Session
+    ) -> None:
+        """Cuando no se baja el texto, SPARQL es lo unico que hay.
+
+        **Es el camino de respaldo, no el normal.** Con el texto disponible
+        manda el XML, que para la Ley 19.300 da 2024 y no 2010.
+        """
+        bcn.sincronizar(db, [_norma()], con_texto=False)
 
         etiqueta = db.execute(
             text(
@@ -353,7 +360,7 @@ class TestLoQueSeOmiteYPorQue:
     def test_una_norma_sin_identificador_de_fuente_se_omite(self, db: Session) -> None:
         """Sin identificador estable no se la reconoce la proxima corrida, y se
         duplicaria en cada una."""
-        r = bcn.sincronizar(db, [_norma(codigo="")])
+        r = bcn.sincronizar(db, [_norma(codigo="")], con_texto=False)
 
         assert r.nuevas == 0
         assert r.adoptadas == 0
@@ -367,7 +374,8 @@ class TestLoQueSeOmiteYPorQue:
         base = f"http://datos.bcn.cl/recurso/cl/ley/o/1994-03-09/{numero}"
         r = bcn.sincronizar(
             db,
-            [
+            con_texto=False,
+            normas=[
                 _norma(
                     numero=numero,
                     codigo=numero,
@@ -403,3 +411,134 @@ class TestElTipoSaleDeLaUri:
         assert (
             bcn._tipo_desde_uri("http://otro/sitio", "http://x#res") == "res"
         )
+
+
+# ── El texto desde el XML de Ley Chile ────────────────────────────────────
+
+XML_MINIMO = """<?xml version="1.0" encoding="UTF-8"?>
+<Norma xmlns="http://www.leychile.cl/esquemas" normaId="30667"
+       fechaVersion="2024-04-10" derogado="no derogado">
+  <EstructuraFuncional tipoParte="Título" fechaVersion="1994-03-09"
+                       derogado="no derogado" transitorio="no transitorio"
+                       idParte="1">
+    <Texto>"TITULO I
+    Disposiciones Generales</Texto>
+  </EstructuraFuncional>
+  <EstructuraFuncional tipoParte="Artículo" fechaVersion="2023-05-29"
+                       derogado="no derogado" transitorio="no transitorio"
+                       idParte="2">
+    <Texto>Artículo 2°.- Para todos los efectos legales...</Texto>
+  </EstructuraFuncional>
+  <EstructuraFuncional tipoParte="Artículo" fechaVersion="2010-01-26"
+                       derogado="derogado" transitorio="no transitorio"
+                       idParte="3">
+    <Texto>Artículo 5°.- Derogado.</Texto>
+  </EstructuraFuncional>
+  <EstructuraFuncional tipoParte="Artículo" fechaVersion="1994-03-09"
+                       derogado="no derogado" transitorio="transitorio"
+                       idParte="4">
+    <Texto>Artículo 1° transitorio.- Mientras no se dicte...</Texto>
+  </EstructuraFuncional>
+</Norma>"""
+
+
+class TestElTextoDeLaNorma:
+    @pytest.fixture
+    def texto(self, monkeypatch):
+        import io as _io
+
+        monkeypatch.setattr(
+            bcn.urllib.request,
+            "urlopen",
+            lambda *a, **k: _io.BytesIO(XML_MINIMO.encode("utf-8")),
+        )
+        return bcn.descargar_texto("30667")
+
+    def test_la_fecha_de_version_sale_del_xml(self, texto) -> None:
+        """**Es la que manda sobre SPARQL.**
+
+        Para la Ley 19.300 SPARQL dice 2010-11-13 y Ley Chile dice 2024-04-10.
+        Catorce anos: marcar la de 2010 como vigente le diria a una empresa que
+        cumple con un texto que ya no rige.
+        """
+        assert texto.fecha_version == date(2024, 4, 10)
+        assert texto.derogada is False
+
+    def test_cada_articulo_trae_su_propia_fecha(self, texto) -> None:
+        """La norma no cambia entera de golpe: en la Ley 19.300 el articulo 1 es
+        de 1994 y el 2 de 2023."""
+        fechas = {a.numero: a.fecha_version for a in texto.articulos}
+        assert fechas["Artículo 2°"] == date(2023, 5, 29)
+        assert fechas["TITULO I"] == date(1994, 3, 9)
+
+    def test_un_articulo_derogado_se_conserva_marcado(self, texto) -> None:
+        """**No se descarta.** Sacarlo dejaria huecos en la numeracion y volveria
+        imposible responder que decia la norma en un periodo pasado — que es
+        media auditoria."""
+        derogados = [a for a in texto.articulos if a.derogado]
+        assert len(derogados) == 1
+        assert derogados[0].numero == "Artículo 5°"
+
+    def test_los_transitorios_se_marcan_por_el_atributo(self, texto) -> None:
+        """No por el tipo: hay articulos comunes marcados como transitorios."""
+        transitorios = [a for a in texto.articulos if a.tipo == "transitory"]
+        assert len(transitorios) == 1
+        assert "transitorio" in transitorios[0].texto
+
+    def test_un_titulo_entrecomillado_igual_se_reconoce(self, texto) -> None:
+        """Varios titulos vienen como `"TITULO I`. Sin limpiar la comilla caian
+        al numero generico y el indice quedaba ilegible."""
+        assert any(a.numero == "TITULO I" for a in texto.articulos)
+
+    def test_ningun_articulo_queda_sin_numero(self, texto) -> None:
+        """`article_number` es NOT NULL, y un articulo sin identificar no se
+        puede citar en una auditoria."""
+        assert all(a.numero for a in texto.articulos)
+
+
+class TestElXmlDecideLaVigencia:
+    def test_la_version_del_xml_gana_sobre_la_de_sparql(
+        self, db: Session, monkeypatch
+    ) -> None:
+        """El caso real de la Ley 19.300, en pequeno."""
+        import io as _io
+
+        monkeypatch.setattr(
+            bcn.urllib.request,
+            "urlopen",
+            lambda *a, **k: _io.BytesIO(XML_MINIMO.encode("utf-8")),
+        )
+
+        bcn.sincronizar(db, [_norma()])
+
+        vigente = db.execute(
+            text(
+                "SELECT v.valid_from FROM legal_norm_versions v "
+                "JOIN legal_norms n ON n.id = v.norm_id "
+                "WHERE n.norm_number = '19300' AND v.is_current"
+            )
+        ).scalar_one()
+        # SPARQL decia 2010-11-13; el XML dice 2024-04-10.
+        assert vigente == date(2024, 4, 10)
+
+    def test_si_el_texto_no_baja_la_norma_se_guarda_igual(
+        self, db: Session, monkeypatch
+    ) -> None:
+        """**Perder el texto no puede perder la norma.**
+
+        Los metadatos y el historial de versiones valen por si solos, y el texto
+        se reintenta en la proxima corrida.
+        """
+
+        def revienta(*a, **k):
+            raise OSError("sin red")
+
+        monkeypatch.setattr(bcn.urllib.request, "urlopen", revienta)
+
+        r = bcn.sincronizar(db, [_norma()])
+
+        assert r.con_texto == 0
+        assert r.adoptadas == 1
+        assert db.execute(
+            text("SELECT count(*) FROM legal_norms WHERE norm_number = '19300'")
+        ).scalar_one() >= 1
