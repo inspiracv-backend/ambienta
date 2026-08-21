@@ -198,3 +198,208 @@ class TestContraElServicioReal:
         versiones = bcn.versiones_de(n.uri)
         assert len(versiones) > 1
         assert sum(1 for v in versiones if v.es_vigente) == 1
+
+
+# ── Escribir en la base ───────────────────────────────────────────────────
+
+import os  # noqa: E402
+import uuid  # noqa: E402
+
+from sqlalchemy import create_engine, text  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
+
+#: Con el **dueno** de la base: el catalogo no lleva `tenant_id` y estas pruebas
+#: adoptan y modifican normas sembradas.
+URL_ADMIN = os.getenv(
+    "DATABASE_ADMIN_URL",
+    "postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta",
+)
+
+
+@pytest.fixture
+def db():
+    engine = create_engine(URL_ADMIN)
+    try:
+        conexion = engine.connect()
+    except Exception as exc:  # pragma: no cover - entorno sin base
+        pytest.skip(f"Sin base de datos disponible: {exc}")
+    sesion = Session(bind=conexion)
+    try:
+        yield sesion
+    finally:
+        # Rollback siempre: se toca el catalogo global, compartido por todas
+        # las empresas.
+        sesion.rollback()
+        sesion.close()
+        conexion.close()
+        engine.dispose()
+
+
+def _norma(numero="19300", codigo="30667", tipo="ley", versiones=None):
+    base = f"http://datos.bcn.cl/recurso/cl/{tipo}/organismo/1994-03-09/{numero}"
+    return bcn.NormaBCN(
+        uri=base,
+        leychile_code=codigo,
+        tipo=tipo,
+        numero=numero,
+        titulo=f"NORMA DE PRUEBA {numero}",
+        organismo="segpres",
+        publicacion=date(1994, 3, 9),
+        promulgacion=None,
+        versiones=versiones
+        if versiones is not None
+        else [
+            bcn.VersionBCN(f"{base}/es@1994-03-09", date(1994, 3, 9), False, None, None),
+            bcn.VersionBCN(f"{base}/es@2010-11-13", date(2010, 11, 13), True, None, None),
+        ],
+    )
+
+
+class TestAdoptarLoSembrado:
+    def test_no_duplica_una_norma_que_ya_estaba_con_el_mismo_numero(
+        self, db: Session
+    ) -> None:
+        """**El error que vaciaria la matriz de todas las empresas.**
+
+        El catalogo trae normas de ejemplo sin identificador externo. Crear una
+        fila nueva al lado no solo duplica: deja `norm_sectors` —la
+        clasificacion por sector, que es lo que hace funcionar el CORE— pegada a
+        la copia falsa, y la norma real sin clasificar. Las matrices se vaciarian
+        sin ningun error a la vista.
+        """
+        antes = db.execute(
+            text("SELECT count(*) FROM legal_norms WHERE norm_number = '19300'")
+        ).scalar_one()
+
+        r = bcn.sincronizar(db, [_norma()])
+
+        assert r.adoptadas == 1
+        assert r.nuevas == 0
+        despues = db.execute(
+            text("SELECT count(*) FROM legal_norms WHERE norm_number = '19300'")
+        ).scalar_one()
+        assert despues == antes
+
+    def test_conserva_la_clasificacion_por_sector(self, db: Session) -> None:
+        """Sincronizar **no puede destruir trabajo humano.**"""
+        antes = db.execute(text("SELECT count(*) FROM norm_sectors")).scalar_one()
+
+        bcn.sincronizar(db, [_norma()])
+
+        assert db.execute(text("SELECT count(*) FROM norm_sectors")).scalar_one() == antes
+
+    def test_le_pone_el_identificador_real_de_la_fuente(self, db: Session) -> None:
+        bcn.sincronizar(db, [_norma()])
+
+        ext = db.execute(
+            text("SELECT external_norm_id FROM legal_norms WHERE norm_number = '19300'")
+        ).scalar_one()
+        assert ext == "30667"
+
+    def test_una_norma_que_no_estaba_se_crea(self, db: Session) -> None:
+        numero = f"P{uuid.uuid4().hex[:6]}"
+        r = bcn.sincronizar(db, [_norma(numero=numero, codigo=numero)])
+
+        assert r.nuevas == 1
+        assert r.adoptadas == 0
+
+
+class TestUnaSolaVersionVigente:
+    def test_desmarca_la_que_estaba_vigente_antes(self, db: Session) -> None:
+        """**Dos vigentes rompen la deteccion de matrices desactualizadas.**
+
+        La norma sembrada traia la suya marcada; al adoptarla quedaban dos, y no
+        hay contra cual comparar. Nada lo delata: las dos filas son validas.
+        """
+        bcn.sincronizar(db, [_norma()])
+
+        vigentes = db.execute(
+            text(
+                "SELECT count(*) FROM legal_norm_versions v "
+                "JOIN legal_norms n ON n.id = v.norm_id "
+                "WHERE n.norm_number = '19300' AND v.is_current"
+            )
+        ).scalar_one()
+        assert vigentes == 1
+
+    def test_la_vigente_es_la_que_dice_la_fuente(self, db: Session) -> None:
+        bcn.sincronizar(db, [_norma()])
+
+        etiqueta = db.execute(
+            text(
+                "SELECT v.version_label FROM legal_norm_versions v "
+                "JOIN legal_norms n ON n.id = v.norm_id "
+                "WHERE n.norm_number = '19300' AND v.is_current"
+            )
+        ).scalar_one()
+        assert "13-11-2010" in etiqueta
+
+
+class TestReimportarNoDuplica:
+    def test_correrlo_dos_veces_no_agrega_nada(self, db: Session) -> None:
+        """La sincronizacion va a correr sola y repetida. Si duplicara, la tabla
+        crece sin techo y nadie lo nota hasta que las consultas se arrastran."""
+        normas = [_norma()]
+        bcn.sincronizar(db, normas)
+
+        segunda = bcn.sincronizar(db, normas)
+
+        assert segunda.nuevas == 0
+        assert segunda.adoptadas == 0
+        assert segunda.versiones_nuevas == 0
+
+
+class TestLoQueSeOmiteYPorQue:
+    def test_una_norma_sin_identificador_de_fuente_se_omite(self, db: Session) -> None:
+        """Sin identificador estable no se la reconoce la proxima corrida, y se
+        duplicaria en cada una."""
+        r = bcn.sincronizar(db, [_norma(codigo="")])
+
+        assert r.nuevas == 0
+        assert r.adoptadas == 0
+
+    def test_una_version_sin_fecha_se_omite_pero_las_otras_entran(
+        self, db: Session
+    ) -> None:
+        """`valid_from` es NOT NULL, y una version sin fecha no se puede ubicar
+        en la linea de tiempo — que es para lo unico que sirve."""
+        numero = f"P{uuid.uuid4().hex[:6]}"
+        base = f"http://datos.bcn.cl/recurso/cl/ley/o/1994-03-09/{numero}"
+        r = bcn.sincronizar(
+            db,
+            [
+                _norma(
+                    numero=numero,
+                    codigo=numero,
+                    versiones=[
+                        bcn.VersionBCN(f"{base}/sin-fecha", None, False, None, None),
+                        bcn.VersionBCN(
+                            f"{base}/es@2020-01-01", date(2020, 1, 1), True, None, None
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        assert r.versiones_nuevas == 1
+
+
+class TestElTipoSaleDeLaUri:
+    def test_una_ley_no_queda_como_resolucion(self) -> None:
+        """**La Ley 19.300 no declara su tipo como `rdf:type`.**
+
+        Solo dice `Norm` y `RootNorm`. Confiar en el tipo declarado la dejaba
+        caer al valor por defecto, y la Ley de Bases Generales del Medio
+        Ambiente quedaba guardada como "resolucion".
+        """
+        uri = "http://datos.bcn.cl/recurso/cl/ley/segpres/1994-03-09/19300"
+        assert bcn._tipo_desde_uri(uri, None) == "ley"
+
+    def test_una_resolucion_tambien_se_reconoce(self) -> None:
+        uri = "http://datos.bcn.cl/recurso/cl/res/minsal/2013-10-08/2878"
+        assert bcn._tipo_desde_uri(uri, None) == "res"
+
+    def test_sin_uri_reconocible_cae_al_tipo_declarado(self) -> None:
+        assert (
+            bcn._tipo_desde_uri("http://otro/sitio", "http://x#res") == "res"
+        )
