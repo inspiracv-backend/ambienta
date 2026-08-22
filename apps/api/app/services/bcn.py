@@ -5,23 +5,31 @@ texto, sin identificador de version real, y con la misma marca de tiempo en
 todas —la hora en que se sembro la base, no la hora en que se consulto a nadie—.
 Se veian bien y no venian de ninguna parte.
 
-## Dos fuentes, y solo una funciona sin credenciales
+## Dos fuentes, y ninguna exige credenciales
 
-| Que da | Como | Clave |
-|---|---|---|
-| Normas, fechas, organismo, **versiones y cual es la vigente** | SPARQL en `datos.bcn.cl` | **no** |
-| El texto de los articulos | `leychile.cl/Consulta/obtxml` | **si** |
+| Que da | Como |
+|---|---|
+| Normas, fechas, organismo, **historial de versiones** | SPARQL en `datos.bcn.cl` |
+| **El texto vigente y su articulado** | `leychile.cl/Consulta/obtxml` |
 
-Comprobado: el XML responde **401** sin clave. Por eso este modulo trae todo lo
-que se puede —que incluye lo que pidio el negocio, saber si una norma tiene una
-version mas nueva que la evaluada— y el articulado queda para cuando la clave
-este habilitada.
+Se creyo un tiempo que el texto exigia una clave, porque devolvia 401. No era
+eso: **el sitio responde 401 a todo —incluida su propia pagina de
+documentacion— a quien no se identifica como navegador**. Con `User-Agent` de
+navegador responde igual con clave y sin ella, byte por byte. Ver `NAVEGADOR`.
+
+## Cual fuente manda para la vigencia
+
+**El XML.** SPARQL da el historial de versiones y sirve para descubrir normas,
+pero se quedo atras: para la Ley 19.300 dice que la ultima version es de
+2010-11-13 y Ley Chile dice **2024-04-10**. Catorce anos. Marcar la de 2010 como
+vigente le diria a una empresa que cumple con un texto que ya no rige, que es
+justo el error que este sistema existe para evitar.
 
 ## Como modela la BCN una norma
 
 Es FRBR: una obra con expresiones. `RootNorm` es la norma; cada `NormInstance`
-es una version suya, con `versionDate` e `isLatestVersion`. Eso mapea uno a uno
-contra `legal_norms` y `legal_norm_versions`, que ya existian con esa forma.
+es una version suya. Eso mapea uno a uno contra `legal_norms` y
+`legal_norm_versions`, que ya existian con esa forma.
 
 ## Que NO hace
 
