@@ -245,3 +245,57 @@ Deuda operacional explícita, para que no se asuma resuelta:
 
 - [Guía de entornos](./entornos.md)
 - [Arquitectura del backend](../arquitectura/backend-arquitectura.md)
+
+
+## Rotacion mensual del registro de actividades
+
+El registro (`audit_log`) crece sin techo. Una vez al mes se archiva lo del mes
+cerrado a un JSON **por empresa** y se saca de la tabla.
+
+### El cron
+
+```
+0 3 1 * *  cd /srv/ambienta && docker compose exec -T api python -m app.tareas rotar-auditoria >> /var/log/ambienta-rotacion.log 2>&1
+```
+
+**El dia 1 a las 3 de la manana.** Ese dia el mes anterior ya cerro, y a esa
+hora no hay nadie usando el sistema. La salida va a un archivo: una tarea de
+cron que no deja rastro es una tarea que nadie sabe si corrio.
+
+### Antes de confiar en ella, correrla en seco
+
+```bash
+docker compose exec -T api python -m app.tareas rotar-auditoria --en-seco
+```
+
+Escribe los archivos y **no borra nada**. Sirve para comprobar que el archivo
+sale bien antes de habilitar la parte destructiva. Sin este paso, la primera
+corrida real es la prueba.
+
+Para un mes concreto: `--mes 2026-07`.
+
+### Que garantiza y que no
+
+- **Nunca borra lo que no quedo guardado.** Exporta, **relee el archivo**, y
+  recien ahi borra — todo en una transaccion. Que `write_text` no lance no
+  prueba que el contenido este en disco: un disco lleno puede truncar sin error.
+- **Un archivo por empresa.** El registro de una empresa no viaja mezclado con
+  el de otra, asi que entregarlo no exige filtrarlo primero.
+- **Nunca el mes en curso.** Rotar a mitad de mes deja el registro partido en
+  dos lugares para un periodo que no termino.
+- Corre con **el dueno de la base**, no con `ambienta_app`: la conexion de la
+  API no puede borrar de `audit_log` a proposito. Ver `RNF-25`.
+
+### Donde caen los archivos
+
+`RUTA_ARCHIVO_AUDITORIA`, por defecto `/var/lib/ambienta/auditoria`. **Hoy es
+disco del servidor**; cuando exista la cuenta de Backblaze se cambia esa ruta
+por su bucket y la tarea no se toca.
+
+**Ese directorio hay que respaldarlo.** Si se pierde, se perdio el registro: la
+tabla ya no lo tiene.
+
+### Volver a cargar un mes archivado
+
+El JSON conserva las columnas con el mismo nombre que la tabla, asi que se
+reinserta directo sin transformar nada.
