@@ -194,19 +194,20 @@ No hace falta cuenta de Clerk: sin `CLERK_JWKS_URL` la API acepta el header
 
 ## Estado del proyecto
 
-**Actualizado 19-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
+**Actualizado 21-ago-2026.** Si esto lleva meses sin tocarse, verificar antes
 de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 
 | Area | Estado |
 |---|---|
 | Base de datos | **Completa y verificada.** 52 tablas, 38 con RLS, 9 smoke tests en verde |
-| API | **107 rutas, 223 operaciones.** Swagger con titulo y explicacion en **las 221 de negocio, sin excepciones**. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
+| API | **109 rutas, 225 operaciones.** Swagger con titulo y explicacion en **las 223 de negocio, sin excepciones**. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
 | Auth — Google SSO | **Verificado en local el 17-ago.** Entrada con `oauth_google`, el claim `tenant_id` viaja y la API responde 200. **Falta para produccion:** credenciales propias (hoy usa las compartidas de Clerk) y el webhook. Ver abajo |
 | Auth — Microsoft SSO | **Sin configurar.** Exige registro en Entra ID, y ahi el tipo de cuenta tiene que ser *cualquier directorio + cuentas personales*: con "solo este directorio" ningun cliente puede entrar |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **74 %.** 29 de 39 acciones llegan a la base. Las 10 restantes tienen causa documentada en su propio docstring. El conteo anterior (26 de 37) estaba mal por dentro: decia 10 pendientes y listaba 11 — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
+| Catalogo normativo | **Se alimenta de la BCN.** Normas, versiones y articulado reales. La Ley 19.300 entra con sus 151 partes y su version vigente de 2024-04-10. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | worker · ai-service | Sin implementar |
 
@@ -233,6 +234,12 @@ sector por sector.
 **Esta entrada estuvo mal escrita hasta el 20-ago** y decia que `norm_sectors`
 estaba vacia. Es el error que este mismo archivo advierte dos secciones mas
 abajo: un dato afirmado sin medirlo, que despues se cita como un hecho.
+
+**El catalogo ya no es inventado, pero hay que elegir que traer.** La BCN tiene
+**748.000 normas** y la enorme mayoria son nombramientos y concesiones de
+acuicultura. Hoy se busca por titulo; falta un criterio —una lista, o los
+organismos que importan— acordado con negocio. Traerlas todas no es
+exhaustividad: es ruido que despues alguien tiene que clasificar a mano.
 
 **Lo que hay que saber al tomar el repo:** conectar una escritura **no es
 agregar un `PATCH`**. Es un viaje de ida y vuelta, y hacer solo un lado engana
@@ -299,6 +306,30 @@ escrito con `get_db` en vez de `get_tenant_db`, o una consulta puesta despues
 de un `db.commit()`, no lanza ninguna excepcion: devuelve **cero filas**. Da
 una pantalla vacia inexplicable, no una fuga. Antes daba lo contrario. Ver §4.
 
+**Un 401 no siempre es autenticacion.** El sitio de Ley Chile responde 401 a
+todo —incluida su propia pagina de documentacion— a quien no se identifica como
+navegador. Se perdio tiempo diagnosticandolo como una clave sin habilitar, que
+era la explicacion obvia; la pista estaba a la vista y no se miro. La constante
+`NAVEGADOR` en `app/services/bcn.py` es lo unico que hace falta.
+
+**Dos fuentes de la BCN, y no dicen lo mismo.** SPARQL (`datos.bcn.cl`) da el
+historial de versiones y sirve para descubrir normas; el XML de Ley Chile da el
+texto **y manda sobre la vigencia**. Para la Ley 19.300 SPARQL dice que la
+version vigente es de 2010-11-13 y el XML dice **2024-04-10**: catorce anos.
+Confiar en SPARQL para eso le diria a una empresa que cumple con un texto que ya
+no rige.
+
+Ademas SPARQL **devuelve filas duplicadas** y **marca mas de una version como
+vigente** —en la Ley 19.300, la de 1994 y la de 2010 a la vez—. Ninguna de las
+dos cosas se ve leyendo la documentacion.
+
+**Sincronizar la BCN adopta la norma sembrada, no crea una al lado.** Las normas
+de ejemplo tienen el mismo numero que las reales, y `norm_sectors` —la
+clasificacion por sector, **el trabajo humano que hace funcionar el CORE**— esta
+pegada a la fila sembrada. Duplicar dejaria la clasificacion en la copia falsa y
+la norma real sin nada: **las matrices de las empresas se vaciarian sin ningun
+error a la vista**.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -306,9 +337,18 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 233 pruebas, 22 archivos
+cd apps/api && python -m pytest         # 325 pruebas, 26 archivos
 cd apps/web && npx vitest run           # 292 pruebas, 24 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
+```
+
+Las pruebas marcadas `red` **salen a internet y se saltan por defecto**: una
+prueba que depende de un servicio ajeno falla cuando ellos tienen mantenimiento,
+y eso es ruido. Existen igual porque son las unicas que verifican que la
+consulta a la BCN se siga entendiendo del otro lado:
+
+```bash
+cd apps/api && python -m pytest -m red
 ```
 
 `db/run.sh` necesita `psql` en el PATH del host. Sin el, las mismas
