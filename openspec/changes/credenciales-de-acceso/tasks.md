@@ -67,9 +67,9 @@ Verificados contra el sistema real, no heredados del análisis.
 
 ## Fase 3 — RF-06, clave local con RUT
 
-- [ ] `validarRut()` y `normalizarRut()` en `lib/rut.ts` con sus tests,
+- [x] `validarRut()` y `normalizarRut()` en `lib/rut.ts` con sus tests,
       incluidos verificador K y los tres formatos de escritura
-- [ ] Gemelo en Python: el modelo se escribe dos veces y ya se desincronizó
+- [x] Gemelo en Python: el modelo se escribe dos veces y ya se desincronizó
 - [ ] Endpoint para fijar RUT y clave local del usuario autenticado
 - [ ] Rechazar RUT ya usado sin revelar de quién es
 - [ ] Guardar en `users.rut_tax_id` además del username (D5)
