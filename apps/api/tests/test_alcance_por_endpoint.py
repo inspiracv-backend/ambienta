@@ -42,6 +42,14 @@ SIN_ALCANCE_DE_EMPRESA = {
         "quien llama es Clerk, no un usuario. Un `user.deleted` llega sin metadatos "
         "y hay que poder buscarlo en todas las empresas"
     ),
+    "/api/v1/acceso-invitado": (
+        "quien llama no tiene sesion de Clerk: son las dos rutas publicas de "
+        "RF-02 y la del invitado ya autenticado. **Igual corren acotadas**, con "
+        "`sesion_publica_de_empresa` y `get_invitado_actual`, que hacen el mismo "
+        "`SET LOCAL ROLE` y declaran el tenant. Lo que cambia es de donde sale "
+        "el tenant —la URL o el token propio, no un JWT de Clerk—, no que la "
+        "barrera exista"
+    ),
     "/health": "sonda de vida y de esquema; no lee datos de negocio",
 }
 

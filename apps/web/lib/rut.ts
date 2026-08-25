@@ -92,19 +92,15 @@ export function validarRut(rut: string): boolean {
 }
 
 /**
- * RUT plausible (con dígito verificador módulo 11 válido) para el flujo de
- * asignación automática del Cliente Invitado (RF-02, S-02, v1.7) — no es un
- * RUT real, solo simula el formato para que la pantalla se sienta auténtica (H2).
+ * `generateMockRut()` y `generateDynamicPassword()` **se quitaron el
+ * 25-ago-2026**, cuando la emisión pasó al servidor (`POST
+ * /acceso-invitado/{empresa}/credenciales`).
+ *
+ * No se dejaron «por si acaso», y esa es la decisión: mientras existieran, la
+ * pantalla podía volver a llamarlas y quedaría igual de convincente que antes
+ * —credenciales de aspecto correcto, dígito verificador válido— **sin que
+ * existieran en la base**. Es el modo de fallo que ya ocurrió una vez acá.
+ *
+ * Un RUT de invitado ahora lo asigna la API, que además garantiza lo que el
+ * navegador no puede: que no choque con el de otra persona de esa empresa.
  */
-export function generateMockRut(): string {
-  const rut = 10_000_000 + Math.floor(Math.random() * 15_000_000);
-  return formatRut(rut, computeDv(rut));
-}
-
-/** Clave dinámica de un solo uso asignada automáticamente al Cliente Invitado (RF-02, RF-07). */
-export function generateDynamicPassword(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let out = '';
-  for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}

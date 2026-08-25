@@ -210,6 +210,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Catalogo normativo | **Se alimenta de la BCN.** Normas, versiones y articulado reales. La Ley 19.300 entra con sus 151 partes y su version vigente de 2024-04-10. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
+| Acceso Cliente Invitado | **Completo y verificado en el navegador el 25-ago.** RUT y clave los emite la API, no el navegador; token propio de 30 dias; la solicitud queda ligada a la credencial y el invitado ve solo las suyas. Con tope de peticiones en las dos rutas publicas |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -278,6 +279,27 @@ conviene saber antes de tocarlo:
   solo devuelve cero filas (§4): tampoco deja rastro.
 - El id de una fila nueva se genera en Python, no en Postgres, para que
   `entity_id` no salga vacio en las creaciones.
+
+**El invitado es el segundo emisor de identidad, y esta acotado a proposito.**
+`app/routers/acceso_invitado.py` tiene **tres rutas y ninguna mas**, dos de
+ellas publicas porque RF-02 pide que alguien sin cuenta abra una solicitud. Lo
+que contiene el dano no es una lista de permisos —un invitado no tiene rol—
+sino que su token es de otro tipo: `SesionDeInvitado`, que ningun endpoint de
+negocio sabe leer. Tres cosas que hay que saber si se toca:
+
+- **La firma del token no basta.** Cada peticion vuelve a mirar la credencial en
+  la base. Sin eso, revocar una credencial filtrada no haria nada durante los 30
+  dias que dura el token.
+- **Sin `TOKEN_INVITADO_SECRETO` el ingreso responde 503**, no firma con una
+  llave por defecto. Un secreto en el codigo es un secreto publicado.
+- **El tope de peticiones vive en el proceso y cuenta por IP.** Corta el abuso
+  trivial y que un script recorra las claves de 6 caracteres; **no** para un
+  ataque distribuido, y con varios trabajadores el tope efectivo se multiplica
+  por la cantidad de procesos.
+- **El registro de actividades de este router se escribe a mano.** El observador
+  del `flush` solo actua con el contexto que pone `get_tenant_db`, y aca no hay
+  Clerk. Un endpoint nuevo en este router que se olvide de `_anotar()` **no deja
+  rastro y nada avisa**.
 
 ## Trampas conocidas
 
@@ -354,8 +376,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 398 pruebas, 28 archivos
-cd apps/web && npx vitest run           # 292 pruebas, 24 archivos
+cd apps/api && python -m pytest         # 422 pruebas, 30 archivos
+cd apps/web && npx vitest run           # 320 pruebas, 24 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

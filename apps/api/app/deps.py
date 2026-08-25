@@ -12,6 +12,9 @@ from .config import get_settings
 from .db import AdminSessionLocal, SessionLocal
 from .models.organization import User
 from .services.auditoria_automatica import CONTEXTO as CONTEXTO_DE_AUDITORIA
+from .services.invitado import credencial_vigente
+from .services.token_invitado import SesionDeInvitado
+from .services.token_invitado import verificar as verificar_token_de_invitado
 
 _bearer = HTTPBearer(auto_error=False, description="JWT emitido por Clerk")
 
@@ -122,6 +125,15 @@ def get_tenant_id(user: CurrentUser = Depends(get_current_user)) -> UUID:
         ) from None
 
 
+def _declarar(db: Session, tenant_id: UUID) -> None:
+    """Deja la sesion corriendo como `ambienta_app` con el tenant declarado."""
+    db.execute(text("SET LOCAL ROLE ambienta_app"))
+    db.execute(
+        text("SELECT set_config('ambienta.tenant_id', :tid, true)"),
+        {"tid": str(tenant_id)},
+    )
+
+
 def get_tenant_db(
     request: Request,
     tenant_id: UUID = Depends(get_tenant_id),
@@ -144,11 +156,7 @@ def get_tenant_db(
     el contexto muere con la sesion, asi que **una sesion no puede heredar el
     actor de otro request**.
     """
-    db.execute(text("SET LOCAL ROLE ambienta_app"))
-    db.execute(
-        text("SELECT set_config('ambienta.tenant_id', :tid, true)"),
-        {"tid": str(tenant_id)},
-    )
+    _declarar(db, tenant_id)
     db.info[CONTEXTO_DE_AUDITORIA] = {
         "tenant_id": tenant_id,
         # El id de Clerk, no el nuestro. Traducirlo cuesta una consulta y solo
@@ -163,6 +171,82 @@ def get_tenant_db(
         # La sesion vuelve al pool: el actor del request anterior no puede
         # quedar pegado al siguiente.
         db.info.pop(CONTEXTO_DE_AUDITORIA, None)
+
+
+def sesion_publica_de_empresa(
+    empresa_id: UUID,
+    db: Session = Depends(get_db),
+) -> Generator[Session, None, None]:
+    """Sesion para el link publico del invitado. **Sin token, a proposito.**
+
+    Es el unico lugar de la API donde el tenant lo declara quien llama sin haber
+    probado nada, asi que conviene ser explicito sobre que protege y que no.
+
+    **Lo que protege:** RLS sigue activa y el rol sigue siendo `ambienta_app`.
+    Quien pida esta ruta con el UUID de una empresa ve —y escribe— solo lo de
+    esa empresa. No hay forma de leer otra ni de saltar la barrera.
+
+    **Lo que NO protege:** el UUID de la empresa no es una contrasena. Quien lo
+    tenga puede pedir credenciales de invitado de esa empresa. Eso es lo que
+    significa *link publico*, y es lo que el analisis pidio en RF-02: una
+    persona sin cuenta tiene que poder abrir una solicitud. El UUID es v4, asi
+    que adivinarlo no es un camino; compartirlo si.
+
+    **Lo que falta:** un limite de peticiones. Sin el, este endpoint es una
+    fabrica de credenciales para quien tenga el enlace. Ninguna de ellas abre
+    nada de negocio —esa es la contencion real— pero la tabla crece. Queda
+    anotado en `tasks.md` y no se resuelve en este archivo.
+
+    Se usa **solo** en el router de acceso de invitado. Cualquier otro uso hay
+    que justificarlo igual de explicito que `get_admin_db`.
+    """
+    _declarar(db, empresa_id)
+    yield db
+
+
+def get_invitado_actual(
+    empresa_id: UUID,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> Generator[tuple[SesionDeInvitado, Session], None, None]:
+    """Quien es el invitado que llama, con su sesion de BD ya acotada.
+
+    **Devuelve una tupla y no solo la identidad** porque las dos cosas tienen
+    que salir del mismo sitio: la sesion se declara con el tenant que dice el
+    token, no con uno que el endpoint elija despues. Separarlas dejaria la
+    puerta a un endpoint que valida un token de la empresa A y consulta con la
+    sesion de la B.
+
+    Dos comprobaciones, y las dos hacen falta:
+
+    1. **La firma**, que dice que el token lo emitimos nosotros y no caduco.
+    2. **La credencial contra la base**, que dice que sigue viva. Un token vale
+       30 dias; sin este paso, revocar una credencial filtrada no haria nada
+       durante un mes.
+
+    El `empresa_id` del path tiene que coincidir con el del token. Si no,
+    alguien esta usando una sesion valida contra otra empresa.
+    """
+    sesion = verificar_token_de_invitado(
+        credentials.credentials if credentials else ""
+    )
+    if sesion is None or sesion.tenant_id != empresa_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesion de invitado invalida o vencida.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    _declarar(db, sesion.tenant_id)
+
+    if credencial_vigente(db, sesion.tenant_id, sesion.credencial_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesion de invitado invalida o vencida.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    yield sesion, db
 
 
 def exigir_admin_global(

@@ -239,3 +239,26 @@ def autenticar(
     return InvitadoAutenticado(
         credencial_id=cred_id, tenant_id=tenant_id, rut=normalizado
     )
+
+
+def credencial_vigente(db: Session, tenant_id: UUID, credencial_id: UUID) -> str | None:
+    """El RUT de la credencial si sigue sirviendo; `None` si no.
+
+    Existe para que **un token no sea la ultima palabra**. El token dura 30 dias
+    y lleva la firma de esta API, pero no sabe si la credencial se revoco ayer.
+    Sin esta comprobacion, revocar no revocaria nada hasta que el token caduque
+    solo — o sea, revocar seria un boton que no hace nada durante un mes.
+
+    Es una consulta por request del invitado. Se paga a proposito: la alternativa
+    es una lista de revocados en memoria, que hay que mantener coherente entre
+    procesos y que falla en silencio cuando no lo esta.
+    """
+    fila = db.execute(
+        text(
+            "SELECT rut FROM guest_credentials "
+            "WHERE id = :i AND tenant_id = :t "
+            "  AND revoked_at IS NULL AND valid_until > now()"
+        ),
+        {"i": credencial_id, "t": tenant_id},
+    ).first()
+    return fila[0] if fila else None

@@ -92,10 +92,23 @@ Verificados contra el sistema real, no heredados del análisis.
       `ambienta_app`. Corregido de paso
 - [x] Emisión de credenciales: RUT y clave persistidos con vigencia
 - [x] Validación de credenciales de invitado, separada de la de Clerk (D3)
-- [ ] Dependencia propia para los endpoints que el invitado sí puede tocar
-- [ ] Reemplazar `generateMockRut()` y `generateDynamicPassword()` del
+- [x] Dependencia propia para los endpoints que el invitado sí puede tocar
+- [x] Reemplazar `generateMockRut()` y `generateDynamicPassword()` del
       navegador por la emisión del servidor
-- [ ] Que un invitado solo vea sus propias solicitudes
+- [x] Que un invitado solo vea sus propias solicitudes. Filtro por
+      `guest_credential_id` y no por correo: el correo lo escribe la misma
+      persona en el formulario, así que filtrar por él dejaría ver los tickets
+      de otro. Probado con **dos invitados de la misma empresa**, donde RLS no
+      ayuda porque son el mismo tenant
+- [x] Que `/crear-ticket` cree el ticket con el token del invitado y guarde
+      `guest_credential_id`. Verificado en el navegador: TKT-000066 quedó ligado
+      a la credencial `91926439-K`. De paso apareció que «Continuar a crear
+      ticket» **no iniciaba sesión**: la persona llegaba con sus credenciales en
+      pantalla pero sin token, y el formulario caía al camino simulado
+- [x] Límite de peticiones en las dos rutas públicas. **No es protección contra
+      un ataque distribuido** —cuenta por IP y vive en el proceso—, pero corta
+      el abuso trivial y, sobre todo, que un script recorra el espacio de claves
+      de 6 caracteres en `/sesion`
 - [x] Tests de los 7 escenarios del requisito de invitado, incluidos los tres
       de negación: credencial inventada, vencida, y de otra empresa
 

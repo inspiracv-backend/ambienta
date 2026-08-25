@@ -59,6 +59,7 @@ services:
       - ./db/08_perfil_normativo.sql:/docker-entrypoint-initdb.d/07-perfil-normativo.sql:ro
       - ./db/09_roles_por_codigo.sql:/docker-entrypoint-initdb.d/09-roles.sql:ro
       - ./db/10_acceso_invitado.sql:/docker-entrypoint-initdb.d/10-acceso-invitado.sql:ro
+      - ./db/11_solicitud_de_invitado.sql:/docker-entrypoint-initdb.d/11-solicitud-de-invitado.sql:ro
       - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
       # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
       # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —
@@ -100,6 +101,9 @@ services:
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
       CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET:-}
+      # Sin esto, el ingreso de invitados responde 503 en vez de firmar
+      # con una llave por defecto, que no protegeria nada.
+      TOKEN_INVITADO_SECRETO: ${TOKEN_INVITADO_SECRETO:-}
     ports:
       - '8000:8000'
     volumes:
@@ -135,6 +139,7 @@ services:
       # el middleware, y sigue el DevRoleSwitcher. En produccion NEXT_PUBLIC_*
       # va como build arg (Fase 6); CLERK_SECRET_KEY siempre en runtime.
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      NEXT_PUBLIC_EMPRESA_INVITADO: ${NEXT_PUBLIC_EMPRESA_INVITADO:-}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       # El token se pide por nombre de template; sin esto no viaja tenant_id.
       NEXT_PUBLIC_CLERK_JWT_TEMPLATE: ${NEXT_PUBLIC_CLERK_JWT_TEMPLATE:-default}
