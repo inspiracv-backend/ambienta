@@ -27,6 +27,9 @@ SUFIJOS_DE_ACCION = (
 
 # Recurso -> por que no tiene el CRUD entero. El motivo es la parte importante.
 SIN_CRUD_COMPLETO = {
+    "/acceso-invitado/credenciales": "no es un recurso que se administre, es una accion: se genera un acceso. Listarlos le mostraria a cualquiera los invitados de la empresa desde una ruta publica, y editarlos o borrarlos son operaciones que corresponden al Admin Empresa desde el sistema, no al invitado desde su link",
+    "/acceso-invitado/sesion": "entrar no es un recurso. La sesion vive en el token que se devuelve; no hay fila que leer, editar ni borrar",
+    "/acceso-invitado/mis-solicitudes": "es la vista de lectura del invitado sobre sus propios tickets. Crear y editar solicitudes ya vive en `/support/tickets`; duplicarlo aca serian dos caminos que mantener coherentes",
     "/catalog/countries": "la lista de paises viene dada: se consulta, no se administra. Exponerla como editable invitaria a inventar paises y a que dos empresas apuntaran a filas distintas del mismo lugar",
     "/catalog/norms": "la ley no se borra ni se edita a mano: se sincroniza desde la BCN",
     "/catalog/norms/articles": "el articulado es el texto de la ley: se sincroniza desde la BCN y se lee, no se administra",

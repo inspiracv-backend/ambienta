@@ -43,6 +43,7 @@ psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1
   -f db/08_perfil_normativo.sql \
   -f db/09_roles_por_codigo.sql \
   -f db/10_acceso_invitado.sql \
+  -f db/11_solicitud_de_invitado.sql \
   -f db/03_seed_catalogos.sql \
   -f db/02_seed.sql
 ```
@@ -73,6 +74,7 @@ bash db/run.sh
 | `08_perfil_normativo.sql` | Perfil normativo de la empresa: `tenants.sector_id` (FK a `sectors`, CIIU) y `size_bracket` por tramo, mas `matrix_norms.inclusion_source` para distinguir la norma que incluyo el calculo de la que agrego una persona. **No crea tablas**, asi que no declara RLS ni GRANT: las columnas heredan los de su tabla. Idempotente |
 | `09_roles_por_codigo.sql` | Corrige los permisos de los tres roles del sistema, que `02_seed` asignaba **por id numerico** contra un catalogo distinto del que finalmente quedo — el Admin Empresa terminaba sin poder administrar usuarios. Crea los roles en **todas** las empresas y agrega `servicio_lectura` para integraciones. Idempotente |
 | `10_acceso_invitado.sql` | Credenciales del Cliente Invitado (RF-01, RF-02, RF-07): RUT, clave con hash y vigencia acotada. **No es un usuario**: no abre ningun endpoint de negocio, solo el seguimiento de sus propias solicitudes. Trae su propia politica RLS y sus GRANT, porque el bucle de `01_schema` ya corrio. Idempotente |
+| `11_solicitud_de_invitado.sql` | Vincula la solicitud con la credencial que la abrió (`support_tickets.guest_credential_id`). Sin esto, «el invitado ve solo lo suyo» no se puede cumplir: filtrar por `guest_email` sería **peor que no filtrar**, porque el correo lo escribe la misma persona en el formulario y cualquiera puede poner el de otro. **No crea tablas**, así que hereda RLS y GRANT de `support_tickets`. Idempotente |
 | `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
 `02_smoke_test.sql` no es parte del despliegue — es la verificación. Corrélo después de cualquier cambio al esquema.

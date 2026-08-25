@@ -226,6 +226,16 @@ TAGS_METADATA: list[dict[str, Any]] = [
         "description": "Avisos, sus plantillas y las reglas que los disparan.",
     },
     {
+        "name": "acceso-invitado",
+        "description": (
+            "Acceso temporal del Cliente Invitado (RF-01, RF-02, RF-07). Dos de "
+            "sus rutas son **publicas a proposito**: el analisis pide que una "
+            "persona sin cuenta pueda abrir una solicitud y volver a "
+            "consultarla. Las credenciales que entrega **no abren ningun "
+            "endpoint de negocio**."
+        ),
+    },
+    {
         "name": "support",
         "description": (
             "Tickets de soporte y conversaciones del asistente. Es la via de "

@@ -6,7 +6,12 @@ import { KeyRound, ShieldCheck } from 'lucide-react';
 import { Button, Input } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { useSession } from '@/lib/session';
-import { generateDynamicPassword, generateMockRut } from '@/lib/rut';
+import {
+  empresaDelEnlace,
+  generarCredenciales,
+  iniciarSesion,
+  type CredencialGenerada,
+} from '@/lib/acceso-invitado';
 import { mockUsers } from '@/mocks/users';
 
 type Modo = 'inicio' | 'generado' | 'login';
@@ -20,12 +25,25 @@ type Modo = 'inicio' | 'generado' | 'login';
  * RF-03 (Admin Empresa registra al invitado como usuario permanente) queda
  * documentado como gap — depende de la gestión de usuarios de la Sección N,
  * aún no construida.
+ *
+ * **Hasta el 25-ago-2026 esta pantalla no hablaba con nadie.** Generaba el RUT
+ * y la clave en el navegador con un `setTimeout` de medio segundo, y el login
+ * aceptaba cualquier cosa que no estuviera vacía. Se veía funcionando: mostraba
+ * credenciales de aspecto correcto y dejaba pasar. Pero nada de eso existía del
+ * lado del servidor, así que **volver al día siguiente con esas credenciales no
+ * habría servido de nada** — y ese es justamente el requisito (RF-07).
+ *
+ * Ahora las emite y las valida la API. Lo que se ve en pantalla es lo que hay
+ * en la base.
  */
 export function GuestAccessCard() {
   const router = useRouter();
   const { login } = useSession();
   const [modo, setModo] = useState<Modo>('inicio');
-  const [credenciales, setCredenciales] = useState<{ rut: string; clave: string } | null>(null);
+  const [credenciales, setCredenciales] = useState<CredencialGenerada | null>(null);
+  // De qué empresa es este enlace. Sin esto no se puede emitir nada: elegir una
+  // por omisión le daría a la persona acceso a una empresa que no es la suya.
+  const empresaId = empresaDelEnlace();
 
   const [rut, setRut] = useState('');
   const [clave, setClave] = useState('');
@@ -34,13 +52,21 @@ export function GuestAccessCard() {
 
   const guest = mockUsers.find((u) => u.role === 'cliente_invitado');
 
-  function handleGenerar() {
+  async function handleGenerar() {
+    if (!empresaId) {
+      setError('Este enlace no indica de qué empresa es. Pídele el enlace correcto a tu contacto.');
+      return;
+    }
     setIsLoading(true);
-    setTimeout(() => {
-      setCredenciales({ rut: generateMockRut(), clave: generateDynamicPassword() });
-      setIsLoading(false);
+    setError(null);
+    try {
+      setCredenciales(await generarCredenciales(empresaId));
       setModo('generado');
-    }, 500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo generar el acceso.');
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   function handleContinuar() {
@@ -48,7 +74,7 @@ export function GuestAccessCard() {
     router.push('/crear-ticket');
   }
 
-  function handleLoginSubmit(e: FormEvent) {
+  async function handleLoginSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
@@ -56,17 +82,24 @@ export function GuestAccessCard() {
       setError('Ingresa tu RUT y clave para continuar.');
       return;
     }
+    if (!empresaId) {
+      setError('Este enlace no indica de qué empresa es. Pídele el enlace correcto a tu contacto.');
+      return;
+    }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      if (!guest) {
-        setError('No pudimos verificar tus credenciales. Revisa tu RUT y clave.');
-        return;
-      }
-      login(guest.id);
+    try {
+      await iniciarSesion(empresaId, rut, clave);
+      if (guest) login(guest.id);
       router.push('/crear-ticket');
-    }, 500);
+    } catch {
+      // **Un solo mensaje para todos los motivos**, igual que la API: decir si
+      // el RUT existe le confirmaría a quien prueba al azar que ese RUT es
+      // cliente de esta empresa.
+      setError('No pudimos verificar tus credenciales. Revisa tu RUT y clave.');
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   if (modo === 'generado' && credenciales) {
@@ -88,6 +121,11 @@ export function GuestAccessCard() {
             <dd className="font-mono text-slate-900">{credenciales.clave}</dd>
           </div>
         </dl>
+
+        <p className="mt-3 text-xs text-slate-500">
+          Válidas por {credenciales.dias_de_vigencia} días, hasta el{' '}
+          {new Date(credenciales.valido_hasta).toLocaleDateString('es-CL')}.
+        </p>
 
         <Button className="mt-6 w-full" onClick={handleContinuar}>
           Continuar a crear ticket
@@ -140,6 +178,12 @@ export function GuestAccessCard() {
       >
         Generar mi acceso
       </Button>
+
+      {error && (
+        <p role="alert" className="mt-3 text-sm text-red-600">
+          {error}
+        </p>
+      )}
 
       <p className="mt-6 text-center text-xs text-slate-400">
         ¿Ya tienes RUT y clave?{' '}

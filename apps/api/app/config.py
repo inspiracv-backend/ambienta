@@ -60,6 +60,25 @@ class Settings(BaseSettings):
     # de la Fase 2; se declara aca para tener toda la config de Clerk junta.
     clerk_webhook_secret: str = ""
 
+    # --- Token del Cliente Invitado (RF-01, RF-02, RF-07) --------------------
+    # El invitado no es cuenta de Clerk, asi que su sesion no la puede firmar
+    # Clerk: la firma esta API con su propio secreto (decision del equipo,
+    # 22-ago-2026). Es simetrico —HS256— porque el mismo servicio firma y
+    # verifica; no hay un tercero que necesite validar sin poder emitir.
+    #
+    # **Vacio a proposito y sin valor por defecto.** Un secreto por defecto en
+    # el codigo es un secreto publicado: cualquiera que lea el repo puede
+    # firmarse un token de invitado de cualquier empresa. Sin esta variable la
+    # emision de sesiones **se niega** (503) en vez de funcionar con una llave
+    # que no protege nada. Es la diferencia entre fallar cerrado y fallar
+    # abierto, y aca el default tiene que ser cerrado.
+    token_invitado_secreto: str = ""
+
+    @property
+    def token_invitado_configurado(self) -> bool:
+        """Si se pueden emitir y verificar sesiones de invitado."""
+        return bool(self.token_invitado_secreto)
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

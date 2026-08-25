@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizarRut, validarRut, generateMockRut, generateDynamicPassword } from './rut';
+import { normalizarRut, validarRut } from './rut';
 
 /**
  * El RUT, en TypeScript. **Gemelo de `apps/api/tests/test_rut.py`.**
@@ -104,25 +104,9 @@ describe('validar', () => {
   });
 });
 
-describe('lo que se genera para el Cliente Invitado', () => {
-  it('el RUT generado siempre pasa su propia validación', () => {
-    // Si no, la pantalla mostraría al invitado un RUT que la API le rechaza —
-    // y el invitado no tiene forma de saber que el sistema se lo dio mal.
-    for (let i = 0; i < 200; i++) {
-      expect(validarRut(generateMockRut())).toBe(true);
-    }
-  });
-
-  it('la clave dinámica no usa caracteres que se confunden al leerse', () => {
-    // Se dicta por teléfono y se copia a mano: `O`/`0` e `I`/`1` generan
-    // intentos fallidos que parecen clave equivocada.
-    const prohibidos = /[O0I1]/;
-    for (let i = 0; i < 200; i++) {
-      expect(generateDynamicPassword()).not.toMatch(prohibidos);
-    }
-  });
-
-  it('la clave tiene largo fijo', () => {
-    expect(generateDynamicPassword()).toHaveLength(6);
-  });
-});
+/**
+ * Las pruebas de `generateMockRut()` y `generateDynamicPassword()` se fueron
+ * con las funciones: la emisión es del servidor y está cubierta en
+ * `apps/api/tests/test_invitado.py`, que verifica lo mismo **y** lo que el
+ * navegador no podía — que el RUT no choque con el de otro invitado.
+ */

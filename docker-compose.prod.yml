@@ -60,6 +60,7 @@ services:
       - ./db/08_perfil_normativo.sql:/docker-entrypoint-initdb.d/08-perfil-normativo.sql:ro
       - ./db/09_roles_por_codigo.sql:/docker-entrypoint-initdb.d/09-roles.sql:ro
       - ./db/10_acceso_invitado.sql:/docker-entrypoint-initdb.d/10-acceso-invitado.sql:ro
+      - ./db/11_solicitud_de_invitado.sql:/docker-entrypoint-initdb.d/11-solicitud-de-invitado.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s
@@ -110,6 +111,8 @@ services:
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:?falta CLERK_JWKS_URL en .env — sin ella la API queda sin autenticacion}
       CLERK_ISSUER: ${CLERK_ISSUER:?falta CLERK_ISSUER en .env}
       CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET:?falta CLERK_WEBHOOK_SECRET en .env}
+      # Obligatorio en produccion: sin el, el ingreso de invitados responde 503.
+      TOKEN_INVITADO_SECRETO: ${TOKEN_INVITADO_SECRETO:?falta el secreto de firma del acceso de invitado}
       # Correo transaccional. Opcional hasta que existan las notificaciones.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
     # Sin `ports`: el único camino desde internet es a través de Caddy.

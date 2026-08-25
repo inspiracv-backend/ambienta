@@ -23,6 +23,7 @@ from .deps import exigir_permiso_de_la_ruta, get_admin_db
 from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .services.auditoria_automatica import instalar as instalar_auditoria
 from .routers import (
+    acceso_invitado,
     audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
     documents,
     facilities,
@@ -108,6 +109,12 @@ app.include_router(webhooks.router, prefix=api_v1_prefix)
 # puede exigir poder hacer algo. Ver `SIN_GUARDA_DE_PERMISO` en
 # `permisos_de_rutas.py`, donde queda escrito el motivo.
 app.include_router(identidad.router, prefix=api_v1_prefix)
+# El acceso del Cliente Invitado va **sin `exigir_permiso_de_la_ruta`**, igual
+# que el webhook y por el mismo motivo estructural: quien llama no tiene sesion
+# de la cual sacar permisos. Un invitado no tiene rol. Lo que lo acota no es una
+# lista de permisos sino que **estos tres endpoints son todo lo que puede
+# tocar** — ver el docstring del router.
+app.include_router(acceso_invitado.router, prefix=api_v1_prefix)
 app.include_router(dashboard.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(tenants.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(facilities.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
