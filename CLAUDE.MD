@@ -213,6 +213,8 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Auth — clave local con RUT (RF-06) | **Funcionando desde el 25-ago.** Quien entro por SSO fija RUT y clave en su perfil y despues entra con ellos. **La clave la guarda Clerk, no nosotros** (D1). El RUT viaja como `username` con prefijo `rut`, porque Clerk rechaza los que son solo digitos — y un RUT lo es salvo cuando el verificador es K |
 | Acceso Cliente Invitado | **Completo y verificado en el navegador el 25-ago.** RUT y clave los emite la API, no el navegador; token propio de 30 dias; la solicitud queda ligada a la credencial y el invitado ve solo las suyas. Con tope de peticiones en las dos rutas publicas |
 | Reportabilidad RETC | **Modelo y API desde el 25-ago** (ADR-004). `retc_systems` dice que portales existen; `facility_retc_reporting` cual le toca a cada planta, con los 5 estados del ADR. **El catalogo esta sin confirmar:** trae los 12 sistemas de la Ventanilla Unica con su fuente, y NO los 9 de la SMA — ver abajo |
+| Perfil Empresa obligatorio (RF-10) | **Real desde el 25-ago.** Antes la marca la calculaba el navegador como `giro && rut`, y como el RUT es `NOT NULL` eso daba `true` para todas: **el gate no bloqueaba a nadie**. Ahora el criterio lo decide el servidor —giro + planta + departamento + sector— y la API **rechaza con 409** las escrituras de Matriz Legal y Obligaciones del Admin Empresa con el perfil incompleto |
+| Usuario Interno con departamento (RF-11) | **Exigido por la base desde el 25-ago.** CHECK condicionado al tipo: solo `internal` y `tenant_admin`, porque un Admin Global no pertenece a un departamento de una empresa cliente. Borrar un departamento con gente dentro responde **409** hasta reasignarla |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -223,8 +225,11 @@ leerlo con cuidado porque son dos estados distintos con arreglos opuestos:
 | `sin_perfil` | La empresa no declaro su sector | La empresa, en Perfil Empresa |
 | `sector_sin_clasificar` | Nadie clasifico normas para ese sector | Nosotros |
 
-**Hoy el estado es `sin_perfil`**: las dos empresas del seed tienen
-`tenants.sector_id` en NULL. `norm_sectors` **no esta vacia** —tiene 10 filas y
+**Ojo: esta entrada envejece.** Se escribio cuando las dos empresas del seed
+tenian `tenants.sector_id` en NULL, y **ya no es asi** — el sector de la primera
+se declaro despues. Una prueba de `test_perfil_empresa.py` fallo por asumirlo, y
+por eso ahora las pruebas ponen el estado que quieren medir en vez de confiar en
+el seed. `norm_sectors` **no esta vacia** —tiene 10 filas y
 las 8 normas del catalogo estan clasificadas sobre 4 sectores— asi que basta
 declarar el sector de una empresa para que el CORE proponga normativa. Ya se
 comprobo: con `sector_id = 3` la empresa recibe una norma obligatoria.
@@ -410,8 +415,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 456 pruebas, 33 archivos
-cd apps/web && npx vitest run           # 326 pruebas, 25 archivos
+cd apps/api && python -m pytest         # 474 pruebas, 34 archivos
+cd apps/web && npx vitest run           # 331 pruebas, 26 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

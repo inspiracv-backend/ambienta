@@ -96,6 +96,16 @@ function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
       giro: raw.business_activity ? String(raw.business_activity) : undefined,
       direccion: undefined,
       estado: raw.status === 'active' ? 'activo' : raw.status === 'suspended' ? 'suspendido' : 'activo',
+      // **Aproximación, y solo para la vista de plataforma.**
+      //
+      // El criterio de verdad vive en el servidor y se lee con `GET /me`
+      // (`lib/perfil-empresa.ts`), pero eso responde por **una** empresa: la de
+      // la sesión. Esta lista es la del Superadmin, con todas.
+      //
+      // Como el RUT es `NOT NULL` en la base, esto colapsa a «tiene giro» y
+      // **sobreestima**: marca como completas empresas sin plantas, sin
+      // departamentos y sin sector. Sirve para ordenar una tabla, no para
+      // decidir si alguien puede operar — eso lo decide la API con 409.
       perfilEmpresaCompleto: Boolean(raw.business_activity && raw.rut_tax_id),
       esGestor: raw.tenant_type === 'manager',
       logoUrl: ajustes.logoUrl,

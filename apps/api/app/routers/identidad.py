@@ -25,6 +25,8 @@ van a fallar con 403.
 """
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -40,7 +42,9 @@ from ..schemas.identidad import (
     IdentidadRead,
     SectorDeLaEmpresa,
     UsuarioDeLaSesion,
+    PerfilDeLaEmpresa,
 )
+from ..services.perfil_empresa import estado as estado_del_perfil
 from ..services.clave_local import (
     LARGO_MINIMO_DE_CLAVE,
     ClerkNoDisponible,
@@ -58,6 +62,28 @@ router = APIRouter(prefix="/me", tags=["identidad"])
 
 #: Codigo de error cuando el token es valido pero no hay fila que le corresponda.
 CODIGO_SIN_USUARIO = "sesion_sin_usuario"
+
+
+def _perfil(db: Session, tenant_id: UUID | str) -> PerfilDeLaEmpresa:
+    """El estado del Perfil Empresa, calculado contra la base.
+
+    Se expone en `/me` porque es donde la pantalla ya pregunta "quien soy y que
+    puedo hacer": pedirlo aparte obligaria a una segunda llamada en cada carga
+    para algo que se necesita siempre.
+    """
+    # `UUID | str` y no `UUID` a secas: `CurrentUser.tenant_id` es texto cuando
+    # viene del JWT y ya es un `UUID` en las pruebas que llaman a esta funcion
+    # sin pasar por HTTP. El driver adapta las dos; convertir a la fuerza
+    # reventaba con `'UUID' object has no attribute 'replace'`.
+    resultado = estado_del_perfil(db, tenant_id)
+    return PerfilDeLaEmpresa(
+        completo=resultado.completo,
+        faltantes=resultado.faltantes,
+        tiene_giro=resultado.tiene_giro,
+        tiene_instalaciones=resultado.tiene_instalaciones,
+        tiene_departamentos=resultado.tiene_departamentos,
+        tiene_sector=resultado.tiene_sector,
+    )
 
 
 @router.get("", response_model=IdentidadRead)
@@ -138,6 +164,7 @@ def quien_soy(
     if not get_settings().clerk_configured:
         return IdentidadRead(
             modo_desarrollo=True,
+            perfil_empresa=_perfil(db, user.tenant_id),
             usuario=None,
             empresa=datos_empresa,
             roles=[],
@@ -167,6 +194,7 @@ def quien_soy(
 
     return IdentidadRead(
         modo_desarrollo=False,
+        perfil_empresa=_perfil(db, user.tenant_id),
         usuario=UsuarioDeLaSesion(
             id=fila.id,
             clerk_id=fila.clerk_id,

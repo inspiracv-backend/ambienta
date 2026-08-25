@@ -38,6 +38,7 @@ run "$DIR/09_roles_por_codigo.sql"
 run "$DIR/10_acceso_invitado.sql"
 run "$DIR/11_solicitud_de_invitado.sql"
 run "$DIR/12_reportabilidad_retc.sql"
+run "$DIR/13_usuario_interno_con_departamento.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"

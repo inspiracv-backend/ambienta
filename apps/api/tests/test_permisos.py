@@ -67,13 +67,32 @@ def _permiso(db: Session) -> tuple[int, str]:
 
 
 def _usuario(db: Session) -> uuid.UUID:
+    """Un usuario interno de la empresa, **con departamento**.
+
+    Desde el 25-ago un CHECK lo exige (RF-11,
+    `ck_users_interno_con_departamento`). Antes esta funcion creaba usuarios sin
+    departamento y la restriccion nueva las tumbo a las diez de golpe — que es
+    justo lo que tiene que pasar: si las pruebas pudieran seguir creando datos
+    imposibles, la restriccion no estaria protegiendo nada.
+    """
     uid = uuid.uuid4()
+    departamento = db.execute(
+        text(
+            "SELECT id FROM departments WHERE tenant_id = :t "
+            "AND deleted_at IS NULL LIMIT 1"
+        ),
+        {"t": TENANT},
+    ).scalar()
+    assert departamento is not None, (
+        "El seed no tiene departamentos en esta empresa y RF-11 los exige."
+    )
     db.execute(
         text(
-            "INSERT INTO users (id, tenant_id, email, full_name, user_type, status) "
-            "VALUES (:i, :t, :e, 'Prueba Permisos', 'internal', 'active')"
+            "INSERT INTO users (id, tenant_id, department_id, email, full_name, "
+            "user_type, status) "
+            "VALUES (:i, :t, :d, :e, 'Prueba Permisos', 'internal', 'active')"
         ),
-        {"i": uid, "t": TENANT, "e": f"permisos-{uid}@prueba.cl"},
+        {"i": uid, "t": TENANT, "d": departamento, "e": f"permisos-{uid}@prueba.cl"},
     )
     return uid
 

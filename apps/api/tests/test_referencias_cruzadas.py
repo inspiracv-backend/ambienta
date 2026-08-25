@@ -246,3 +246,72 @@ class TestElEndpointDeUsuariosLoAplica:
         )
 
         assert r.status_code == 200, r.text
+
+
+class TestRf11UsuarioInternoConDepartamento:
+    """RF-11: todo Usuario Interno pertenece a un Departamento.
+
+    Lo sostiene un CHECK, no la buena conducta de la API: `users` la escriben el
+    router, el webhook de Clerk y las migraciones, y **una regla que solo vive en
+    un camino se rompe por los otros dos**.
+    """
+
+    def test_un_interno_sin_departamento_no_entra(self, db: Session) -> None:
+        with pytest.raises(Exception) as exc:
+            db.execute(
+                text(
+                    "INSERT INTO users (tenant_id, email, full_name, user_type) "
+                    "VALUES (:t, :e, 'Sin Departamento', 'internal')"
+                ),
+                {"t": TENANT_1, "e": f"rf11-{uuid.uuid4()}@prueba.cl"},
+            )
+            db.flush()
+        assert "ck_users_interno_con_departamento" in str(exc.value)
+        db.rollback()
+
+    def test_un_admin_global_SI_puede_no_tener_departamento(self, db: Session) -> None:
+        """**El `NOT NULL` plano habria estado mal**, y esto lo fija.
+
+        RF-11 habla de *Usuario Interno*. Un `platform_admin` es nuestro, no de
+        la empresa: obligarlo a pertenecer a un departamento de un cliente no
+        significa nada, y el dia que entrara el primero habria que romper la
+        restriccion — y romper una restriccion siempre termina en quitarla.
+        """
+        db.execute(
+            text("SELECT set_config('ambienta.tenant_id', :t, true)"), {"t": TENANT_1}
+        )
+        db.execute(
+            text(
+                "INSERT INTO users (tenant_id, email, full_name, user_type) "
+                "VALUES (:t, :e, 'Admin Global', 'platform_admin')"
+            ),
+            {"t": TENANT_1, "e": f"rf11-admin-{uuid.uuid4()}@prueba.cl"},
+        )
+        db.flush()  # no lanza
+        db.rollback()
+
+    def test_quitarle_el_departamento_a_un_interno_tampoco(self, db: Session) -> None:
+        """La restriccion tambien vale al editar, no solo al crear.
+
+        Es el caso que se escapa cuando la regla se escribe en el endpoint de
+        alta: un `PATCH` que lo deje en `null` la sortearia.
+        """
+        alguien = db.execute(
+            text(
+                "SELECT id FROM users WHERE tenant_id = :t "
+                "AND user_type IN ('internal','tenant_admin') "
+                "AND deleted_at IS NULL LIMIT 1"
+            ),
+            {"t": TENANT_1},
+        ).scalar()
+        if alguien is None:  # pragma: no cover
+            pytest.skip("El seed no tiene usuarios internos.")
+
+        with pytest.raises(Exception) as exc:
+            db.execute(
+                text("UPDATE users SET department_id = NULL WHERE id = :u"),
+                {"u": alguien},
+            )
+            db.flush()
+        assert "ck_users_interno_con_departamento" in str(exc.value)
+        db.rollback()

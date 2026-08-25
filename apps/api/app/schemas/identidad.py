@@ -68,6 +68,28 @@ class EmpresaDeLaSesion(BaseModel):
     giro: str | None = None
 
 
+class PerfilDeLaEmpresa(BaseModel):
+    """Si el Perfil Empresa esta completo, y que falta (RF-10).
+
+    **Se calcula en el servidor en cada consulta, no se guarda.** Una bandera
+    guardada aparte dejaria dos verdades que se pueden contradecir: una empresa
+    marcada como completa a la que despues le borran la ultima planta seguiria
+    diciendo que si.
+    """
+
+    completo: bool
+    faltantes: list[str] = Field(
+        description=(
+            "En el idioma de quien completa el perfil, no en nombres de "
+            "columna. Vacio cuando esta completo."
+        )
+    )
+    tiene_giro: bool
+    tiene_instalaciones: bool
+    tiene_departamentos: bool
+    tiene_sector: bool
+
+
 class IdentidadRead(BaseModel):
     """Quien llama, de que empresa, y que puede hacer.
 
@@ -88,6 +110,15 @@ class IdentidadRead(BaseModel):
         "`encargado_ambiental`, `operador`, `servicio_lectura`. Un rol con "
         "`valid_to` pasado no aparece. Para decidir si una accion se permite usa "
         "`permisos`, no esto: el rol es una etiqueta, el permiso es la regla"
+    )
+    perfil_empresa: PerfilDeLaEmpresa = Field(
+        description=(
+            "Estado del Perfil Empresa (RF-10). **La pantalla lee esto en vez "
+            "de deducirlo**: antes lo calculaba el navegador como "
+            "`business_activity && rut_tax_id`, y como el RUT es obligatorio en "
+            "la base eso colapsaba a 'tiene giro' — todas las empresas salian "
+            "completas y el flujo obligatorio no bloqueaba a nadie."
+        )
     )
     permisos: list[str] = Field(
         description="Lo que esta persona puede hacer, ya resuelto: roles mas "
