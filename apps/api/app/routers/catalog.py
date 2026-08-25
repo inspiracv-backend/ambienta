@@ -10,8 +10,15 @@ from ..crud.catalog import (
     crud_legal_norm,
     crud_legal_source,
     crud_sector,
+    crud_retc_system,
 )
-from ..models.catalog import LegalArticle, LegalNormVersion, NormSector, Sector
+from ..models.catalog import (
+    LegalArticle,
+    LegalNormVersion,
+    NormSector,
+    RetcSystem,
+    Sector,
+)
 from ..models.organization import User
 from ..auth import CurrentUser
 from ..deps import exigir_admin_global, get_db
@@ -31,6 +38,7 @@ from ..schemas.catalog import (
     NormSectorWrite,
     SectorRead,
     SectorUpdate,
+    RetcSystemRead,
 )
 from ..services.cobertura_clasificacion import calcular as calcular_cobertura
 from ._comun import borrar_o_404, obtener_o_404
@@ -347,3 +355,45 @@ def delete_norm(norm_id: UUID, _: CurrentUser = Depends(exigir_admin_global), db
     """Retira una norma del catalogo. Las matrices que la referencian no se
     tocan: registran que esa norma le aplico a la empresa en su momento."""
     borrar_o_404(crud_legal_norm, db, norm_id, recurso="LegalNorm")
+
+
+@router.get(
+    "/retc-systems",
+    response_model=list[RetcSystemRead],
+    summary="Sistemas sectoriales del RETC",
+    description=(
+        "Los portales ante los que una instalacion declara (#103, ADR-004).\n\n"
+        "**No confundir con `/catalog/sectors`.** Un sector es el rubro CIIU de "
+        "la empresa —a que se dedica—; esto es **donde reporta**. Son "
+        "dimensiones ortogonales, y el repositorio usa el numero 21 para las "
+        "dos sin que tengan relacion.\n\n"
+        "Cada fila trae su `fuente`, para poder auditar de donde salio. El "
+        "catalogo esta **sin confirmar** (`active = false`): trae los 12 "
+        "sistemas de la Ventanilla Unica tomados del portal oficial, y **no** "
+        "los 9 de la SMA que menciona ADR-004, para los que no hay fuente "
+        "verificable."
+    ),
+)
+def list_retc_systems(
+    familia: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Lista los sistemas, opcionalmente acotados por familia."""
+    stmt = select(RetcSystem).where(RetcSystem.deleted_at.is_(None))
+    if familia is not None:
+        stmt = stmt.where(RetcSystem.familia == familia)
+    return list(db.scalars(stmt.order_by(RetcSystem.id)).all())
+
+
+@router.get(
+    "/retc-systems/{system_id}",
+    response_model=RetcSystemRead,
+    summary="Un sistema sectorial del RETC",
+    description=(
+        "Un portal concreto, con su organismo, su URL oficial y **la fuente de "
+        "donde salio la fila**. Esa ultima columna es la que permite auditar el "
+        "catalogo: un catalogo normativo sin procedencia se vuelve folclore."
+    ),
+)
+def get_retc_system(system_id: int, db: Session = Depends(get_db)):
+    return obtener_o_404(crud_retc_system, db, system_id, recurso="RetcSystem")

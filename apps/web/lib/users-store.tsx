@@ -141,24 +141,58 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     setUsers((prev) => [...prev, nuevo]);
 
     if (input.tenantId) {
-      api.post('/users/', {
-        display_name: input.nombre,
-        email: input.email,
-        user_type: input.role === 'admin_empresa' ? 'tenant_admin' : 'internal',
-      }, { tenantId: input.tenantId }).catch(() => {});
+      // `full_name`, no `display_name`. **La API exige `full_name` y no lo
+      // tenia**, asi que esta llamada devolvia 422 y el `.catch` vacio se lo
+      // tragaba: la invitacion se veia hecha en pantalla y no creaba a nadie.
+      api
+        .post(
+          '/users/',
+          {
+            full_name: input.nombre,
+            email: input.email,
+            user_type: input.role === 'admin_empresa' ? 'tenant_admin' : 'internal',
+            department_id: input.departamentoId ?? null,
+          },
+          { tenantId: input.tenantId },
+        )
+        .catch((error) => {
+          setUsers((prev) => prev.filter((u) => u.id !== nuevo.id));
+          mostrarToast({
+            tipo: 'error',
+            mensaje: 'No se pudo invitar a la persona',
+            descripcion: mensajeDeError(error),
+          });
+        });
     }
 
     return nuevo;
   }
 
+  /**
+   * **No llega a la base, y ya no finge que sí.**
+   *
+   * Antes mandaba `user_type` a `PATCH /users/{id}`. Ese campo **no está en
+   * `UserUpdate`**, así que la API respondía 200 y no cambiaba nada: el rol
+   * volvía al recargar y ningún error lo delataba.
+   *
+   * Pero el arreglo no es renombrar el campo. `users.user_type` es una
+   * etiqueta; **los permisos salen de `user_roles`**, que es otra tabla con
+   * su propia vigencia. Escribir `user_type` cambiaría lo que dice la ficha
+   * sin cambiar lo que la persona puede hacer — que es exactamente el tipo de
+   * mentira que este repo ya pagó caro.
+   *
+   * El endpoint que asigna rol contra `user_roles` es el alcance de #140. Hasta
+   * entonces esto queda en local y **se dice en pantalla**, en vez de escribir
+   * a un campo que no manda.
+   */
   function updateRole(userId: string, role: Role) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)));
-    const user = users.find((u) => u.id === userId);
-    if (user?.tenantId) {
-      api.patch(`/users/${userId}`, {
-        user_type: role === 'admin_empresa' ? 'tenant_admin' : 'internal',
-      }, { tenantId: user.tenantId }).catch(() => {});
-    }
+    mostrarToast({
+      tipo: 'info',
+      mensaje: 'El cambio de rol no se guardó',
+      descripcion:
+        'Cambiar el rol de forma permanente todavía no está conectado. El permiso efectivo lo define user_roles en la base.',
+    });
   }
 
   /**
@@ -201,11 +235,26 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   }
 
   function updateNombre(userId: string, nombre: string) {
+    const anterior = users.find((u) => u.id === userId);
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, nombre } : u)));
-    const user = users.find((u) => u.id === userId);
-    if (user?.tenantId) {
-      api.patch(`/users/${userId}`, { display_name: nombre }, { tenantId: user.tenantId }).catch(() => {});
-    }
+    if (!anterior?.tenantId) return;
+
+    // `full_name`, no `display_name`. Con el nombre equivocado la API
+    // respondia **200 sin cambiar nada** —Pydantic descarta los campos que no
+    // declara y `exclude_unset` deja el UPDATE vacio—, que es peor que un 422:
+    // nadie revierte y nadie se entera hasta recargar.
+    api
+      .patch(`/users/${userId}`, { full_name: nombre }, { tenantId: anterior.tenantId })
+      .catch((error) => {
+        setUsers((prev) =>
+          prev.map((u) => (u.id === userId ? { ...u, nombre: anterior.nombre } : u)),
+        );
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudo cambiar el nombre',
+          descripcion: mensajeDeError(error),
+        });
+      });
   }
 
   /**

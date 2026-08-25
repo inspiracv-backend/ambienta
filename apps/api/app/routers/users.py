@@ -5,11 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth import CurrentUser
-from ..crud.organization import crud_user
+from ..crud.organization import crud_department, crud_user
 from ..deps import exigir_permiso, get_tenant_db, get_tenant_id
 from ..models.organization import Permission, UserPermission
 from ..services.permisos import excepciones_del_usuario, permisos_de_roles
-from ._comun import borrar_o_404
+from ._comun import borrar_o_404, validar_visible
 from ..schemas.organization import (
     PermisoEfectivo,
     PermisoIndividual,
@@ -27,6 +27,26 @@ def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant
     return crud_user.get_multi(db, skip=skip, limit=limit)
 
 
+def _validar_departamento(db: Session, department_id: UUID | None) -> None:
+    """Que el departamento sea de la propia empresa.
+
+    **Las FK de Postgres no pasan por RLS.** `fk_users_department` solo exige
+    que exista una fila en `departments` con ese id: no mira el tenant. Un
+    `PATCH` con el departamento de otra empresa pasaba la restriccion y dejaba
+    a la persona colgando de una estructura ajena.
+
+    Y el dano no es solo la fila incoherente: es un **oraculo de existencia**.
+    Quien prueba identificadores al azar distingue "no existe" de "existe pero
+    es de otro", y con eso enumera identificadores ajenos sin verlos nunca. Por
+    eso `validar_visible` responde 422 en los dos casos, deliberadamente.
+
+    `processes.py` ya validaba esta misma columna; `users.py` no. Era el mismo
+    agujero en el mismo campo, cerrado en un lado y abierto en el otro.
+    """
+    if department_id is not None:
+        validar_visible(crud_department, db, department_id, campo="department_id")
+
+
 @router.get("/{user_id}", response_model=UserRead)
 def get_user(user_id: UUID, db: Session = Depends(get_tenant_db)):
     obj = crud_user.get(db, user_id)
@@ -41,6 +61,7 @@ def create_user(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    _validar_departamento(db, data.department_id)
     obj = crud_user.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return obj
@@ -51,6 +72,7 @@ def update_user(user_id: UUID, data: UserUpdate, db: Session = Depends(get_tenan
     obj = crud_user.get(db, user_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    _validar_departamento(db, data.department_id)
     obj = crud_user.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj

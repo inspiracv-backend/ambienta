@@ -123,3 +123,126 @@ def test_un_padre_valido_pasa(db: Session) -> None:
         id_padre=existentes[0].id,
         campo="parent_department_id",
     )
+
+
+def _departamento_de_otra_empresa(db: Session) -> uuid.UUID | None:
+    """Un departamento real del tenant 2, invisible desde el tenant 1."""
+    db.execute(
+        text("SELECT set_config('ambienta.tenant_id', :t, true)"), {"t": TENANT_2}
+    )
+    ajeno = db.execute(text("SELECT id FROM departments LIMIT 1")).scalar()
+    db.execute(
+        text("SELECT set_config('ambienta.tenant_id', :t, true)"), {"t": TENANT_1}
+    )
+    return ajeno
+
+
+class TestElDepartamentoDeUnUsuario:
+    """`users.department_id` tenia el mismo agujero, y estaba abierto.
+
+    **El mismo campo, validado en `processes.py` y sin validar en `users.py`.**
+    Es el modo de fallo que este repo ya conoce: la regla existe, se aplica en
+    un lugar y se olvida en otro, y nada lo detecta porque el olvido no rompe
+    nada visible — deja a una persona colgando de la estructura de otra empresa.
+    """
+
+    def test_asignar_un_departamento_ajeno_se_rechaza(self, db: Session) -> None:
+        ajeno = _departamento_de_otra_empresa(db)
+        if ajeno is None:  # pragma: no cover - seed sin departamentos en el 2
+            pytest.skip("El seed no tiene departamentos en la segunda empresa.")
+
+        with pytest.raises(HTTPException) as exc:
+            validar_visible(crud_department, db, ajeno, campo="department_id")
+
+        assert exc.value.status_code == 422
+
+    def test_uno_inventado_da_el_mismo_error_que_uno_ajeno(self, db: Session) -> None:
+        """**Los dos casos responden igual, a proposito.**
+
+        Distinguirlos convertiria el campo en un oraculo: quien prueba
+        identificadores al azar sabria cuales existen en otras empresas sin
+        verlos nunca.
+        """
+        ajeno = _departamento_de_otra_empresa(db)
+        if ajeno is None:  # pragma: no cover
+            pytest.skip("El seed no tiene departamentos en la segunda empresa.")
+
+        with pytest.raises(HTTPException) as por_ajeno:
+            validar_visible(crud_department, db, ajeno, campo="department_id")
+        with pytest.raises(HTTPException) as por_inexistente:
+            validar_visible(crud_department, db, uuid.uuid4(), campo="department_id")
+
+        assert por_ajeno.value.status_code == por_inexistente.value.status_code
+        assert por_ajeno.value.detail == por_inexistente.value.detail
+
+
+class TestElEndpointDeUsuariosLoAplica:
+    """**Que la funcion valide no basta: hay que llamarla.**
+
+    Las pruebas de arriba comprueban `validar_visible` en aislamiento, y pasaban
+    en verde **con la guarda quitada del router**. Es el error de siempre: se
+    prueba la pieza y no el camino. Esto va por HTTP.
+    """
+
+    @pytest.fixture
+    def cliente(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from app.config import get_settings
+        from app.db import SessionLocal
+        from app.main import app
+
+        monkeypatch.setattr(get_settings(), "clerk_jwks_url", "", raising=False)
+        original = SessionLocal.kw.get("bind")
+        motor = create_engine(URL)
+        SessionLocal.configure(bind=motor)
+        try:
+            yield TestClient(app)
+        finally:
+            SessionLocal.configure(bind=original)
+            motor.dispose()
+
+    def test_patch_con_departamento_de_otra_empresa_da_422(
+        self, cliente, db: Session
+    ) -> None:
+        ajeno = _departamento_de_otra_empresa(db)
+        if ajeno is None:  # pragma: no cover
+            pytest.skip("El seed no tiene departamentos en la segunda empresa.")
+
+        propio = db.execute(
+            text("SELECT id FROM users WHERE tenant_id = :t LIMIT 1"), {"t": TENANT_1}
+        ).scalar()
+        if propio is None:  # pragma: no cover
+            pytest.skip("El seed no tiene usuarios en la primera empresa.")
+
+        r = cliente.patch(
+            f"/api/v1/users/{propio}",
+            headers={"X-Tenant-Id": TENANT_1},
+            json={"department_id": str(ajeno)},
+        )
+
+        assert r.status_code == 422, (
+            f"Acepto un departamento de otra empresa: {r.status_code} {r.text}"
+        )
+
+    def test_patch_con_su_propio_departamento_sigue_funcionando(
+        self, cliente, db: Session
+    ) -> None:
+        """La guarda no puede romper el caso legitimo, que es el 99 %."""
+        propio_dep = db.execute(
+            text("SELECT id FROM departments WHERE tenant_id = :t LIMIT 1"),
+            {"t": TENANT_1},
+        ).scalar()
+        propio_usr = db.execute(
+            text("SELECT id FROM users WHERE tenant_id = :t LIMIT 1"), {"t": TENANT_1}
+        ).scalar()
+        if propio_dep is None or propio_usr is None:  # pragma: no cover
+            pytest.skip("El seed no alcanza para este caso.")
+
+        r = cliente.patch(
+            f"/api/v1/users/{propio_usr}",
+            headers={"X-Tenant-Id": TENANT_1},
+            json={"department_id": str(propio_dep)},
+        )
+
+        assert r.status_code == 200, r.text

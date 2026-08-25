@@ -8,6 +8,7 @@ from ..models.catalog import (
     LegalNormVersion,
     LegalSource,
     Sector,
+    RetcSystem,
 )
 from ..schemas.catalog import (
     FacilityNormAssignmentCreate,
@@ -27,3 +28,4 @@ crud_legal_norm = CRUDBase[LegalNorm, LegalNormCreate, LegalNormUpdate](LegalNor
 crud_legal_norm_version = CRUDBase[LegalNormVersion, LegalNormVersionCreate, BaseModel](LegalNormVersion)
 crud_legal_article = CRUDBase[LegalArticle, LegalArticleCreate, BaseModel](LegalArticle)
 crud_facility_norm_assignment = CRUDBase[FacilityNormAssignment, FacilityNormAssignmentCreate, BaseModel](FacilityNormAssignment)
+crud_retc_system = CRUDBase[RetcSystem, BaseModel, BaseModel](RetcSystem)

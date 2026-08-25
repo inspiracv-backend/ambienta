@@ -1,12 +1,17 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..crud.organization import crud_facility, crud_process
 from ..deps import get_tenant_db, get_tenant_id
 from ..crud.catalog import crud_facility_norm_assignment
-from ..models.catalog import FacilityNormAssignment
+from ..models.catalog import (
+    FacilityNormAssignment,
+    FacilityRetcReporting,
+    RetcSystem,
+)
 from ..models.organization import FacilityProcess
 from ._comun import (
     CRUDAsociacion,
@@ -21,6 +26,8 @@ from ..schemas.catalog import (
     FacilityNormAssignmentCreateAnidado,
     FacilityNormAssignmentRead,
     FacilityNormAssignmentUpdate,
+    ReportabilidadRead,
+    ReportabilidadUpsert,
 )
 from ..schemas.organization import (
     FacilityCreate,
@@ -136,7 +143,6 @@ def remove_facility_process(facility_id: UUID, process_id: UUID, db: Session = D
 @router.get("/{facility_id}/norms", response_model=list[FacilityNormAssignmentRead])
 def list_facility_norms(facility_id: UUID, db: Session = Depends(get_tenant_db)):
     """Que normas se le asignaron a esta instalacion, y en que estado."""
-    obtener_o_404(crud_facility, db, facility_id, recurso="Facility")
     return listar_por_padre(FacilityNormAssignment, db, facility_id, campo="facility_id")
 
 
@@ -199,3 +205,134 @@ def get_facility_process(facility_id: UUID, process_id: UUID, db: Session = Depe
 def get_facility_norm(facility_id: UUID, asignacion_id: UUID, db: Session = Depends(get_tenant_db)):
     obj = obtener_o_404(crud_facility_norm_assignment, db, asignacion_id, recurso="FacilityNormAssignment")
     return verificar_padre(obj, facility_id, campo="facility_id")
+
+
+# ── Reportabilidad RETC de la instalacion (#102, ADR-004) ──────────────────
+#
+# Que sistemas del RETC le aplican a esta planta y con que estado. Hoy eso lo
+# determina un especialista a mano cruzando articulos de la RCA con los
+# portales que corresponden: dias de trabajo por instalacion nueva.
+#
+# Va anidado bajo la instalacion y no como recurso suelto porque **una
+# reportabilidad no existe fuera de su planta**: es el mismo criterio que
+# `/facilities/{id}/norms`.
+
+ESTADOS = frozenset({"si", "condicional", "na", "no", "obligatorio"})
+
+
+@router.get(
+    "/{facility_id}/reportabilidad",
+    response_model=list[ReportabilidadRead],
+    summary="Que sistemas del RETC le aplican a esta instalacion",
+    description=(
+        "Devuelve **solo lo declarado**. Un sistema que no aparece no es lo "
+        "mismo que uno en estado `no`: el primero **nadie lo ha mirado**, el "
+        "segundo se revisó y se descartó. Confundirlos daria por cubierta una "
+        "instalacion a medio configurar."
+    ),
+)
+def list_reportabilidad(facility_id: UUID, db: Session = Depends(get_tenant_db)):
+    obtener_o_404(crud_facility, db, facility_id, recurso="Facility")
+    return listar_por_padre(
+        FacilityRetcReporting, db, facility_id, campo="facility_id"
+    )
+
+
+@router.put(
+    "/{facility_id}/reportabilidad/{system_id}",
+    response_model=ReportabilidadRead,
+    summary="Declarar el estado de un sistema para esta instalacion",
+    description=(
+        "**`PUT` y no `POST`**: hay como mucho una fila por instalacion y "
+        "sistema —lo garantiza una unicidad en la base—, asi que volver a "
+        "declararlo es corregir, no agregar. Con `POST` el segundo intento "
+        "seria un 409 sobre algo que la persona esperaba poder cambiar.\n\n"
+        "Un estado `condicional` **exige** decir de que depende."
+    ),
+)
+def declarar_reportabilidad(
+    facility_id: UUID,
+    system_id: int,
+    data: ReportabilidadUpsert,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    obtener_o_404(crud_facility, db, facility_id, recurso="Facility")
+
+    if data.estado not in ESTADOS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Estado no valido. Opciones: {', '.join(sorted(ESTADOS))}.",
+        )
+    if data.estado == "condicional" and not (data.condicion or "").strip():
+        # La base tambien lo exige por CHECK; se comprueba aca para responder
+        # 422 con un motivo y no un error de restriccion a mitad del commit.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Un estado condicional tiene que decir de que depende: sin eso "
+                "la decision no se puede revisar despues."
+            ),
+        )
+
+    sistema = db.get(RetcSystem, system_id)
+    if sistema is None or sistema.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="RetcSystem not found"
+        )
+
+    fila = db.scalar(
+        select(FacilityRetcReporting).where(
+            FacilityRetcReporting.facility_id == facility_id,
+            FacilityRetcReporting.retc_system_id == system_id,
+            FacilityRetcReporting.deleted_at.is_(None),
+        )
+    )
+
+    if fila is None:
+        fila = FacilityRetcReporting(
+            tenant_id=tenant_id,
+            facility_id=facility_id,
+            retc_system_id=system_id,
+        )
+        db.add(fila)
+
+    fila.estado = data.estado
+    fila.condicion = data.condicion
+    fila.variables = data.variables
+    fila.responsable_id = data.responsable_id
+    fila.notas = data.notas
+
+    db.flush()
+    db.refresh(fila)
+    db.commit()
+    return fila
+
+
+@router.delete(
+    "/{facility_id}/reportabilidad/{system_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Quitar lo declarado para un sistema",
+    description=(
+        "Vuelve al estado **sin mirar**, que no es lo mismo que `no`. Sirve "
+        "cuando la declaracion se hizo por error; para decir que el sistema no "
+        "aplica, el estado correcto es `na` o `no`."
+    ),
+)
+def borrar_reportabilidad(
+    facility_id: UUID, system_id: int, db: Session = Depends(get_tenant_db)
+):
+    fila = db.scalar(
+        select(FacilityRetcReporting).where(
+            FacilityRetcReporting.facility_id == facility_id,
+            FacilityRetcReporting.retc_system_id == system_id,
+            FacilityRetcReporting.deleted_at.is_(None),
+        )
+    )
+    if fila is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="FacilityRetcReporting not found",
+        )
+    fila.deleted_at = func.now()
+    db.commit()

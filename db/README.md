@@ -44,6 +44,7 @@ psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1
   -f db/09_roles_por_codigo.sql \
   -f db/10_acceso_invitado.sql \
   -f db/11_solicitud_de_invitado.sql \
+  -f db/12_reportabilidad_retc.sql \
   -f db/03_seed_catalogos.sql \
   -f db/02_seed.sql
 ```
@@ -75,6 +76,7 @@ bash db/run.sh
 | `09_roles_por_codigo.sql` | Corrige los permisos de los tres roles del sistema, que `02_seed` asignaba **por id numerico** contra un catalogo distinto del que finalmente quedo — el Admin Empresa terminaba sin poder administrar usuarios. Crea los roles en **todas** las empresas y agrega `servicio_lectura` para integraciones. Idempotente |
 | `10_acceso_invitado.sql` | Credenciales del Cliente Invitado (RF-01, RF-02, RF-07): RUT, clave con hash y vigencia acotada. **No es un usuario**: no abre ningun endpoint de negocio, solo el seguimiento de sus propias solicitudes. Trae su propia politica RLS y sus GRANT, porque el bucle de `01_schema` ya corrio. Idempotente |
 | `11_solicitud_de_invitado.sql` | Vincula la solicitud con la credencial que la abrió (`support_tickets.guest_credential_id`). Sin esto, «el invitado ve solo lo suyo» no se puede cumplir: filtrar por `guest_email` sería **peor que no filtrar**, porque el correo lo escribe la misma persona en el formulario y cualquiera puede poner el de otro. **No crea tablas**, así que hereda RLS y GRANT de `support_tickets`. Idempotente |
+| `12_reportabilidad_retc.sql` | Sistemas sectoriales del RETC y su reportabilidad por instalación (ADR-004, #102 y #103). **Dos tablas y la separación importa:** `retc_systems` es catálogo global sin `tenant_id` —los portales son los mismos para todas— y `facility_retc_reporting` es dato de empresa, con RLS propia. **Un sistema sectorial NO es un sector CIIU**: uno dice *ante quién se declara*, el otro *a qué se dedica la empresa*. Siembra los **12 sectoriales** del portal oficial con su procedencia en cada fila, en `active = false` hasta que negocio los confirme; los 9 de la SMA que menciona ADR-004 **no se siembran** porque no hay fuente verificable. Idempotente |
 | `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
 `02_smoke_test.sql` no es parte del despliegue — es la verificación. Corrélo después de cualquier cambio al esquema.
