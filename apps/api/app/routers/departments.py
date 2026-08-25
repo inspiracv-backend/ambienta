@@ -10,10 +10,12 @@ puede dejar un departamento apuntando a la planta de otra empresa.
 """
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..crud.organization import crud_department, crud_facility
+from ..models.organization import User
 from ..deps import get_tenant_db, get_tenant_id
 from ..schemas.organization import DepartmentCreate, DepartmentRead, DepartmentUpdate
 from ._comun import borrar_o_404, obtener_o_404, validar_sin_ciclo, validar_visible
@@ -93,15 +95,58 @@ def update_department(
     return obj
 
 
-@router.delete("/{department_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{department_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        409: {
+            "description": (
+                "El departamento todavia tiene gente. Hay que reasignarla antes."
+            )
+        }
+    },
+)
 def delete_department(department_id: UUID, db: Session = Depends(get_tenant_db)):
-    """Da de baja un departamento.
+    """Da de baja un departamento. **Se bloquea si tiene gente dentro.**
 
-    **No comprueba dependientes.** Seis tablas apuntan aca —`users`,
-    `user_roles`, `tasks`, `article_compliance`, `processes` y el propio
-    arbol— y el borrado logico no las toca: quedan usuarios y tareas asignados
-    a un departamento al que la API responde 404. Es un pendiente conocido, no
-    un descuido; resolverlo pide decidir antes que hacer con esos dependientes
-    (reasignar, bloquear la baja, o dejarlos huerfanos a proposito).
+    Decision del equipo (25-ago-2026) al cerrar RF-11: la baja se rechaza con
+    409 hasta que alguien reasigne a las personas. La alternativa era caerlas a
+    un departamento "Sin asignar" creado al vuelo, y se descarto porque es una
+    categoria que nadie vacia despues.
+
+    Por que bloquear y no dejarlas huerfanas: desde hoy un CHECK exige que todo
+    usuario interno tenga departamento (`ck_users_interno_con_departamento`), asi
+    que dejarlas apuntando a un departamento dado de baja seria cumplir la
+    restriccion **de mentira** — la fila apunta a algo que la API responde 404.
+
+    **Lo que sigue sin comprobarse, y conviene saberlo:** las otras cinco tablas
+    que apuntan aca —`user_roles`, `tasks`, `article_compliance`, `processes` y
+    el propio arbol de departamentos—. Se acoto a `users` porque es lo que RF-11
+    obliga y lo que el equipo decidio; las demas siguen pudiendo quedar
+    apuntando a un departamento de baja.
     """
+    obtener_o_404(crud_department, db, department_id, recurso="Department")
+
+    # Solo los internos: si quedara un `guest` o un `platform_admin` colgando,
+    # bloquear la baja por eso seria impedir una operacion legitima por una fila
+    # que el CHECK ni siquiera exige.
+    con_gente = db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.department_id == department_id,
+            User.deleted_at.is_(None),
+            User.user_type.in_(("internal", "tenant_admin")),
+        )
+    )
+    if con_gente:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"El departamento todavia tiene {con_gente} "
+                f"{'persona' if con_gente == 1 else 'personas'}. "
+                "Reasignalas antes de darlo de baja."
+            ),
+        )
+
     borrar_o_404(crud_department, db, department_id, recurso="Department")

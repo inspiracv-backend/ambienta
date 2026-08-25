@@ -404,3 +404,61 @@ class TestNoSeCruzaEntreEmpresas:
         ).json()
 
         assert [s["code"] for s in de_una] == [s["code"] for s in de_otra]
+
+
+class TestBorrarUnDepartamentoConGente:
+    """RF-11, la otra mitad: la baja se bloquea si queda gente dentro.
+
+    Decision del equipo el 25-ago. La alternativa era caerlas a un departamento
+    "Sin asignar" creado al vuelo, y se descarto porque es una categoria que
+    nadie vacia despues.
+
+    **Sin esto el CHECK se cumpliria de mentira**: las personas seguirian
+    apuntando a un departamento que la API responde 404.
+    """
+
+    def test_se_rechaza_con_409_y_dice_cuanta_gente(self, cliente, db) -> None:
+        con_gente = db.execute(
+            text(
+                "SELECT department_id FROM users WHERE tenant_id = :t "
+                "AND department_id IS NOT NULL AND deleted_at IS NULL "
+                "AND user_type IN ('internal','tenant_admin') LIMIT 1"
+            ),
+            {"t": TENANT_1},
+        ).scalar()
+        if con_gente is None:  # pragma: no cover
+            pytest.skip("El seed no tiene usuarios internos con departamento.")
+
+        r = cliente.delete(
+            f"/api/v1/departments/{con_gente}", headers={"X-Tenant-Id": TENANT_1}
+        )
+
+        assert r.status_code == 409, r.text
+        assert "Reasignalas" in r.json()["detail"]
+
+    def test_uno_vacio_si_se_puede_dar_de_baja(self, cliente) -> None:
+        """La guarda no puede impedir la operacion legitima.
+
+        **Limpia lo que crea.** El borrado de la API es logico, asi que sin esto
+        cada corrida deja una fila `TMP-` dada de baja en la base de desarrollo.
+        Se noto acumulando cuatro de golpe durante las pruebas de mutacion.
+        """
+        h = {"X-Tenant-Id": TENANT_1}
+        codigo = f"TMP-{uuid.uuid4().hex[:6]}"
+        creado = cliente.post(
+            "/api/v1/departments/", headers=h, json={"code": codigo, "name": "Temporal"}
+        )
+        assert creado.status_code == 201, creado.text
+
+        try:
+            r = cliente.delete(f"/api/v1/departments/{creado.json()['id']}", headers=h)
+            assert r.status_code == 204, r.text
+        finally:
+            admin = create_engine(ADMIN_URL)
+            try:
+                with admin.begin() as c:
+                    c.execute(
+                        text("DELETE FROM departments WHERE code = :c"), {"c": codigo}
+                    )
+            finally:
+                admin.dispose()

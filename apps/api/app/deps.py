@@ -13,6 +13,7 @@ from .db import AdminSessionLocal, SessionLocal
 from .models.organization import User
 from .services.auditoria_automatica import CONTEXTO as CONTEXTO_DE_AUDITORIA
 from .services.invitado import credencial_vigente
+from .services.perfil_empresa import estado as estado_del_perfil
 from .services.token_invitado import SesionDeInvitado
 from .services.token_invitado import verificar as verificar_token_de_invitado
 
@@ -247,6 +248,63 @@ def get_invitado_actual(
         )
 
     yield sesion, db
+
+
+def exigir_perfil_de_empresa_completo(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+) -> None:
+    """RF-10: no se opera Matriz Legal ni Obligaciones sin el perfil completo.
+
+    Hasta hoy esto solo existia como una **redireccion del navegador**: con
+    `curl` la API respondia igual con el perfil vacio. Un flujo obligatorio que
+    solo se aplica en el cliente no es obligatorio.
+
+    ## Tres acotaciones deliberadas, y cada una puede dejar gente fuera
+
+    **Solo `admin_empresa`.** Es el texto literal de RF-10 —"primer paso del
+    Admin Empresa"—. Un Encargado sigue trabajando aunque el perfil este a
+    medias: bloquearlo seria castigarlo por algo que **no puede arreglar**, ya
+    que completar el perfil no esta entre sus permisos.
+
+    **Solo lectura no se bloquea.** `GET` pasa siempre. Impedir mirar no acerca
+    a nadie a completar el perfil, y deja a la persona sin contexto para saber
+    que le falta.
+
+    **Sin Clerk no se aplica.** En desarrollo la sesion no identifica a nadie,
+    asi que no se puede saber si quien llama es Admin Empresa. Bloquear a todos
+    haria imposible trabajar en local; no bloquear a nadie es lo mismo que hoy.
+    Queda dicho porque es la clase de guarda que **en local anda perfecto y en
+    produccion no deja pasar a nadie**.
+
+    Responde **409 y no 403**: no es falta de permiso, es un paso previo sin
+    hacer. Un 403 mandaria a la persona a pedirle permisos a alguien.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+
+    settings = get_settings()
+    if not settings.clerk_configured:
+        return
+
+    quien = db.scalar(select(User).where(User.clerk_id == user.user_id))
+    if quien is None or quien.user_type != "tenant_admin":
+        return
+
+    resultado = estado_del_perfil(db, tenant_id)
+    if not resultado.completo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "mensaje": (
+                    "Completa el Perfil Empresa antes de operar la Matriz Legal "
+                    "o las Obligaciones."
+                ),
+                "faltantes": resultado.faltantes,
+            },
+        )
 
 
 def exigir_admin_global(

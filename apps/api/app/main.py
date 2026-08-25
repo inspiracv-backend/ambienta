@@ -19,7 +19,11 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import SessionLocal, check_database
 from .errores import manejar_error_de_integridad
-from .deps import exigir_permiso_de_la_ruta, get_admin_db
+from .deps import (
+    exigir_perfil_de_empresa_completo,
+    exigir_permiso_de_la_ruta,
+    get_admin_db,
+)
 from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .services.auditoria_automatica import instalar as instalar_auditoria
 from .routers import (
@@ -123,12 +127,34 @@ app.include_router(users.router, prefix=api_v1_prefix, dependencies=[Depends(exi
 app.include_router(departments.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(processes.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(integraciones.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
-app.include_router(obligations.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(
+    obligations.router,
+    prefix=api_v1_prefix,
+    dependencies=[
+        Depends(exigir_permiso_de_la_ruta),
+        # RF-10: el Admin Empresa no opera esto sin el perfil completo.
+        # **Solo estas dos familias** — es el texto literal del
+        # requisito, y ampliarlo bloquearia trabajo que el requisito no
+        # pidio bloquear.
+        Depends(exigir_perfil_de_empresa_completo),
+    ],
+)
 app.include_router(declaraciones.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(plantillas.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(audits.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(catalog.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
-app.include_router(compliance.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(
+    compliance.router,
+    prefix=api_v1_prefix,
+    dependencies=[
+        Depends(exigir_permiso_de_la_ruta),
+        # RF-10: el Admin Empresa no opera esto sin el perfil completo.
+        # **Solo estas dos familias** — es el texto literal del
+        # requisito, y ampliarlo bloquearia trabajo que el requisito no
+        # pidio bloquear.
+        Depends(exigir_perfil_de_empresa_completo),
+    ],
+)
 app.include_router(documents.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(iso14001.router, prefix=api_v1_prefix)
 app.include_router(notifications.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
