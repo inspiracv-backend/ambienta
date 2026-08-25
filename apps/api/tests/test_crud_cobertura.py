@@ -27,6 +27,7 @@ SUFIJOS_DE_ACCION = (
 
 # Recurso -> por que no tiene el CRUD entero. El motivo es la parte importante.
 SIN_CRUD_COMPLETO = {
+    "/me/clave-local": "no es un recurso, es una accion sobre la propia cuenta: fijar la clave local. La clave la guarda Clerk, asi que aca no hay fila que leer ni editar; volver a fijarla es llamar de nuevo al mismo POST",
     "/acceso-invitado/credenciales": "no es un recurso que se administre, es una accion: se genera un acceso. Listarlos le mostraria a cualquiera los invitados de la empresa desde una ruta publica, y editarlos o borrarlos son operaciones que corresponden al Admin Empresa desde el sistema, no al invitado desde su link",
     "/acceso-invitado/sesion": "entrar no es un recurso. La sesion vive en el token que se devuelve; no hay fila que leer, editar ni borrar",
     "/acceso-invitado/solicitudes": "el invitado abre y consulta; editar y borrar una solicitud son del lado de quien la atiende, y eso ya vive en `/support/tickets` con su RBAC. Darle al invitado un `DELETE` sobre su ticket dejaria a la empresa sin el registro de un reclamo",

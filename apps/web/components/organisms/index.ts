@@ -70,3 +70,6 @@ export * from './EquiposReguladosTable';
 export * from './CheckNormativaAplicable/CheckNormativaAplicable';
 export * from './AvisoNormasDesactualizadas/AvisoNormasDesactualizadas';
 export * from './PerfilNormativoCard/PerfilNormativoCard';
+export * from './ClaveLocalCard';
+export * from './IngresoConRut';
+export * from './PestanasDeIngreso';

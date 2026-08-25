@@ -210,6 +210,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Catalogo normativo | **Se alimenta de la BCN.** Normas, versiones y articulado reales. La Ley 19.300 entra con sus 151 partes y su version vigente de 2024-04-10. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
+| Auth — clave local con RUT (RF-06) | **Funcionando desde el 25-ago.** Quien entro por SSO fija RUT y clave en su perfil y despues entra con ellos. **La clave la guarda Clerk, no nosotros** (D1). El RUT viaja como `username` con prefijo `rut`, porque Clerk rechaza los que son solo digitos — y un RUT lo es salvo cuando el verificador es K |
 | Acceso Cliente Invitado | **Completo y verificado en el navegador el 25-ago.** RUT y clave los emite la API, no el navegador; token propio de 30 dias; la solicitud queda ligada a la credencial y el invitado ve solo las suyas. Con tope de peticiones en las dos rutas publicas |
 | worker · ai-service | Sin implementar |
 
@@ -301,6 +302,13 @@ negocio sabe leer. Tres cosas que hay que saber si se toca:
   Clerk. Un endpoint nuevo en este router que se olvide de `_anotar()` **no deja
   rastro y nada avisa**.
 
+**Un 403 tampoco es siempre autenticacion, y ya van dos.** La Backend API de
+Clerk esta detras de Cloudflare, que responde **`403 error code: 1010`** a quien
+no se identifica como navegador. Se lee como "la clave secreta no sirve" y no
+tiene nada que ver — es exactamente lo mismo que paso con Ley Chile, ahi con un
+401. La constante `NAVEGADOR` de `app/services/clave_local.py` es lo unico que
+hace falta, y hay una prueba que impide que alguien la "limpie".
+
 ## Trampas conocidas
 
 Cosas que ya costaron tiempo. Vale leerlas antes de tocar lo que mencionan.
@@ -376,7 +384,7 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 422 pruebas, 30 archivos
+cd apps/api && python -m pytest         # 438 pruebas, 31 archivos
 cd apps/web && npx vitest run           # 320 pruebas, 24 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
