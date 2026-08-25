@@ -301,3 +301,87 @@ class FacilityNormAssignment(Base, TenantMixin, TimestampMixin, SoftDeleteMixin)
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
+
+
+class RetcSystem(Base, SoftDeleteMixin):
+    """Un portal del ecosistema RETC ante el que se declara (ADR-004, #103).
+
+    **No es un `Sector`.** `Sector` es el rubro economico de la empresa (CIIU) y
+    responde "a que se dedica"; esto responde "donde reporta". Son dimensiones
+    ortogonales, y el repo usa el numero 21 para las dos sin relacion.
+
+    Catalogo global: **sin `tenant_id`**, como `LegalNorm` y `Sector`. Los
+    portales son los mismos para todas las empresas, asi que copiarlos por
+    empresa obligaria a aplicar cada resolucion del MMA N veces.
+    """
+
+    __tablename__ = "retc_systems"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    organismo: Mapped[str] = mapped_column(String(60), nullable=False)
+    familia: Mapped[str] = mapped_column(
+        String(12), nullable=False, server_default="sectorial"
+    )
+    #: `variable_rca` es un valor de verdad, no un relleno: ADR-004 dice que
+    #: SSA, SRCA y SIVEM dependen de la RCA de cada instalacion y **no se
+    #: pueden autogenerar**. Nace `None` porque el portal oficial lista los
+    #: sistemas pero no su calendario, y las fechas cambian por resolucion cada
+    #: ano: inventarla generaria vencimientos falsos.
+    periodicidad: Mapped[str | None] = mapped_column(String(16))
+    url_oficial: Mapped[str | None] = mapped_column(Text)
+    #: De donde salio la fila. Obligatoria a proposito.
+    fuente: Mapped[str] = mapped_column(Text, nullable=False)
+    valid_from: Mapped[date | None] = mapped_column(Date)
+    valid_to: Mapped[date | None] = mapped_column(Date)
+    #: `false` hasta que negocio confirme la lista. Ver `db/12_reportabilidad_retc.sql`.
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    # `created_at`/`updated_at` a mano y **sin `TimestampMixin`**: ese mixin
+    # trae ademas `created_by` y `updated_by`, y aca no hay usuario que crear.
+    # Un portal del Estado no lo da de alta nadie del sistema — llega por
+    # resolucion y se siembra con una migracion.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class FacilityRetcReporting(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """Que sistemas del RETC le tocan a una instalacion (ADR-004, #102).
+
+    Es el nucleo del modulo: hoy un especialista lo determina a mano cruzando
+    articulos de la RCA con los portales que aplican, y es trabajo de dias por
+    instalacion nueva.
+
+    **`condicion` no es opcional cuando el estado es `condicional`** — lo exige
+    un CHECK. Un "aplica si se cumple algo" sin decir que algo no se puede
+    revisar un ano despues sin repetir la entrevista entera.
+    """
+
+    __tablename__ = "facility_retc_reporting"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    facility_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("facilities.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    retc_system_id: Mapped[int] = mapped_column(
+        SmallInteger, ForeignKey("retc_systems.id"), nullable=False
+    )
+    estado: Mapped[str] = mapped_column(String(16), nullable=False, server_default="no")
+    condicion: Mapped[str | None] = mapped_column(Text)
+    #: Las respuestas del wizard que llevaron a este estado. Se guardan aunque
+    #: ya esten resumidas en `estado`: sin ellas la decision no es auditable.
+    variables: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    responsable_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id")
+    )
+    notas: Mapped[str | None] = mapped_column(Text)

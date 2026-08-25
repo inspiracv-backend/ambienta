@@ -212,6 +212,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
 | Auth — clave local con RUT (RF-06) | **Funcionando desde el 25-ago.** Quien entro por SSO fija RUT y clave en su perfil y despues entra con ellos. **La clave la guarda Clerk, no nosotros** (D1). El RUT viaja como `username` con prefijo `rut`, porque Clerk rechaza los que son solo digitos — y un RUT lo es salvo cuando el verificador es K |
 | Acceso Cliente Invitado | **Completo y verificado en el navegador el 25-ago.** RUT y clave los emite la API, no el navegador; token propio de 30 dias; la solicitud queda ligada a la credencial y el invitado ve solo las suyas. Con tope de peticiones en las dos rutas publicas |
+| Reportabilidad RETC | **Modelo y API desde el 25-ago** (ADR-004). `retc_systems` dice que portales existen; `facility_retc_reporting` cual le toca a cada planta, con los 5 estados del ADR. **El catalogo esta sin confirmar:** trae los 12 sistemas de la Ventanilla Unica con su fuente, y NO los 9 de la SMA — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -309,6 +310,31 @@ tiene nada que ver — es exactamente lo mismo que paso con Ley Chile, ahi con u
 401. La constante `NAVEGADOR` de `app/services/clave_local.py` es lo unico que
 hace falta, y hay una prueba que impide que alguien la "limpie".
 
+**Un sistema sectorial del RETC NO es un sector CIIU, y el repo usa "21" para
+los dos.** Son dimensiones ortogonales:
+
+| Tabla | Que responde | Ejemplo |
+|---|---|---|
+| `sectors` | a que se dedica la empresa (CIIU) | mineria, energia |
+| `retc_systems` | ante quien declara | SIDREP, SINADER |
+
+Una minera y una termoelectrica pueden compartir sistema sin compartir rubro.
+Cruzarlos en la misma columna —que es la tentacion, porque las dos "clasifican"—
+haria que el CORE propusiera normativa por el criterio equivocado.
+
+**Y el catalogo del RETC esta a medias, a proposito.** ADR-004 dice 21 portales
+(12 sectoriales + 9 de la SMA) y cita una fuente que **no existe en el
+repositorio**. Se sembraron los 12 de la Ventanilla Unica desde el portal
+oficial, cada uno con su `fuente`, y **todos con `active = false`**: es un
+borrador que negocio tiene que firmar. Los 9 de la SMA no se inventaron. Hay
+pruebas que fijan las dos cosas y que **deben fallar** el dia que aparezca la
+lista completa.
+
+La `periodicidad` va vacia por el mismo motivo: el portal lista los sistemas
+pero no sus plazos, y las fechas cambian por resolucion cada ano. Un calendario
+inventado genera **vencimientos falsos**, que en este dominio es el peor error
+posible — la empresa cree que declaro a tiempo.
+
 ## Trampas conocidas
 
 Cosas que ya costaron tiempo. Vale leerlas antes de tocar lo que mencionan.
@@ -384,8 +410,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 438 pruebas, 31 archivos
-cd apps/web && npx vitest run           # 320 pruebas, 24 archivos
+cd apps/api && python -m pytest         # 456 pruebas, 33 archivos
+cd apps/web && npx vitest run           # 326 pruebas, 25 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

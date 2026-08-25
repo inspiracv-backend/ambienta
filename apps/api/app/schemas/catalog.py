@@ -355,3 +355,81 @@ class CoberturaRead(BaseModel):
         description="Sectores donde una empresa entraria y no recibiria nada"
     )
     por_sector: list[CoberturaDeSectorRead]
+
+
+# ── Sistemas sectoriales del RETC (#103, ADR-004) ──────────────────────────
+
+class RetcSystemRead(OrmBase):
+    """Un portal del RETC ante el que se declara.
+
+    **No confundir con `SectorRead`.** Un sector es el rubro CIIU de la empresa
+    —a que se dedica—; esto es donde reporta. El repo usa el numero 21 para las
+    dos cosas y no tienen relacion.
+    """
+
+    id: int
+    code: str
+    name: str
+    organismo: str = Field(description="MMA, SMA, MINSAL o SISS.")
+    familia: str = Field(
+        description=(
+            "`sectorial` (Ventanilla Unica) o `sma` (Superintendencia). Es la "
+            "particion 12+9 de ADR-004."
+        )
+    )
+    periodicidad: str | None = Field(
+        description=(
+            "**`null` no significa 'sin plazo'**: significa que no tenemos el "
+            "calendario con fuente. Las fechas del RETC cambian por resolucion "
+            "cada ano, e inventarlas generaria vencimientos falsos.\n\n"
+            "`variable_rca` es distinto: ahi el plazo depende de la RCA de cada "
+            "instalacion y **no se puede autogenerar** (ADR-004)."
+        )
+    )
+    url_oficial: str | None
+    fuente: str = Field(description="De donde salio esta fila. Para poder auditarla.")
+    active: bool = Field(
+        description=(
+            "**`false` mientras negocio no confirme la lista.** El seed inicial "
+            "trae los 12 sectoriales del portal oficial; los 9 de la SMA que "
+            "menciona ADR-004 no estan sembrados porque no hay fuente "
+            "verificable."
+        )
+    )
+
+
+class ReportabilidadRead(OrmBase):
+    id: UUID
+    facility_id: UUID
+    retc_system_id: int
+    estado: str
+    condicion: str | None
+    variables: dict
+    responsable_id: UUID | None
+    notas: str | None
+
+
+class ReportabilidadUpsert(BaseModel):
+    """Declarar el estado de un sistema para una instalacion.
+
+    `facility_id` y `retc_system_id` **no van aca**: salen de la URL. Si
+    vinieran del cuerpo, la ruta diria una cosa y la fila otra.
+    """
+
+    estado: str = Field(
+        description="si, condicional, na, no u obligatorio (ADR-004)."
+    )
+    condicion: str | None = Field(
+        default=None,
+        description=(
+            "**Obligatoria cuando el estado es `condicional`**, y lo exige un "
+            "CHECK de la base. Un 'aplica si se cumple algo' sin decir que algo "
+            "no se puede revisar despues sin repetir la entrevista."
+        ),
+    )
+    variables: dict = Field(
+        default_factory=dict,
+        description="Las respuestas del wizard que llevaron a este estado.",
+    )
+    responsable_id: UUID | None = None
+    notas: str | None = None

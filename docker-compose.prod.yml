@@ -61,6 +61,7 @@ services:
       - ./db/09_roles_por_codigo.sql:/docker-entrypoint-initdb.d/09-roles.sql:ro
       - ./db/10_acceso_invitado.sql:/docker-entrypoint-initdb.d/10-acceso-invitado.sql:ro
       - ./db/11_solicitud_de_invitado.sql:/docker-entrypoint-initdb.d/11-solicitud-de-invitado.sql:ro
+      - ./db/12_reportabilidad_retc.sql:/docker-entrypoint-initdb.d/12-reportabilidad-retc.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s
