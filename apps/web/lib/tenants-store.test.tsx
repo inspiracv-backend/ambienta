@@ -345,3 +345,92 @@ describe('declarar el perfil normativo de una empresa existente', () => {
     expect(entrada?.cambios[0].despues).toBe('3');
   });
 });
+
+/**
+ * Lo que **sale a la API**, no lo que queda en pantalla.
+ *
+ * Estas dos escrituras estaban rotas y las 21 pruebas de este archivo pasaban
+ * igual, porque ninguna miraba el cuerpo ni las opciones de la llamada. El
+ * síntoma era invisible: sin `{ tenantId }` la API responde 401 en el modo por
+ * defecto, y el `.catch` vacío se lo tragaba.
+ */
+describe('lo que se manda de verdad al guardar el perfil', () => {
+  beforeEach(() => {
+    get.mockReset();
+    patch.mockReset();
+    post.mockReset();
+    get.mockResolvedValue([tenantApi(undefined)]);
+    patch.mockResolvedValue({});
+  });
+
+  it('los datos básicos viajan con el tenant declarado', async () => {
+    const { result } = renderHook(() => useTenants(), { wrapper });
+    await waitFor(() => expect(result.current.tenants.length).toBe(1));
+
+    act(() => {
+      result.current.updateDatosBasicos(TENANT, { giro: 'Minería', direccion: 'Av. 1' });
+    });
+
+    const [ruta, cuerpo, opciones] = patch.mock.calls.at(-1)!;
+    expect(ruta).toBe(`/tenants/${TENANT}`);
+    expect(cuerpo).toEqual({ business_activity: 'Minería' });
+    // **Sin esto es un 401.** El cliente solo manda `X-Tenant-Id` si la
+    // llamada lo pasa, y sin Clerk la API lo exige.
+    expect(opciones).toEqual({ tenantId: TENANT });
+  });
+
+  it('completar el perfil NO manda el RUT', async () => {
+    // **Con giro, la empresa ya se considera completa y no hay nada que
+    // completar** — ver la prueba de abajo. Para ver el cuerpo de la llamada
+    // hay que partir de una empresa sin giro, que es la única que el flujo
+    // considera incompleta hoy.
+    get.mockResolvedValue([{ ...tenantApi(undefined), business_activity: null }]);
+
+    const { result } = renderHook(() => useTenants(), { wrapper });
+    await waitFor(() => expect(result.current.tenants.length).toBe(1));
+
+    act(() => {
+      result.current.completarPerfilEmpresa(TENANT);
+    });
+
+    const [, cuerpo, opciones] = patch.mock.calls.at(-1)!;
+    // `rut_tax_id` es NOT NULL, así que nunca falta; y con Clerk encendido solo
+    // lo acepta el Admin Global. Mandarlo era un 403 garantizado justo para
+    // quien hace este flujo.
+    expect(cuerpo).not.toHaveProperty('rut_tax_id');
+    expect(opciones).toEqual({ tenantId: TENANT });
+  });
+
+  it('DEUDA: una empresa con giro ya cuenta como perfil completo', async () => {
+    /**
+     * **Esto documenta un defecto, no una garantía.**
+     *
+     * `perfilEmpresaCompleto` se deriva de `business_activity && rut_tax_id`.
+     * El RUT es `NOT NULL`, así que la marca colapsa a "tiene giro" — y las dos
+     * empresas del seed lo tienen. Resultado: el gate de RF-10 **no bloquea a
+     * nadie**, y el "primer flujo obligatorio" nunca se ha visto funcionar
+     * contra datos reales; el propio análisis dice que se comprobaba
+     * alternando el flag por la consola del navegador.
+     *
+     * Ni las plantas, ni los departamentos, ni el sector entran en la cuenta,
+     * aunque el wizard los exija para avanzar.
+     *
+     * Cuando se decida qué significa "perfil completo" y se persista, esta
+     * prueba debe **fallar** y reescribirse. Está acá para que el día que
+     * alguien lo arregle, algo se lo confirme.
+     */
+    get.mockResolvedValue([tenantApi(undefined)]); // trae business_activity: 'Mineria'
+
+    const { result } = renderHook(() => useTenants(), { wrapper });
+    await waitFor(() => expect(result.current.tenants.length).toBe(1));
+
+    expect(result.current.tenants[0].perfilEmpresaCompleto).toBe(true);
+
+    act(() => {
+      result.current.completarPerfilEmpresa(TENANT);
+    });
+
+    // No hay nada que completar: ya estaba "completa" sin haber hecho el wizard.
+    expect(patch).not.toHaveBeenCalled();
+  });
+});

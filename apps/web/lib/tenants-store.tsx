@@ -434,9 +434,24 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, ...datos } : t)));
 
-    api.patch(`/tenants/${tenantId}`, {
-      business_activity: datos.giro,
-    }).catch(() => {});
+    // **Sin `{ tenantId }` esto es un 401 en el modo por defecto.** El cliente
+    // solo manda `X-Tenant-Id` si la llamada lo pasa (`api-client.ts`), y sin
+    // Clerk —que es como se trabaja normalmente— la API lo exige. El `.catch`
+    // vacío se lo tragaba: el paso 1 del wizard se veía guardado y no llegaba.
+    //
+    // La dirección no se manda porque **`tenants` no tiene dónde guardarla**.
+    // El wizard la exige para avanzar y se pierde al recargar: es un hueco del
+    // modelo, no de esta llamada.
+    api
+      .patch(`/tenants/${tenantId}`, { business_activity: datos.giro }, { tenantId })
+      .catch((error) => {
+        setTenants((prev) => prev.map((t) => (t.id === tenantId ? anterior : t)));
+        mostrarToast({
+          tipo: 'error',
+          mensaje: 'No se pudieron guardar los datos de la empresa',
+          descripcion: mensajeDeError(error),
+        });
+      });
 
     const cambios = [
       ...(anterior.giro !== datos.giro ? [{ campo: 'Giro', antes: anterior.giro ?? null, despues: datos.giro }] : []),
@@ -559,10 +574,15 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     // El RUT solo lo acepta la API si quien llama es Admin Global; si no, la
     // respuesta es 403 y se revierte. Ver el docstring de `TenantUpdate`.
     api
-      .patch(`/tenants/${tenantId}`, {
-        business_activity: tenant.giro ?? tenant.sector,
-        rut_tax_id: tenant.identificacion.numero,
-      })
+      .patch(
+        `/tenants/${tenantId}`,
+        // **Sin `rut_tax_id`.** Es `NOT NULL` en la base, así que nunca falta,
+        // y con Clerk encendido solo lo acepta el Admin Global: mandarlo era un
+        // 403 garantizado para el Admin Empresa, que es justo quien hace este
+        // flujo. Se mandaba "por si acaso" y solo podía romper.
+        { business_activity: tenant.giro ?? tenant.sector },
+        { tenantId },
+      )
       .catch((error) => {
         setTenants((prev) =>
           prev.map((t) => (t.id === tenantId ? { ...t, perfilEmpresaCompleto: false } : t)),
