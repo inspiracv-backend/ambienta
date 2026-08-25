@@ -35,6 +35,7 @@ run "$DIR/08_perfil_normativo.sql"
 run "$DIR/03_seed_catalogos.sql"
 $CON_DEMO && run "$DIR/02_seed.sql"
 run "$DIR/09_roles_por_codigo.sql"
+run "$DIR/10_acceso_invitado.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"

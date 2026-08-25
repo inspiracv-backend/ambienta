@@ -209,6 +209,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
 | Catalogo normativo | **Se alimenta de la BCN.** Normas, versiones y articulado reales. La Ley 19.300 entra con sus 151 partes y su version vigente de 2024-04-10. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
+| Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -261,6 +262,22 @@ no llega a `localhost`**, asi que ambas cosas se hacen a mano:
 Sin el paso 1 la persona entra y recibe `403 sesion_sin_empresa` en todo. El
 paso 2 solo hace falta en local; en el VPS el webhook lo resuelve. Ver
 `docs/development/setup-local.md`.
+
+**El registro de actividades se engancha en un solo lugar, y ese lugar importa.**
+`app/services/auditoria_automatica.py` escucha `before_flush` de `SessionLocal`
+y `get_tenant_db` le deja en `db.info` quien hace el request. Consecuencias que
+conviene saber antes de tocarlo:
+
+- **Se anota en `before_flush` y no despues** porque es el ultimo momento en que
+  la ORM todavia tiene el valor anterior de cada atributo. En `after_flush` el
+  historial ya se limpio y `before_data` saldria vacio.
+- **Lo que no pasa por la ORM no se audita.** Hoy eso es `guest_credentials`,
+  que anota su `login` a mano. Cualquier `INSERT`/`UPDATE` nuevo por SQL crudo
+  entra en esa categoria **sin que nada avise**.
+- **Sin `get_tenant_db` no hay registro.** Un endpoint escrito con `get_db` no
+  solo devuelve cero filas (§4): tampoco deja rastro.
+- El id de una fila nueva se genera en Python, no en Postgres, para que
+  `entity_id` no salga vacio en las creaciones.
 
 ## Trampas conocidas
 
@@ -337,7 +354,7 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 325 pruebas, 26 archivos
+cd apps/api && python -m pytest         # 398 pruebas, 28 archivos
 cd apps/web && npx vitest run           # 292 pruebas, 24 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```

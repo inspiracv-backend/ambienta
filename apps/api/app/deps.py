@@ -11,6 +11,7 @@ from .auth import CurrentUser, verify_token
 from .config import get_settings
 from .db import AdminSessionLocal, SessionLocal
 from .models.organization import User
+from .services.auditoria_automatica import CONTEXTO as CONTEXTO_DE_AUDITORIA
 
 _bearer = HTTPBearer(auto_error=False, description="JWT emitido por Clerk")
 
@@ -122,7 +123,9 @@ def get_tenant_id(user: CurrentUser = Depends(get_current_user)) -> UUID:
 
 
 def get_tenant_db(
+    request: Request,
     tenant_id: UUID = Depends(get_tenant_id),
+    user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Generator[Session, None, None]:
     """Sesion de BD con el tenant declarado para que RLS filtre.
@@ -130,13 +133,36 @@ def get_tenant_db(
     No cambia con Clerk. Es deliberado: la capa que aplica Row Level Security
     no tiene por que saber como se autentico el usuario. Recibe un UUID
     verificado y hace siempre lo mismo.
+
+    Ademas **deja en la sesion quien hace el request**, que es lo que permite
+    que el registro de actividades se escriba solo. Va aca y no en un
+    middleware porque aca ya esta resuelta la identidad y esta la sesion: son
+    las dos mitades que el registro necesita, y separarlas obligaria a pasarlas
+    por una variable global de contexto.
+
+    Que viva en `db.info` y no en un `contextvar` no es un detalle de estilo:
+    el contexto muere con la sesion, asi que **una sesion no puede heredar el
+    actor de otro request**.
     """
     db.execute(text("SET LOCAL ROLE ambienta_app"))
     db.execute(
         text("SELECT set_config('ambienta.tenant_id', :tid, true)"),
         {"tid": str(tenant_id)},
     )
-    yield db
+    db.info[CONTEXTO_DE_AUDITORIA] = {
+        "tenant_id": tenant_id,
+        # El id de Clerk, no el nuestro. Traducirlo cuesta una consulta y solo
+        # se paga cuando de verdad hay algo que registrar.
+        "clerk_id": user.user_id or None,
+        "ip": request.client.host if request.client else None,
+        "ruta": f"{request.method} {request.url.path}",
+    }
+    try:
+        yield db
+    finally:
+        # La sesion vuelve al pool: el actor del request anterior no puede
+        # quedar pegado al siguiente.
+        db.info.pop(CONTEXTO_DE_AUDITORIA, None)
 
 
 def exigir_admin_global(

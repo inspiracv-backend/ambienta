@@ -40,7 +40,7 @@ Por instrucción explícita del prompt de implementación adjunto ("no lo implem
 - [ ] Migraciones iniciales: `tenants`, `plants`, `departamentos`, `users`, `permissions`, `user_permissions`
 - [ ] Migraciones de sub-tenancy: `contratos`, `tenant_access_grants`
 - [ ] Migración de `refresh_tokens`
-- [ ] Migración de `audit_log` + `REVOKE UPDATE, DELETE` sobre esa tabla para el rol de aplicación
+- [x] Migración de `audit_log` + `REVOKE UPDATE, DELETE` sobre esa tabla para el rol de aplicación
 - [ ] Políticas RLS por tabla (`tenant_id = current_setting(...)::uuid`, con la cláusula OR de `tenant_access_grants` donde aplique)
 
 ### Auth
@@ -69,7 +69,7 @@ Por instrucción explícita del prompt de implementación adjunto ("no lo implem
 
 ### Audit log
 - [ ] Servicio `AuditService.record(...)` inyectado donde corresponda (usado también por los módulos de negocio futuros)
-- [ ] Verificar que ningún rol de aplicación tenga `UPDATE`/`DELETE` sobre `audit_log` (test de infraestructura, no solo unitario)
+- [x] Verificar que ningún rol de aplicación tenga `UPDATE`/`DELETE` sobre `audit_log` (test de infraestructura, no solo unitario)
 
 ### Seed data
 - [ ] Cargar los usuarios de prueba de la sección 9 del análisis de actores como fixtures, incluyendo:
@@ -83,7 +83,7 @@ Por instrucción explícita del prompt de implementación adjunto ("no lo implem
 - [ ] Test de aislamiento RLS: un usuario del tenant A no puede leer filas del tenant B ni por API ni por SQL directo con `app.current_tenant_id` distinto
 - [ ] Test del CHECK `usuario_interno` → `departamento_id` obligatorio
 - [ ] Test del guard de Perfil Empresa bloqueando rutas de negocio hasta completar el perfil
-- [ ] Test de que `audit_log` rechaza `UPDATE`/`DELETE` a nivel de base de datos, no solo de aplicación
+- [x] Test de que `audit_log` rechaza `UPDATE`/`DELETE` a nivel de base de datos, no solo de aplicación
 - [ ] Test del flujo completo Cliente Invitado → ticket → registrar permanente (RF-01 a RF-03)
 - [ ] Test de `tenant_access_grants`: el Gestor no puede leer/escribir el sub-tenant sin un grant activo, y deja de poder hacerlo tras revocarlo
 
