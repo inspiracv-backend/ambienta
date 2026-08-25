@@ -60,6 +60,25 @@ class Settings(BaseSettings):
     # de la Fase 2; se declara aca para tener toda la config de Clerk junta.
     clerk_webhook_secret: str = ""
 
+    # Clave secreta de la Clerk Backend API. **Es la unica de las cuatro que
+    # permite ACTUAR sobre las cuentas**, no solo verificar: fija contrasenas,
+    # crea usuarios, los borra. Las otras tres verifican firmas o identifican la
+    # instancia.
+    #
+    # Hace falta para RF-06: fijar la clave local de quien entro por SSO se hace
+    # contra Clerk, no contra nuestra base (ADR-006, un solo emisor para los
+    # usuarios reales).
+    #
+    # Vacia por defecto, y el endpoint responde **503** sin ella. Mismo criterio
+    # que el token del invitado: preferible que un entorno mal configurado no
+    # funcione a que funcione a medias.
+    clerk_secret_key: str = ""
+
+    @property
+    def clerk_backend_disponible(self) -> bool:
+        """Si se puede actuar sobre las cuentas, no solo validar tokens."""
+        return bool(self.clerk_secret_key)
+
     # --- Token del Cliente Invitado (RF-01, RF-02, RF-07) --------------------
     # El invitado no es cuenta de Clerk, asi que su sesion no la puede firmar
     # Clerk: la firma esta API con su propio secreto (decision del equipo,
