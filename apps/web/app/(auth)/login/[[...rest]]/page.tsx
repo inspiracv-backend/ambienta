@@ -1,5 +1,9 @@
-import { SignIn } from '@clerk/nextjs';
-import { AccesoInvitadoAviso, DevRoleSwitcher, LoginCard } from '@/components/organisms';
+import {
+  AccesoInvitadoAviso,
+  DevRoleSwitcher,
+  LoginCard,
+  PestanasDeIngreso,
+} from '@/components/organisms';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
 
 /**
@@ -26,10 +30,7 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto w-full max-w-[25rem]">
-      <SignIn
-        forceRedirectUrl="/dashboard"
-        appearance={{ elements: { rootBox: 'mx-auto' } }}
-      />
+      <PestanasDeIngreso />
       <AccesoInvitadoAviso />
     </div>
   );

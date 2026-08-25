@@ -26,6 +26,7 @@ van a fallar con 403.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,13 @@ from ..schemas.identidad import (
     IdentidadRead,
     SectorDeLaEmpresa,
     UsuarioDeLaSesion,
+)
+from ..services.clave_local import (
+    LARGO_MINIMO_DE_CLAVE,
+    ClerkNoDisponible,
+    ErrorDeClaveLocal,
+    RutOcupado,
+    fijar,
 )
 from ..services.permisos import (
     alcance_del_usuario,
@@ -176,4 +184,93 @@ def quien_soy(
         acotado=bool(instalaciones or departamentos),
         instalaciones=sorted(instalaciones, key=str),
         departamentos=sorted(departamentos, key=str),
+    )
+
+
+class ClaveLocalPeticion(BaseModel):
+    """Lo que la persona escribe en su perfil para fijar la clave local."""
+
+    rut: str = Field(
+        description="Con puntos, sin puntos o sin guion: se normaliza acá.",
+        examples=["12.345.678-5"],
+    )
+    clave: str = Field(
+        min_length=LARGO_MINIMO_DE_CLAVE,
+        description=(
+            "**Clerk aplica además su propia política**, incluida la lista de "
+            "contraseñas filtradas, así que puede rechazar una que acá pase. Su "
+            "mensaje se devuelve tal cual porque explica mejor que uno nuestro."
+        ),
+    )
+
+
+class ClaveLocalRespuesta(BaseModel):
+    rut: str
+    mensaje: str
+
+
+@router.post(
+    "/clave-local",
+    response_model=ClaveLocalRespuesta,
+    summary="Fijar RUT y clave local para ingresar sin el proveedor externo",
+    description=(
+        "Quien entró con un proveedor externo fija su RUT y una clave, y desde "
+        "entonces puede ingresar con ellos (RF-06).\n\n"
+        "**No reemplaza el acceso anterior, lo suma:** el ingreso por el "
+        "proveedor sigue funcionando igual.\n\n"
+        "La clave la guarda el proveedor de identidad, no esta API. Tener dos "
+        "almacenes de contraseñas serían dos políticas de robustez y dos "
+        "lugares donde revocar una sesión."
+    ),
+    responses={
+        409: {"description": "Ese RUT ya está registrado. **No se dice de quién**."},
+        422: {"description": "RUT inválido o clave que el proveedor rechaza."},
+        503: {"description": "Falta la clave secreta del proveedor, o no responde."},
+    },
+)
+def fijar_clave_local(
+    datos: ClaveLocalPeticion,
+    usuario: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_tenant_db),
+) -> ClaveLocalRespuesta:
+    """Fija la credencial local de **quien hace el request**, nadie más.
+
+    El usuario sale de la sesión y no del cuerpo: si viniera del cuerpo,
+    cualquiera podría fijarle una clave a otra persona y entrar con ella.
+    """
+    fila = db.scalar(select(User).where(User.clerk_id == usuario.user_id))
+    if fila is None:
+        # Entró por SSO y el webhook no alcanzó a crear su fila — en local no
+        # llega nunca. Sin fila no hay dónde guardar el RUT (D5).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Tu cuenta todavía no está sincronizada con esta empresa. "
+                "Vuelve a intentarlo en unos minutos."
+            ),
+        )
+
+    try:
+        fijada = fijar(
+            db,
+            user_id=fila.id,
+            clerk_id=usuario.user_id,
+            rut=datos.rut,
+            clave=datos.clave,
+        )
+    except RutOcupado as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ErrorDeClaveLocal as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except ClerkNoDisponible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+
+    db.commit()
+    return ClaveLocalRespuesta(
+        rut=fijada.rut,
+        mensaje="Listo: ya puedes ingresar con tu RUT y tu clave.",
     )

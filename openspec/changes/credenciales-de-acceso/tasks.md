@@ -70,13 +70,29 @@ Verificados contra el sistema real, no heredados del análisis.
 - [x] `validarRut()` y `normalizarRut()` en `lib/rut.ts` con sus tests,
       incluidos verificador K y los tres formatos de escritura
 - [x] Gemelo en Python: el modelo se escribe dos veces y ya se desincronizó
-- [ ] Endpoint para fijar RUT y clave local del usuario autenticado
-- [ ] Rechazar RUT ya usado sin revelar de quién es
-- [ ] Guardar en `users.rut_tax_id` además del username (D5)
-- [ ] Pantalla en el perfil (S-42) para fijar la clave
-- [ ] Pestaña de RUT en el ingreso, con formulario propio (D1)
-- [ ] Confirmar que el ingreso por SSO sigue funcionando después de fijar clave
-- [ ] Tests de los 6 escenarios del requisito de clave local
+- [x] Endpoint para fijar RUT y clave local del usuario autenticado
+      (`POST /me/clave-local`). El usuario sale de la sesión, no del cuerpo
+- [x] Rechazar RUT ya usado sin revelar de quién es. Probado: el mensaje no
+      lleva id ni correo. **Nuestra consulta corre bajo RLS**, así que un RUT
+      usado en otra empresa no lo ve — lo detecta Clerk, y está bien que sea
+      así: mirarlo entre empresas filtraría que esa persona es usuaria de otro
+      cliente nuestro
+- [x] Guardar en `users.rut_tax_id` además del username (D5). **Y no en
+      `password_hash`**, que se comprueba con una prueba: la clave la guarda
+      Clerk
+- [x] Pantalla en el perfil (S-42) para fijar la clave. Solo con Clerk activo:
+      sin él el endpoint responde 503 y sería ofrecer algo que no funciona
+- [x] Pestaña de RUT en el ingreso, con formulario propio (D1). Verificado en
+      el navegador: un verificador que no cierra se corta **sin salir a la
+      red**, y uno válido sin cuenta recibe el mismo mensaje genérico
+- [~] Confirmar que el ingreso por SSO sigue funcionando después de fijar clave.
+      **No comprobado contra una cuenta real**: exige fijarle la clave a una
+      cuenta de verdad y volver a entrar con Google. Por diseño no debería
+      romperse —se agrega un identificador, no se quita el anterior— pero eso
+      es un argumento, no una medición. Va con la Fase 5
+- [x] Tests de los 6 escenarios del requisito de clave local. 16 pruebas; de 9
+      mutaciones, 9 detectadas — dos de ellas solo después de reescribir las
+      pruebas que las dejaban pasar
 
 ## Fase 4 — RF-02/RF-07, acceso real del invitado
 

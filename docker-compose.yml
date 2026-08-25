@@ -101,6 +101,8 @@ services:
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
       CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET:-}
+      # La necesita RF-06 para fijar la clave local contra Clerk.
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
       # Sin esto, el ingreso de invitados responde 503 en vez de firmar
       # con una llave por defecto, que no protegeria nada.
       TOKEN_INVITADO_SECRETO: ${TOKEN_INVITADO_SECRETO:-}
