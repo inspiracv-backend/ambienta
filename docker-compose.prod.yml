@@ -38,11 +38,28 @@ services:
       # Debe estar en los tres lados — aca, en docker-compose.yml y en db/README.
       #
       # 02_seed (datos de demo) NO se monta a proposito: produccion arranca vacia.
+      #
+      # **Esta lista quedo cuatro migraciones atras hasta el 22-ago-2026** y
+      # nadie lo noto porque este archivo nunca se ejecuto: no hay servidor
+      # aprovisionado. Faltaban 06, 07, 08 y 09 — entre ellas la que crea el rol
+      # de la aplicacion. Al agregar un `db/NN_*.sql`, va en los CINCO lugares:
+      # los dos compose, `db/run.sh`, `db/README.md` y el bucle de `ci.yml`.
       - ./infra/postgres/init/01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
       - ./db/01_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
       - ./db/04_clerk_auth.sql:/docker-entrypoint-initdb.d/03-clerk.sql:ro
       - ./db/05_user_permissions.sql:/docker-entrypoint-initdb.d/04-permisos.sql:ro
-      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/05-catalogos.sql:ro
+      - ./db/06_ticket_number.sql:/docker-entrypoint-initdb.d/05-ticket-number.sql:ro
+      # 07 crea `ambienta_app`, el rol con el que se conecta la API y que NO
+      # puede saltarse RLS. **Sin este archivo el despliegue no arranca**, y si
+      # arrancara con el superusuario el aislamiento entre empresas no
+      # existiria. Faltaba aca; ver el comentario de abajo.
+      - ./db/07_rol_aplicacion.sql:/docker-entrypoint-initdb.d/06-rol-app.sql:ro
+      # Los catalogos van antes que el perfil normativo: `08` agrega una clave
+      # foranea contra `sectors`, que se siembra aca.
+      - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
+      - ./db/08_perfil_normativo.sql:/docker-entrypoint-initdb.d/08-perfil-normativo.sql:ro
+      - ./db/09_roles_por_codigo.sql:/docker-entrypoint-initdb.d/09-roles.sql:ro
+      - ./db/10_acceso_invitado.sql:/docker-entrypoint-initdb.d/10-acceso-invitado.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s

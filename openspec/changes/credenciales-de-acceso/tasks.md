@@ -20,9 +20,9 @@ Verificados contra el sistema real, no heredados del análisis.
 
 **No empezar la fase que depende de cada uno sin resolverlo.**
 
-- [ ] **El invitado no es cuenta de Clerk** (D2). Decisión abierta #1 del
+- [x] **El invitado no es cuenta de Clerk** (D2). Decisión abierta #1 del
       proposal. Bloquea la Fase 4 entera
-- [ ] **Vigencia del acceso de invitado**: propuesta 30 días. Bloquea la Fase 4
+- [x] **Vigencia del acceso de invitado**: propuesta 30 días. Bloquea la Fase 4
 - [ ] **RUT global vs por empresa** (decisión abierta #3). Si el equipo dice
       que un contratista debe servir a dos empresas, **este diseño se revisa
       antes de codear**: `users.tenant_id` es una sola columna
@@ -82,17 +82,21 @@ Verificados contra el sistema real, no heredados del análisis.
 
 **Bloqueada por las decisiones abiertas #1 y #2.**
 
-- [ ] Migración `db/NN_*.sql` idempotente para las credenciales de invitado,
+- [x] Migración `db/NN_*.sql` idempotente para las credenciales de invitado,
       **con su propia política RLS y sus GRANT** — el bucle de `01_schema`
-      corre una sola vez. Agregarla a los 4 puntos de sincronización: los dos
-      compose, `db/run.sh` y `db/README.md`
-- [ ] Emisión de credenciales: RUT y clave persistidos con vigencia
-- [ ] Validación de credenciales de invitado, separada de la de Clerk (D3)
+      corre una sola vez. Agregarla a los **cinco** puntos de sincronización:
+      los dos compose, `db/run.sh`, `db/README.md` y el bucle de
+      `.github/workflows/ci.yml`. Hecho en `db/10_acceso_invitado.sql`; al
+      registrarla aparecio que `docker-compose.prod.yml` venia **cuatro
+      migraciones atrasado**, sin `07_rol_aplicacion` — el que crea
+      `ambienta_app`. Corregido de paso
+- [x] Emisión de credenciales: RUT y clave persistidos con vigencia
+- [x] Validación de credenciales de invitado, separada de la de Clerk (D3)
 - [ ] Dependencia propia para los endpoints que el invitado sí puede tocar
 - [ ] Reemplazar `generateMockRut()` y `generateDynamicPassword()` del
       navegador por la emisión del servidor
 - [ ] Que un invitado solo vea sus propias solicitudes
-- [ ] Tests de los 7 escenarios del requisito de invitado, incluidos los tres
+- [x] Tests de los 7 escenarios del requisito de invitado, incluidos los tres
       de negación: credencial inventada, vencida, y de otra empresa
 
 ## Fase 5 — Comprobación contra la instancia real
