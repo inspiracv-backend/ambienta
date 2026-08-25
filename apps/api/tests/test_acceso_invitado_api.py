@@ -28,6 +28,23 @@ ADMIN_URL = os.getenv(
 SECRETO = "secreto-solo-de-pruebas-no-sirve-en-ningun-otro-lado"
 
 
+@pytest.fixture(autouse=True)
+def _sin_tope_previo():
+    """Devuelve el contador a cero antes de cada prueba.
+
+    El tope vive en el proceso y lo comparten todas: sin esto, la undecima
+    prueba que pide credenciales recibe 429 y falla por una razon que no tiene
+    nada que ver con lo que mide. Paso exactamente eso al escribirlas.
+
+    **No debilita las pruebas del tope**: esas agotan el cupo dentro de una sola
+    prueba y comprueban el corte ahi.
+    """
+    from app.limite_de_peticiones import TOPE_DE_CREDENCIALES, TOPE_DE_INGRESO
+
+    TOPE_DE_CREDENCIALES.reiniciar()
+    TOPE_DE_INGRESO.reiniciar()
+
+
 @pytest.fixture
 def cliente(monkeypatch):
     """La API con el secreto de firma puesto y la base local."""
@@ -434,3 +451,205 @@ class TestLoQueElTokenTieneQueDecir:
             sub=self._credencial_real(cliente, limpiar), tipo="descarga"
         )
         assert self._pedir(cliente, forjado) == 401
+
+
+class TestAbrirUnaSolicitud:
+    """RF-02: el invitado abre su solicitud, **ligada a su credencial**.
+
+    Ese vinculo es la mitad que no se ve: sin el, el ticket queda a nombre de un
+    correo escrito a mano y no hay forma de comprobar despues que es de quien
+    dice ser — o sea que nadie puede recuperarlo, que es justo lo que RF-07
+    pide poder hacer.
+    """
+
+    def _abrir(self, cliente, token: str, **campos):
+        cuerpo = {"subject": "Se me vencio un permiso", "description": "Detalle."}
+        cuerpo.update(campos)
+        return cliente.post(
+            f"/api/v1/acceso-invitado/{EMPRESA_A}/solicitudes",
+            headers={"Authorization": f"Bearer {token}"},
+            json=cuerpo,
+        )
+
+    def test_la_solicitud_queda_ligada_a_la_credencial(
+        self, cliente, limpiar
+    ) -> None:
+        cred = _generar(cliente)
+        limpiar.append(cred["rut"])
+        token = _entrar(cliente, cred).json()["token"]
+
+        r = self._abrir(cliente, token)
+
+        assert r.status_code == 201, r.text
+        # Y aparece de inmediato en lo suyo, que es la prueba de que el vinculo
+        # se escribio y no solo de que el INSERT no fallo.
+        mias = cliente.get(
+            f"/api/v1/acceso-invitado/{EMPRESA_A}/mis-solicitudes",
+            headers={"Authorization": f"Bearer {token}"},
+        ).json()
+        assert [s["ticket_number"] for s in mias] == [r.json()["ticket_number"]]
+
+    def test_el_numero_lo_pone_la_base(self, cliente, limpiar) -> None:
+        """No lo calcula Python.
+
+        La unicidad del numero es **global**, no por empresa: un `max()+1` en la
+        aplicacion abre una carrera entre peticiones de empresas distintas.
+        """
+        cred = _generar(cliente)
+        limpiar.append(cred["rut"])
+        token = _entrar(cliente, cred).json()["token"]
+
+        uno = self._abrir(cliente, token).json()["ticket_number"]
+        otro = self._abrir(cliente, token).json()["ticket_number"]
+
+        assert uno != otro
+        assert uno.startswith("TKT-")
+
+    def test_sin_token_no_se_puede_abrir(self, cliente) -> None:
+        r = cliente.post(
+            f"/api/v1/acceso-invitado/{EMPRESA_A}/solicitudes",
+            json={"subject": "Intento", "description": "Sin credencial."},
+        )
+        assert r.status_code == 401
+
+    def test_una_categoria_inventada_se_rechaza_con_mensaje(
+        self, cliente, limpiar
+    ) -> None:
+        """422 con las opciones, no un 500 por violacion de CHECK.
+
+        Un error de restriccion a mitad del commit se lee como un problema de la
+        base y no de lo que mando quien llama.
+        """
+        cred = _generar(cliente)
+        limpiar.append(cred["rut"])
+        token = _entrar(cliente, cred).json()["token"]
+
+        r = self._abrir(cliente, token, category="urgentisimo")
+
+        assert r.status_code == 422
+        assert "technical" in r.json()["detail"]
+
+    def test_sin_correo_igual_se_puede_abrir(self, cliente, limpiar) -> None:
+        """El CHECK de la tabla exige autor: usuario **o** correo.
+
+        Un invitado no es usuario, asi que sin correo el INSERT violaria
+        `ck_support_tickets_autor`. Se deriva uno del RUT: no sirve para
+        escribirle, pero deja constancia de con que credencial se abrio.
+        """
+        cred = _generar(cliente)
+        limpiar.append(cred["rut"])
+        token = _entrar(cliente, cred).json()["token"]
+
+        assert self._abrir(cliente, token).status_code == 201
+
+
+    def test_abrir_una_solicitud_queda_en_el_registro(
+        self, cliente, limpiar
+    ) -> None:
+        """Se anota a mano, como todo en este router.
+
+        Apareció rompiéndolo a propósito: quitar el `_anotar()` de la apertura no
+        hacía fallar nada. Es exactamente el olvido contra el que advierte el
+        docstring del módulo — no deja rastro y nada avisa.
+        """
+        from app.limite_de_peticiones import TOPE_DE_CREDENCIALES
+
+        TOPE_DE_CREDENCIALES.reiniciar()
+        cred = _generar(cliente)
+        limpiar.append(cred["rut"])
+        token = _entrar(cliente, cred).json()["token"]
+
+        numero = self._abrir(cliente, token).json()["ticket_number"]
+
+        motor = create_engine(URL)
+        with motor.connect() as c:
+            c.execute(text("SET LOCAL ROLE ambienta_app"))
+            c.execute(
+                text("SELECT set_config('ambienta.tenant_id', :t, true)"),
+                {"t": EMPRESA_A},
+            )
+            n = c.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE metadata->>'ticket' = :n"
+                ),
+                {"n": numero},
+            ).scalar_one()
+        motor.dispose()
+        assert n == 1, "Abrir una solicitud no dejó rastro"
+
+
+class TestElTope:
+    """El endpoint publico tiene un limite. **Y lo que ese limite no es.**"""
+
+    def test_pedir_credenciales_sin_parar_termina_en_429(
+        self, cliente, limpiar
+    ) -> None:
+        from app.limite_de_peticiones import TOPE_DE_CREDENCIALES
+
+        TOPE_DE_CREDENCIALES.reiniciar()
+        try:
+            codigos = []
+            for _ in range(TOPE_DE_CREDENCIALES.maximo + 2):
+                r = cliente.post(
+                    f"/api/v1/acceso-invitado/{EMPRESA_A}/credenciales"
+                )
+                codigos.append(r.status_code)
+                if r.status_code == 201:
+                    limpiar.append(r.json()["rut"])
+
+            assert 429 in codigos, f"Nunca corto: {codigos}"
+            assert codigos[0] == 201, "Corto desde la primera, que es peor que no cortar"
+        finally:
+            # Si no, la siguiente prueba arranca sin cupo y falla por esto.
+            TOPE_DE_CREDENCIALES.reiniciar()
+
+    def test_el_429_no_dice_cuanto_falta(self, cliente, limpiar) -> None:
+        """Decir cuantas van o cuanto queda es decirle a quien prueba cada
+        cuanto reintentar para no chocar."""
+        from app.limite_de_peticiones import TOPE_DE_CREDENCIALES
+
+        TOPE_DE_CREDENCIALES.reiniciar()
+        try:
+            for _ in range(TOPE_DE_CREDENCIALES.maximo):
+                r = cliente.post(f"/api/v1/acceso-invitado/{EMPRESA_A}/credenciales")
+                if r.status_code == 201:
+                    limpiar.append(r.json()["rut"])
+
+            corte = cliente.post(f"/api/v1/acceso-invitado/{EMPRESA_A}/credenciales")
+            assert corte.status_code == 429
+            detalle = corte.json()["detail"]
+            assert not any(c.isdigit() for c in detalle), detalle
+        finally:
+            TOPE_DE_CREDENCIALES.reiniciar()
+
+class TestElTopeAlEntrar:
+    """**El tope que más importa de los dos.**
+
+    Generar credenciales sin parar ensucia la tabla. Probar claves sin parar es
+    otra cosa: son 6 caracteres de un alfabeto de 32, y sin límite un script las
+    recorre. Con límite deja de ser un camino.
+    """
+
+    def test_probar_claves_sin_parar_termina_en_429(self, cliente, limpiar) -> None:
+        from app.limite_de_peticiones import TOPE_DE_CREDENCIALES, TOPE_DE_INGRESO
+
+        TOPE_DE_CREDENCIALES.reiniciar()
+        TOPE_DE_INGRESO.reiniciar()
+        try:
+            cred = _generar(cliente)
+            limpiar.append(cred["rut"])
+
+            codigos = []
+            for _ in range(TOPE_DE_INGRESO.maximo + 2):
+                codigos.append(
+                    cliente.post(
+                        f"/api/v1/acceso-invitado/{EMPRESA_A}/sesion",
+                        json={"rut": cred["rut"], "clave": "ZZZZZZ"},
+                    ).status_code
+                )
+
+            assert codigos[0] == 401, "La primera debe poder equivocarse"
+            assert 429 in codigos, f"Nunca cortó: {codigos}"
+        finally:
+            TOPE_DE_INGRESO.reiniciar()
+            TOPE_DE_CREDENCIALES.reiniciar()

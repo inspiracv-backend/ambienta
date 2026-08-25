@@ -144,3 +144,45 @@ export function leerToken(): string | null {
 export function olvidarToken(): void {
   if (typeof window !== 'undefined') window.sessionStorage.removeItem(CLAVE_DE_SESION);
 }
+
+/**
+ * Del vocabulario de la pantalla al que acepta la base.
+ *
+ * **No coinciden, y la traducción pierde información.** La pantalla ofrece tres
+ * tipos (`declaracion`, `evidencia`, `general`); el CHECK de `support_tickets`
+ * acepta seis (`technical`, `access`, `data`, `legal`, `billing`, `other`).
+ * Dos de los tres caen en `data`, así que después no se puede distinguir una
+ * consulta sobre una declaración de una carga de evidencia.
+ *
+ * Se traduce igual porque la alternativa era que el ticket ni se creara. Cuál
+ * de los dos vocabularios gana es **una decisión pendiente del equipo** — el
+ * mismo problema que ya tiene el registro de auditoría, donde el frontend
+ * declara doce acciones y la base acepta siete.
+ */
+const CATEGORIA_POR_TIPO: Record<string, string> = {
+  declaracion: 'data',
+  evidencia: 'data',
+  general: 'other',
+};
+
+export function categoriaDesdeTipo(tipo: string): string {
+  return CATEGORIA_POR_TIPO[tipo] ?? 'other';
+}
+
+/** Abre la solicitud **con la credencial del invitado**, que es lo que la liga a él. */
+export function abrirSolicitud(
+  empresaId: string,
+  datos: {
+    subject: string;
+    description: string;
+    category: string;
+    guest_name?: string | null;
+    guest_email?: string | null;
+  },
+): Promise<SolicitudDelInvitado> {
+  return pedir<SolicitudDelInvitado>(
+    'POST',
+    `/acceso-invitado/${empresaId}/solicitudes`,
+    { cuerpo: datos, token: leerToken() },
+  );
+}

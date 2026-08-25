@@ -29,6 +29,7 @@ SUFIJOS_DE_ACCION = (
 SIN_CRUD_COMPLETO = {
     "/acceso-invitado/credenciales": "no es un recurso que se administre, es una accion: se genera un acceso. Listarlos le mostraria a cualquiera los invitados de la empresa desde una ruta publica, y editarlos o borrarlos son operaciones que corresponden al Admin Empresa desde el sistema, no al invitado desde su link",
     "/acceso-invitado/sesion": "entrar no es un recurso. La sesion vive en el token que se devuelve; no hay fila que leer, editar ni borrar",
+    "/acceso-invitado/solicitudes": "el invitado abre y consulta; editar y borrar una solicitud son del lado de quien la atiende, y eso ya vive en `/support/tickets` con su RBAC. Darle al invitado un `DELETE` sobre su ticket dejaria a la empresa sin el registro de un reclamo",
     "/acceso-invitado/mis-solicitudes": "es la vista de lectura del invitado sobre sus propios tickets. Crear y editar solicitudes ya vive en `/support/tickets`; duplicarlo aca serian dos caminos que mantener coherentes",
     "/catalog/countries": "la lista de paises viene dada: se consulta, no se administra. Exponerla como editable invitaria a inventar paises y a que dos empresas apuntaran a filas distintas del mismo lugar",
     "/catalog/norms": "la ley no se borra ni se edita a mano: se sincroniza desde la BCN",

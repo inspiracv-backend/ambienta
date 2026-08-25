@@ -6,6 +6,12 @@ import { Button, Input } from '@/components/atoms';
 import { FormField, FileDropzone } from '@/components/molecules';
 import { useSession } from '@/lib/session';
 import { useSupportTickets } from '@/lib/support-tickets-store';
+import {
+  abrirSolicitud,
+  categoriaDesdeTipo,
+  empresaDelEnlace,
+  leerToken,
+} from '@/lib/acceso-invitado';
 
 const TIPOS_SOLICITUD = [
   { value: 'declaracion', label: 'Consulta sobre una declaración' },
@@ -29,7 +35,17 @@ const EMPTY_STATE: FormState = { tipo: '', asunto: '', descripcion: '', nombreCo
  * campos de nombre/correo de contacto (H6: no pedir de nuevo lo que ya se sabe).
  * Persiste en SupportTicketsProvider (elevado a app/layout.tsx) para que el
  * ticket aparezca en Soporte/Tickets internos (Sección L, S-38).
- * Integración real: POST a apps/api cuando exista spec aprobada para tickets de soporte.
+ *
+ * **Hay dos caminos, y solo uno llega a la base todavía.**
+ *
+ * Con sesión de Cliente Invitado el ticket se abre contra la API, ligado a su
+ * credencial (`guest_credential_id`). Ese vínculo es lo que después le permite
+ * volver a encontrarlo y lo que impide que otro lo vea: filtrar por el correo
+ * no serviría, porque el correo lo escribe la misma persona en este formulario.
+ *
+ * Sin esa sesión —un usuario con cuenta— sigue el camino simulado del
+ * provider. Conectarlo es otra tarea: `POST /support/tickets` existe, pero
+ * requiere resolver el autor desde la sesión de Clerk.
  */
 export function TicketForm() {
   const { user } = useSession();
@@ -61,6 +77,32 @@ export function TicketForm() {
     if (!validate()) return;
 
     setIsSubmitting(true);
+
+    const empresaId = empresaDelEnlace();
+    const esInvitado = !!leerToken() && !!empresaId;
+
+    if (esInvitado) {
+      abrirSolicitud(empresaId!, {
+        subject: values.asunto.trim(),
+        description: values.descripcion.trim(),
+        category: categoriaDesdeTipo(values.tipo),
+        guest_name: values.nombreContacto.trim() || null,
+        guest_email: values.correoContacto.trim() || null,
+      })
+        // **El número viene de la base, no se inventa acá.** La secuencia es
+        // global, así que calcularlo en el navegador daría números repetidos
+        // entre empresas.
+        .then((solicitud) => setTicketNumber(solicitud.ticket_number))
+        .catch((e) =>
+          setErrors({
+            descripcion:
+              e instanceof Error ? e.message : 'No se pudo enviar la solicitud.',
+          }),
+        )
+        .finally(() => setIsSubmitting(false));
+      return;
+    }
+
     setTimeout(() => {
       const ticket = createTicket({
         tenantId: user?.tenantId ?? null,

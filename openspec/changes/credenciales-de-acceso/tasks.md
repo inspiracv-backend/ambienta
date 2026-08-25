@@ -95,18 +95,20 @@ Verificados contra el sistema real, no heredados del análisis.
 - [x] Dependencia propia para los endpoints que el invitado sí puede tocar
 - [x] Reemplazar `generateMockRut()` y `generateDynamicPassword()` del
       navegador por la emisión del servidor
-- [~] Que un invitado solo vea sus propias solicitudes. **La mitad hecha, y la
-      que falta hay que decirla:** la API ya filtra por `guest_credential_id` y
-      hay prueba de que dos invitados de la *misma* empresa no se ven entre sí
-      (RLS ahí no ayuda: son el mismo tenant). Lo que falta es que
-      `/crear-ticket` **grabe** esa columna al abrir la solicitud: hoy la
-      pantalla sigue con la sesión simulada, así que el filtro funciona sobre
-      tickets que nadie enlaza todavía
-- [ ] Que `/crear-ticket` cree el ticket con el token del invitado y guarde
-      `guest_credential_id`
-- [ ] Límite de peticiones en `POST /credenciales`. Sin él, quien tenga el
-      enlace puede pedir credenciales sin tope. Ninguna abre nada de negocio
-      —esa es la contención real— pero la tabla crece
+- [x] Que un invitado solo vea sus propias solicitudes. Filtro por
+      `guest_credential_id` y no por correo: el correo lo escribe la misma
+      persona en el formulario, así que filtrar por él dejaría ver los tickets
+      de otro. Probado con **dos invitados de la misma empresa**, donde RLS no
+      ayuda porque son el mismo tenant
+- [x] Que `/crear-ticket` cree el ticket con el token del invitado y guarde
+      `guest_credential_id`. Verificado en el navegador: TKT-000066 quedó ligado
+      a la credencial `91926439-K`. De paso apareció que «Continuar a crear
+      ticket» **no iniciaba sesión**: la persona llegaba con sus credenciales en
+      pantalla pero sin token, y el formulario caía al camino simulado
+- [x] Límite de peticiones en las dos rutas públicas. **No es protección contra
+      un ataque distribuido** —cuenta por IP y vive en el proceso—, pero corta
+      el abuso trivial y, sobre todo, que un script recorra el espacio de claves
+      de 6 caracteres en `/sesion`
 - [x] Tests de los 7 escenarios del requisito de invitado, incluidos los tres
       de negación: credencial inventada, vencida, y de otra empresa
 

@@ -81,7 +81,7 @@ SIN_GUARDA_DE_PERMISO: dict[str, str] = {
         "un invitado **no tiene rol ni permisos**: no es usuario del sistema "
         "(decision D2). Dos de sus tres rutas son publicas a proposito, porque "
         "RF-02 pide que alguien sin cuenta pueda abrir una solicitud. Lo que lo "
-        "acota no es una lista de permisos sino que **esas tres rutas son todo "
+        "acota no es una lista de permisos sino que **esas cuatro rutas son todo "
         "lo que puede tocar**: ningun endpoint de negocio sabe leer su token, "
         "que es de un tipo distinto de `CurrentUser`"
     ),

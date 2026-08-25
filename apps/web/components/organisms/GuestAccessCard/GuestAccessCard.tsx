@@ -69,9 +69,30 @@ export function GuestAccessCard() {
     }
   }
 
-  function handleContinuar() {
-    if (guest) login(guest.id);
-    router.push('/crear-ticket');
+  async function handleContinuar() {
+    // **Se inicia sesión con las credenciales recién emitidas.**
+    //
+    // Sin esto la persona llega a `/crear-ticket` con su RUT y su clave en
+    // pantalla pero **sin token**, y el formulario cae al camino simulado: el
+    // ticket no quedaría ligado a su credencial y no podría volver a
+    // encontrarlo. Se veía bien y no servía para nada, que es el mismo fallo
+    // que esta pantalla tenía entera.
+    if (!credenciales || !empresaId) return;
+
+    setIsLoading(true);
+    try {
+      await iniciarSesion(empresaId, credenciales.rut, credenciales.clave);
+      if (guest) login(guest.id);
+      router.push('/crear-ticket');
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : 'Tu acceso se generó, pero no pudimos iniciar la sesión. Ingresa con tu RUT y clave.',
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function handleLoginSubmit(e: FormEvent) {
@@ -127,9 +148,15 @@ export function GuestAccessCard() {
           {new Date(credenciales.valido_hasta).toLocaleDateString('es-CL')}.
         </p>
 
-        <Button className="mt-6 w-full" onClick={handleContinuar}>
+        <Button className="mt-6 w-full" isLoading={isLoading} onClick={handleContinuar}>
           Continuar a crear ticket
         </Button>
+
+        {error && (
+          <p role="alert" className="mt-3 text-sm text-red-600">
+            {error}
+          </p>
+        )}
       </div>
     );
   }

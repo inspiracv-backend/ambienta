@@ -210,7 +210,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Catalogo normativo | **Se alimenta de la BCN.** Normas, versiones y articulado reales. La Ley 19.300 entra con sus 151 partes y su version vigente de 2024-04-10. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
-| Acceso Cliente Invitado | **Real desde el 25-ago.** RUT y clave los emite la API, no el navegador; token propio de 30 dias; el invitado ve solo sus solicitudes. Falta que `/crear-ticket` grabe `guest_credential_id` — hasta entonces el filtro corre sobre tickets que nadie enlaza |
+| Acceso Cliente Invitado | **Completo y verificado en el navegador el 25-ago.** RUT y clave los emite la API, no el navegador; token propio de 30 dias; la solicitud queda ligada a la credencial y el invitado ve solo las suyas. Con tope de peticiones en las dos rutas publicas |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -292,6 +292,10 @@ negocio sabe leer. Tres cosas que hay que saber si se toca:
   dias que dura el token.
 - **Sin `TOKEN_INVITADO_SECRETO` el ingreso responde 503**, no firma con una
   llave por defecto. Un secreto en el codigo es un secreto publicado.
+- **El tope de peticiones vive en el proceso y cuenta por IP.** Corta el abuso
+  trivial y que un script recorra las claves de 6 caracteres; **no** para un
+  ataque distribuido, y con varios trabajadores el tope efectivo se multiplica
+  por la cantidad de procesos.
 - **El registro de actividades de este router se escribe a mano.** El observador
   del `flush` solo actua con el contexto que pone `get_tenant_db`, y aca no hay
   Clerk. Un endpoint nuevo en este router que se olvide de `_anotar()` **no deja
@@ -372,7 +376,7 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 413 pruebas, 29 archivos
+cd apps/api && python -m pytest         # 422 pruebas, 30 archivos
 cd apps/web && npx vitest run           # 320 pruebas, 24 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```

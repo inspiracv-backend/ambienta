@@ -1,14 +1,22 @@
 """El acceso del Cliente Invitado, de punta a punta (RF-01, RF-02, RF-07).
 
-Tres endpoints y ni uno mas, y esa es la contencion del diseno:
+Cuatro endpoints y ni uno mas, y esa es la contencion del diseno:
 
-    POST /acceso-invitado/{empresa_id}/credenciales   generar RUT y clave
-    POST /acceso-invitado/{empresa_id}/sesion         entrar y recibir el token
+    POST /acceso-invitado/{empresa_id}/credenciales     generar RUT y clave
+    POST /acceso-invitado/{empresa_id}/sesion           entrar y recibir el token
+    POST /acceso-invitado/{empresa_id}/solicitudes      abrir una solicitud
     GET  /acceso-invitado/{empresa_id}/mis-solicitudes  ver lo propio
 
 Los dos primeros son **publicos** — esa es la funcionalidad, no un descuido:
-RF-02 pide que una persona sin cuenta pueda abrir una solicitud. El tercero
-exige el token que emite el segundo.
+RF-02 pide que una persona sin cuenta pueda abrir una solicitud. Los otros dos
+exigen el token que emite el segundo.
+
+## Por que el invitado abre su solicitud por aca y no por `/support/tickets`
+
+Porque ese endpoint pide sesion de Clerk, y ademas **dejaria el ticket sin
+`guest_credential_id`**: quedaria abierto a nombre de un correo escrito a mano,
+sin forma de comprobar despues que es de quien dice ser. Un ticket asi no lo
+puede recuperar nadie — que es justo lo que RF-07 pide poder hacer.
 
 ## Este router no cuelga de `get_tenant_db`, y hay que saber que implica
 
@@ -24,7 +32,7 @@ reales:
    declara en su docstring.
 2. **No hay guarda de permisos.** `exigir_permiso_de_la_ruta` deriva el permiso
    del recurso y de quien llama; un invitado no tiene rol ni permisos. Lo que
-   acota a un invitado es que **estos tres endpoints son todo lo que puede
+   acota a un invitado es que **estos cuatro endpoints son todo lo que puede
    tocar**, no una lista de permisos.
 
 ## Por que el `empresa_id` va en la URL
@@ -48,6 +56,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
+from ..limite_de_peticiones import (
+    TOPE_DE_CREDENCIALES,
+    TOPE_DE_INGRESO,
+    exigir_cupo,
+)
 from ..deps import get_invitado_actual, sesion_publica_de_empresa
 from ..services.auditoria import registrar
 from ..services.invitado import DIAS_DE_VIGENCIA, autenticar, emitir
@@ -87,6 +100,25 @@ class SesionIniciada(BaseModel):
     )
     expira: str
     rut: str
+
+
+class NuevaSolicitud(BaseModel):
+    """Lo que el invitado escribe. **El autor no esta aca**, sale de su token."""
+
+    subject: str = Field(min_length=3, max_length=240)
+    description: str = Field(min_length=3)
+    category: str = Field(
+        default="other",
+        description="technical, access, data, legal, billing u other.",
+    )
+    guest_name: str | None = Field(default=None, max_length=180)
+    guest_email: str | None = Field(
+        default=None,
+        description=(
+            "Para poder responderle por fuera del sistema. **No identifica**: "
+            "quien identifica es la credencial."
+        ),
+    )
 
 
 class SolicitudDelInvitado(BaseModel):
@@ -168,6 +200,7 @@ def generar_credenciales(
     request: Request,
     db: Session = Depends(sesion_publica_de_empresa),
 ) -> CredencialGenerada:
+    exigir_cupo(TOPE_DE_CREDENCIALES, request, "credenciales")
     _empresa_valida(db, empresa_id)
 
     credencial = emitir(db, empresa_id)
@@ -208,6 +241,8 @@ def iniciar_sesion(
     request: Request,
     db: Session = Depends(sesion_publica_de_empresa),
 ) -> SesionIniciada:
+    exigir_cupo(TOPE_DE_INGRESO, request, "sesion")
+
     if not get_settings().token_invitado_configurado:
         # Se niega en vez de firmar con una llave por defecto. Un secreto en el
         # codigo es un secreto publicado: cualquiera podria emitirse una sesion
@@ -252,6 +287,85 @@ def iniciar_sesion(
     db.commit()
 
     return SesionIniciada(token=token, expira=expira.isoformat(), rut=quien.rut)
+
+
+#: Las mismas que acepta el CHECK de `support_tickets.category`.
+#:
+#: Se validan aca para responder 422 con un mensaje util, en vez de un 500 por
+#: violacion de restriccion a mitad del commit — que se lee como un problema de
+#: la base y no de lo que mando quien llama.
+CATEGORIAS = frozenset({"technical", "access", "data", "legal", "billing", "other"})
+
+
+@router.post(
+    "/{empresa_id}/solicitudes",
+    response_model=SolicitudDelInvitado,
+    status_code=status.HTTP_201_CREATED,
+    summary="Abrir una solicitud como invitado",
+    description=(
+        "Crea el ticket **ligado a la credencial** con la que se entro (RF-02). "
+        "Ese vinculo es lo que despues permite que la persona lo vuelva a "
+        "encontrar, y lo que impide que otro lo vea.\n\n"
+        "El numero de ticket lo pone la base, no quien llama."
+    ),
+)
+def abrir_solicitud(
+    datos: NuevaSolicitud,
+    request: Request,
+    invitado_y_sesion: tuple[SesionDeInvitado, Session] = Depends(get_invitado_actual),
+) -> SolicitudDelInvitado:
+    invitado, db = invitado_y_sesion
+
+    if datos.category not in CATEGORIAS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Categoria no valida. Opciones: {', '.join(sorted(CATEGORIAS))}.",
+        )
+
+    fila = db.execute(
+        text(
+            # `ticket_number` **no se pasa**: lo pone el DEFAULT de la columna
+            # con una secuencia (`db/06_ticket_number.sql`). Calcularlo en
+            # Python abriria una carrera entre peticiones de empresas
+            # distintas, porque la unicidad del numero es global.
+            "INSERT INTO support_tickets "
+            "(tenant_id, guest_name, guest_email, category, "
+            " subject, description, guest_credential_id) "
+            "VALUES (:t, :n, :e, :c, :s, :d, :cred) "
+            "RETURNING id, ticket_number, subject, status, created_at"
+        ),
+        {
+            "t": invitado.tenant_id,
+            "n": datos.guest_name,
+            # El CHECK de la tabla exige autor: usuario registrado **o** correo.
+            # El invitado no es usuario, asi que si no dejo correo se usa uno
+            # derivado del RUT — no sirve para escribirle, pero deja constancia
+            # de con que credencial se abrio y satisface la restriccion.
+            "e": datos.guest_email or f"{invitado.rut}@invitado.ambienta.local",
+            "c": datos.category,
+            "s": datos.subject,
+            "d": datos.description,
+            "cred": invitado.credencial_id,
+        },
+    ).one()
+
+    _anotar(
+        db,
+        request,
+        invitado.tenant_id,
+        "create",
+        invitado.credencial_id,
+        {"ticket": fila[1], "rut": invitado.rut},
+    )
+    db.commit()
+
+    return SolicitudDelInvitado(
+        id=fila[0],
+        ticket_number=fila[1],
+        subject=fila[2],
+        status=fila[3],
+        created_at=fila[4].isoformat(),
+    )
 
 
 @router.get(
