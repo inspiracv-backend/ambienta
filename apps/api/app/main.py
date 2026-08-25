@@ -17,10 +17,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .db import check_database
+from .db import SessionLocal, check_database
 from .errores import manejar_error_de_integridad
 from .deps import exigir_permiso_de_la_ruta, get_admin_db
 from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
+from .services.auditoria_automatica import instalar as instalar_auditoria
 from .routers import (
     audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
     documents,
@@ -32,6 +33,12 @@ from .routers import (
 )
 
 settings = get_settings()
+
+# El registro de actividades se engancha al `flush` de la sesion, una sola vez
+# al importar la aplicacion. **Sin esto `audit_log` queda vacia** y nada lo
+# advierte: los endpoints siguen respondiendo 200 y la rotacion mensual rota
+# una tabla sin filas. Es exactamente lo que pasaba hasta hoy.
+instalar_auditoria(SessionLocal)
 
 app = FastAPI(
     title="Ambienta API",
