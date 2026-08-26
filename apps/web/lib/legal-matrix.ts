@@ -52,6 +52,62 @@ export function computeNormCoverage(norm: LegalNorm): number {
   return evaluados / aplicables.length;
 }
 
+/**
+ * Lo mismo que `computeNormCompliance`, pero **distingue "no cumple" de "nadie
+ * lo miró"** — que es la diferencia entre un hecho y una acusación falsa.
+ *
+ * `computeNormCompliance` devuelve `0` en los dos casos: cuando todo se evaluó
+ * y todo salió NO, y cuando no se evaluó nada. Con el catálogo sembrado eso no
+ * se notaba; con el articulado real de la BCN, una norma recién importada llega
+ * con sus 210 artículos en `N_E` y la pantalla la pintaba **"No cumple, 0 %"**.
+ *
+ * Es exactamente el error que este repo se cansa de advertir, y acá es el peor
+ * de todos: **le dice a una empresa que incumple una norma que nadie reviso**.
+ * Un cero que se ve idéntico a un cero medido, en la pantalla que después se
+ * exporta a un auditor.
+ *
+ * Devuelve `null` cuando no hay nada que medir. Quien lo use tiene que decidir
+ * qué mostrar, que es justamente lo que obliga a no inventar un número.
+ */
+export function computeNormComplianceOrNull(norm: LegalNorm): number | null {
+  const evaluables = norm.articulos.filter(
+    (a) => a.incluidoEnCalculo && (a.respuesta === 'SI' || a.respuesta === 'NO'),
+  );
+  if (evaluables.length === 0) return null;
+  return evaluables.filter((a) => a.respuesta === 'SI').length / evaluables.length;
+}
+
+/** El semáforo de una norma, con `null` —nada evaluado— como `pendiente`. */
+export function normSemaforoDe(pct: number | null): SemaforoStatus {
+  if (pct === null) return 'pendiente';
+  return normSemaforo(pct);
+}
+
+/**
+ * Los cinco números que hacen falta para explicar el cumplimiento de una norma
+ * sin que nadie tenga que adivinar de dónde sale el porcentaje.
+ *
+ * Se devuelven juntos a propósito: el `pct` solo por sí mismo es engañoso —una
+ * norma con un artículo en SI y diecinueve sin evaluar da 100 %— y separarlos
+ * en cinco llamadas invita a que una pantalla muestre uno y se olvide del resto,
+ * que es como se llegó al "No cumple 0 %".
+ */
+export function resumenDeNorma(norm: LegalNorm) {
+  const total = norm.articulos.length;
+  const aplicables = norm.articulos.filter((a) => a.respuesta !== 'NA').length;
+  const evaluados = norm.articulos.filter(
+    (a) => a.respuesta === 'SI' || a.respuesta === 'NO',
+  ).length;
+  return {
+    pct: computeNormComplianceOrNull(norm),
+    total,
+    aplicables,
+    evaluados,
+    sinEvaluar: countArticulosSinEvaluar(norm),
+    incumplidos: countArticulosEnIncumplimiento(norm),
+  };
+}
+
 /** Artículos aplicables que nadie evaluó todavía. */
 export function countArticulosSinEvaluar(norm: LegalNorm): number {
   return norm.articulos.filter((a) => a.respuesta === 'N_E').length;
