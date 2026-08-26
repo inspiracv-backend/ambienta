@@ -238,8 +238,26 @@ export function buildAuditFolderContent(audit: Audit, plant: Plant | undefined, 
 }
 
 /** Descarga real vía Blob — no hay backend que aloje el archivo en esta iteración. */
+/**
+ * El marcador de orden de bytes que Excel necesita para leer UTF-8.
+ *
+ * **Sin esto, Excel en Windows asume la codificación local (ANSI)** y los
+ * acentos salen rotos: "Emisión" se ve como "EmisiÃ³n", "Fecha detección" como
+ * "Fecha detecciÃ³n". Los encabezados de estos reportes llevan acentos y los
+ * títulos de las normas de la BCN vienen en mayúsculas con tilde, así que el
+ * archivo entero se ve mal.
+ *
+ * El `charset=utf-8` del tipo MIME no alcanza: Excel no lo mira, mira los
+ * primeros bytes del archivo.
+ */
+const BOM_UTF8 = '\uFEFF';
+
 export function downloadTextFile(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: mime });
+  // El BOM solo va en los archivos que Excel va a abrir. Metérselo a un `.txt`
+  // o a un JSON lo ensuciaría: quien lo lea con otra herramienta vería tres
+  // bytes basura al principio.
+  const esCsv = filename.toLowerCase().endsWith('.csv');
+  const blob = new Blob([esCsv ? BOM_UTF8 + content : content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
