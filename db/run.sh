@@ -40,6 +40,7 @@ run "$DIR/11_solicitud_de_invitado.sql"
 run "$DIR/12_reportabilidad_retc.sql"
 run "$DIR/13_usuario_interno_con_departamento.sql"
 run "$DIR/14_ds90_es_de_la_bcn.sql"
+run "$DIR/15_declaracion_ante_su_sistema.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"

@@ -216,6 +216,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Perfil Empresa obligatorio (RF-10) | **Real desde el 25-ago.** Antes la marca la calculaba el navegador como `giro && rut`, y como el RUT es `NOT NULL` eso daba `true` para todas: **el gate no bloqueaba a nadie**. Ahora el criterio lo decide el servidor —giro + planta + departamento + sector— y la API **rechaza con 409** las escrituras de Matriz Legal y Obligaciones del Admin Empresa con el perfil incompleto |
 | Usuario Interno con departamento (RF-11) | **Exigido por la base desde el 25-ago.** CHECK condicionado al tipo: solo `internal` y `tenant_admin`, porque un Admin Global no pertenece a un departamento de una empresa cliente. Borrar un departamento con gente dentro responde **409** hasta reasignarla |
 | Matriz Legal ↔ Obligaciones | **Cerrado el 26-ago (#110), y era mas que un vinculo que faltaba.** La obligacion se cuelga de la **evaluacion** del articulo y no del articulo del catalogo, que es global. Los dos sentidos existen y la norma, la planta y el responsable se derivan de la evaluacion. Al medirlo aparecio que `POST /obligations/` aceptaba `article_compliance_id` sin mirarlo: **la empresa B podia colgar su obligacion de la evaluacion de la empresa A** — ver abajo |
+| Declaraciones y calendario RETC | **Cerrada el 26-ago (epica #21).** El flujo de RF-31 completo —presentar, aceptar, rechazar con motivo— con las transiciones declaradas en un solo lugar, el folio del portal exigido para aceptar, la urgencia calculada en el servidor y el recordatorio que adjunta la plantilla del sistema. **`fulfill` respondia 422 en el 100 % de los casos** desde siempre: escribia un estado que el CHECK no admite. Lo que NO entra: el repositorio de plantillas Excel esta vacio a proposito — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -458,6 +459,28 @@ ajenos— sino que la escritura se completaba.
 endpoint nuevo que acepte un id en el cuerpo tiene que llamarlo**, y las dos
 respuestas deben ser identicas: mismo codigo y mismo mensaje.
 
+**El repositorio de plantillas Excel esta vacio, y es deliberado.**
+`declaration_templates` tiene **cero filas**. El mecanismo existe y esta probado
+—el recordatorio busca la plantilla vigente del sistema ante el que se declara y
+la adjunta al aviso— pero las plantillas mismas son **contenido oficial que hay
+que descargar de cada portal del Estado**, no codigo.
+
+Inventar una estructura de pestanas seria peor que no tenerla: la empresa
+prepararia su declaracion en un formato que el portal rechaza, y se entera
+cuando le devuelven el archivo y ya no hay plazo. Es el mismo criterio que la
+`periodicidad` vacia de `retc_systems`.
+
+Lo que si esta fijado por pruebas: una plantilla **caducada o inactiva no se
+adjunta**. Una marcada activa cuyo `valid_to` ya paso corresponde a una
+estructura que el portal dejo de aceptar.
+
+**Y la urgencia se calcula en un solo lado desde el 26-ago.** Estaba escrita dos
+veces y **ya separada**: el navegador avisaba a 30 dias y el servidor no tenia
+criterio. Ahora vive en `services/declaracion.py` (`DIAS_CRITICO`,
+`DIAS_PROXIMO`) y el navegador la consume. Ojo con confundirla con las ventanas
+de aviso 15/7/3/1 de #120: esas dicen **cuando escribirle a alguien**, la
+urgencia dice **de que color se ve**.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -465,8 +488,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 512 pruebas, 35 archivos
-cd apps/web && npx vitest run           # 354 pruebas, 28 archivos
+cd apps/api && python -m pytest         # 544 pruebas, 36 archivos
+cd apps/web && npx vitest run           # 360 pruebas, 29 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

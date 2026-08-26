@@ -53,5 +53,22 @@ export const ObligationSchema = z.object({
   articuloOrigenId: z.string().optional(),
   /** La norma de la que cuelga, para poder volver a ella desde la obligación. */
   normaOrigenId: z.string().optional(),
+  /**
+   * El comprobante que devolvió el portal del Estado (#114).
+   *
+   * Es la única prueba de que la declaración se presentó, y por eso la API no
+   * deja aceptarla sin él. Ausente mientras nadie lo haya registrado.
+   */
+  folio: z.string().optional(),
+  /** Por qué se devolvió la declaración a quien la preparó (RF-31). */
+  motivoRechazo: z.string().optional(),
+  /**
+   * La dirección del portal ante el que se declara.
+   *
+   * Sale del catálogo `retc_systems` y no de una copia en la obligación: los
+   * portales del Estado cambian de dirección, y copiada habría que corregirla
+   * fila por fila.
+   */
+  sistemaUrl: z.string().optional(),
 });
 export type Obligation = z.infer<typeof ObligationSchema>;

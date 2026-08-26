@@ -19,6 +19,23 @@ interface ObligationsContextValue {
   loading: boolean;
   updateTask: (obligationId: string, taskId: string, updates: Partial<ObligationTask>) => void;
   addTask: (obligationId: string, input: { titulo: string; vencimiento: string; responsableId: string }) => void;
+  /**
+   * Mueve la declaracion por su flujo (RF-31, #115).
+   *
+   * Un solo metodo con la accion por parametro y no tres: las tres hacen lo
+   * mismo —un POST, releer, y mostrar el error del servidor— y separarlas
+   * invitaba a que una se olvidara de recargar.
+   *
+   * **No es optimista.** Las transiciones las valida el servidor y puede
+   * rechazarlas con 409 (aprobar sin folio, saltarse un paso). Pintar el
+   * estado nuevo antes de saberlo mostraria "aceptada" sobre algo que la API
+   * acaba de rechazar.
+   */
+  moverDeclaracion: (
+    obligationId: string,
+    accion: 'submit' | 'approve' | 'reject' | 'fulfill',
+    datos?: { folio?: string; motivo?: string },
+  ) => Promise<void>;
   addObligation: (input: {
     nombre: string;
     sistema: SistemaDeclaracion;
@@ -31,8 +48,6 @@ interface ObligationsContextValue {
 }
 
 const ObligationsContext = createContext<ObligationsContextValue | null>(null);
-
-const DIAS_PARA_AVISAR = 30;
 
 /**
  * Traduce el estado de la API al de la pantalla.
@@ -47,18 +62,45 @@ const DIAS_PARA_AVISAR = 30;
  * `por_vencer` no viene de la API porque no es un estado, es una cuenta de
  * días: se deriva de la fecha, con el mismo umbral que usa el tablero.
  */
-function mapEstado(status: string, vencimiento: string): ObligationStatus {
-  if (status === 'overdue') return 'vencida';
-  // Sin enviar todavía, o rechazada y hay que rehacerla.
+/**
+ * Traduce la urgencia que calcula el servidor al semáforo de la pantalla.
+ *
+ * **El navegador ya no la calcula.** Tenía su propia cuenta con
+ * `DIAS_PARA_AVISAR = 30` mientras el servidor usa 15 (`DIAS_PROXIMO` en
+ * `services/declaracion.py`): dos criterios escritos dos veces, **ya
+ * separados**, y una obligación a 20 días salía "por vencer" en pantalla y
+ * "vigente" en cualquier otra lectura de la API. Es la misma trampa que el
+ * porcentaje de cumplimiento entre la pantalla y el informe.
+ *
+ * `sin_plazo` cae en `vigente` **y eso pierde información**: una obligación sin
+ * fecha no va bien, es que nadie le puso plazo. `ObligationStatus` tiene cuatro
+ * valores y ninguno dice eso; agregarlo toca `StatusBadge` y las seis pantallas
+ * que lo usan, así que queda anotado en vez de resuelto a medias.
+ */
+const SEMAFORO: Record<string, ObligationStatus> = {
+  vencida: 'vencida',
+  critica: 'por_vencer',
+  proxima: 'por_vencer',
+  resuelta: 'vigente',
+  vigente: 'vigente',
+  sin_plazo: 'vigente',
+};
+
+function mapEstado(
+  status: string,
+  vencimiento: string,
+  urgencia?: string,
+): ObligationStatus {
+  // Sin enviar todavía, o rechazada y hay que rehacerla. Va **antes** que la
+  // urgencia: es una afirmación sobre lo que falta hacer, no sobre el plazo.
   if (status === 'draft' || status === 'rejected') return 'sin_evidencia';
 
-  const dias = Math.ceil(
-    (new Date(vencimiento).getTime() - Date.now()) / 86_400_000,
-  );
-  if (dias < 0) return 'vencida';
-  const resuelta = status === 'accepted' || status === 'closed';
-  if (!resuelta && dias <= DIAS_PARA_AVISAR) return 'por_vencer';
-  return 'vigente';
+  if (urgencia && urgencia in SEMAFORO) return SEMAFORO[urgencia]!;
+
+  // Respaldo para los datos de ejemplo, que no pasan por la API. Deliberadamente
+  // tosco: no reimplementa los tramos del servidor, solo distingue lo vencido.
+  if (status === 'overdue') return 'vencida';
+  return new Date(vencimiento).getTime() < Date.now() ? 'vencida' : 'vigente';
 }
 
 /**
@@ -82,6 +124,38 @@ function mapPeriodo(inicio: unknown, fin: unknown): string {
   return `${anio} · ${mesInicio <= 6 ? '1er' : '2do'} semestre`;
 }
 
+/**
+ * La URL del portal de cada obligacion, resuelta contra el catalogo.
+ *
+ * La API devuelve `retc_system_id`; la direccion vive en `retc_systems`. Se
+ * cruza aca, en **una sola peticion para todas** las obligaciones, y no
+ * pidiendo el sistema de cada una: con veinte declaraciones eso serian veinte
+ * viajes para pintar veinte enlaces.
+ *
+ * Si el catalogo no responde, las obligaciones llegan igual y el boton "ir al
+ * sistema oficial" simplemente no aparece. Perder un atajo no justifica dejar
+ * la pantalla vacia.
+ */
+async function conUrlDelSistema(
+  filas: Record<string, unknown>[],
+  tenantId: string,
+): Promise<Record<string, unknown>[]> {
+  if (!filas.some((f) => f.retc_system_id)) return filas;
+
+  const sistemas = await api
+    .get<Record<string, unknown>[]>('/catalog/retc-systems', { tenantId })
+    .catch(() => []);
+  const urlPorId = new Map(
+    sistemas.map((sys) => [String(sys.id), String(sys.url_oficial ?? "")] as [string, string]),
+  );
+
+  return filas.map((f) =>
+    f.retc_system_id
+      ? { ...f, __sistema_url: urlPorId.get(String(f.retc_system_id)) ?? '' }
+      : f,
+  );
+}
+
 function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
   try {
     // `due_at` y `owner_user_id`, no `due_date` ni `assigned_user_id`: esos dos
@@ -91,6 +165,11 @@ function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
       ? String(raw.due_at)
       : new Date().toISOString();
     const code = String(raw.code ?? '');
+    const datos = (raw.data ?? {}) as Record<string, unknown>;
+    const motivoRechazo = datos.motivo_rechazo ? String(datos.motivo_rechazo) : '';
+    // La URL la resuelve el llamador contra el catalogo de sistemas: el mapeo
+    // de una fila no puede salir a la red.
+    const urlDelSistema = raw.__sistema_url ? String(raw.__sistema_url) : '';
 
     return {
       id: String(raw.id),
@@ -99,7 +178,11 @@ function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
       sistema: mapSistema(code),
       nombre: String(raw.title ?? code),
       periodo: mapPeriodo(raw.period_start, raw.period_end),
-      estado: mapEstado(String(raw.status ?? 'draft'), vencimiento),
+      estado: mapEstado(
+        String(raw.status ?? 'draft'),
+        vencimiento,
+        raw.urgencia ? String(raw.urgencia) : undefined,
+      ),
       proximoVencimiento: vencimiento,
       responsableId: raw.owner_user_id ? String(raw.owner_user_id) : '',
       tasks: [],
@@ -111,6 +194,9 @@ function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
         ? { articuloOrigenId: String(raw.article_compliance_id) }
         : {}),
       ...(raw.matrix_norm_id ? { normaOrigenId: String(raw.matrix_norm_id) } : {}),
+      ...(raw.external_receipt ? { folio: String(raw.external_receipt) } : {}),
+      ...(motivoRechazo ? { motivoRechazo } : {}),
+      ...(urlDelSistema ? { sistemaUrl: urlDelSistema } : {}),
     };
   } catch {
     return null;
@@ -126,8 +212,10 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user?.tenantId) { setLoading(false); return; }
     let cancelled = false;
+    const tenantId = user.tenantId;
     api
-      .get<Record<string, unknown>[]>('/obligations/', { tenantId: user.tenantId })
+      .get<Record<string, unknown>[]>('/obligations/', { tenantId })
+      .then((data) => conUrlDelSistema(data, tenantId))
       .then((data) => {
         if (cancelled) return;
         const mapped = data.map(mapApiObligation).filter((o): o is Obligation => o !== null);
@@ -235,6 +323,28 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  async function moverDeclaracion(
+    obligationId: string,
+    accion: 'submit' | 'approve' | 'reject' | 'fulfill',
+    datos: { folio?: string; motivo?: string } = {},
+  ) {
+    if (!user?.tenantId) throw new Error('Sin sesion no se puede mover una declaracion.');
+
+    await api.post(`/obligations/${obligationId}/${accion}`, datos, {
+      tenantId: user.tenantId,
+    });
+
+    // Se relee en vez de parchear en memoria: el servidor puede haber tocado
+    // mas de lo que se le pidio —aprobar fija el folio, rechazar escribe el
+    // motivo— y adivinar cual quedaria desincronizado a la primera.
+    const filas = await conUrlDelSistema(
+      await api.get<Record<string, unknown>[]>('/obligations/', { tenantId: user.tenantId }),
+      user.tenantId,
+    );
+    const mapeadas = filas.map(mapApiObligation).filter(Boolean) as Obligation[];
+    if (mapeadas.length > 0) setObligations(mapeadas);
+  }
+
   function addObligation(input: {
     nombre: string;
     sistema: SistemaDeclaracion;
@@ -282,7 +392,7 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ObligationsContext.Provider value={{ obligations, loading, updateTask, addTask, addObligation }}>
+    <ObligationsContext.Provider value={{ obligations, loading, updateTask, addTask, addObligation, moverDeclaracion }}>
       {children}
     </ObligationsContext.Provider>
   );

@@ -387,7 +387,7 @@ describe('generar una obligacion desde un articulo (RF-09, #110)', () => {
     // aca el resultado es navegar a otra, y navegar hacia algo que no se creo
     // deja al usuario en un 404 sin explicacion.
     const { result } = await montar([articuloApi()], [{ id: AC, article_id: ARTICULO }]);
-    post.mockRejectedValue(new ApiError(422, 'no corresponde a esta empresa'));
+    post.mockRejectedValue(new ApiError(422, 'Unprocessable Entity', { detail: 'no corresponde a esta empresa' }));
 
     await expect(
       result.current.generarObligacion(NORMA, ARTICULO, 'Declaracion anual'),

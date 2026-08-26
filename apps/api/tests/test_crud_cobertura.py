@@ -21,6 +21,10 @@ from app.main import app
 # `/audits/{id}/advance` no es "leer una auditoria".
 SUFIJOS_DE_ACCION = (
     "/verify", "/advance", "/close", "/evaluate", "/fulfill", "/submit",
+    # Las dos mitades que le faltaban al flujo de RF-31. Van aca y no en
+    # SIN_CRUD_COMPLETO porque son transiciones de estado, igual que /submit:
+    # "aprobar una declaracion" no es "leer una declaracion".
+    "/approve", "/reject",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )
