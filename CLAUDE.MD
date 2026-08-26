@@ -429,11 +429,15 @@ importada llega entera en `N_E` y la pantalla mostraba **"No cumple · 0 %"** �
 una acusacion contra la empresa, en la vista que se exporta a un auditor.
 
 Para la pantalla existe `computeNormComplianceOrNull`, que devuelve `null`
-cuando no hay nada que medir. **`computeNormCompliance` se queda a proposito:**
-la usan los reportes y es el espejo de `resumen_cumplimiento.py`, asi que
-cambiarla sin cambiar la API dejaria a la pantalla y al informe diciendo cosas
-distintas sobre la misma empresa. Lo que falta ahi es el mismo arreglo del lado
-del PDF, que todavia imprime `0%`.
+cuando no hay nada que medir. **Los reportes tambien lo usan desde el 26-ago**
+(#205): el CSV y el PDF imprimen "Sin evaluar" en vez de `0%`, y el promedio por
+planta deja fuera las normas sin evaluar en lugar de contarlas como ceros — una
+planta con dos normas, una al 100 % y otra sin revisar, salia en 50 %.
+
+`computeNormCompliance` **se queda igual**: es el espejo de
+`resumen_cumplimiento.py`. Y al medirlo aparecio que **la API ya lo hacia bien**
+—devuelve `None`, no cero, y su docstring lo explica— asi que el acoplamiento
+que se temia no existia: el `0%` lo ponia solo el frontend.
 
 Y una leccion sobre las pruebas: **habia una que fijaba `toBe(0)` sin preguntar
 que significaba ese cero**, y el `normSemaforo(0) === 'no_cumple'` estaba en otro
@@ -481,6 +485,27 @@ criterio. Ahora vive en `services/declaracion.py` (`DIAS_CRITICO`,
 de aviso 15/7/3/1 de #120: esas dicen **cuando escribirle a alguien**, la
 urgencia dice **de que color se ve**.
 
+**Los reportes salen en PDF por defecto, y el PDF no necesita una libreria.**
+La pantalla exportaba solo CSV y avisaba que *"la generacion de PDF queda
+pendiente de una libreria aprobada"*. **La frase era falsa desde hacia rato**:
+`ReportePdf` produce un PDF de verdad con el motor de impresion del navegador
+—texto seleccionable, enlaces vivos, el papel de quien lo emite— reutilizando el
+HTML de la aplicacion. Lo que faltaba no era la dependencia: era que el selector
+lo ofreciera y que existiera el documento para los otros tipos de reporte.
+
+El defecto es PDF porque un reporte de cumplimiento casi siempre se pide para
+**entregarlo** a un fiscalizador o un certificador. Una planilla no se entrega,
+se procesa. **El CSV no se quito**: esta a un clic en el mismo selector.
+
+Lo que se cede eligiendo el motor del navegador es el control fino de los saltos
+de pagina. Si algun dia hace falta control tipografico, `ReportePdf` es el unico
+punto donde enchufar la libreria.
+
+**Y los dos formatos salen del mismo `Reporte`** (`lib/reports.ts`): `headers` y
+`rows` se calculan una vez, el CSV se deriva y el PDF los pinta. Construirlos por
+separado serian dos reportes con el mismo nombre, y agregar una columna a uno
+dejaria al otro diciendo otra cosa sobre la misma empresa.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -489,7 +514,7 @@ funcionan en la terminal. Un comando por linea.
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
 cd apps/api && python -m pytest         # 544 pruebas, 36 archivos
-cd apps/web && npx vitest run           # 360 pruebas, 29 archivos
+cd apps/web && npx vitest run           # 378 pruebas, 30 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

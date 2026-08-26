@@ -1,0 +1,1 @@
+export { ReporteImprimible } from './ReporteImprimible';

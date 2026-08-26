@@ -62,6 +62,7 @@ export * from './NuevoTenantModal';
 export * from './MapaProcesos';
 export { ReportePdf } from './ReportePdf';
 export { ReporteCumplimientoPdf } from './ReporteCumplimientoPdf/ReporteCumplimientoPdf';
+export { ReporteImprimible } from './ReporteImprimible';
 export * from './EquipoPlataformaView';
 export { PermisosUsuarioModal } from './PermisosUsuarioModal/PermisosUsuarioModal';
 export * from './AspectosAmbientalesTable';
