@@ -61,7 +61,22 @@ export function DashboardHeroCard({ obligation, cumplimientoPct }: DashboardHero
             <Settings className="h-4 w-4" aria-hidden />
           </Link>
         </div>
-        <p className="mt-2 text-3xl font-semibold text-brand-700">{Math.round(cumplimientoPct * 100)}%</p>
+        {/* **`null` no es cero.** Una empresa con la matriz cargada y ninguna
+            evaluacion mostraba "0 %" en la tarjeta principal del tablero: la
+            primera cifra que ve el Admin Empresa al entrar, diciendole que no
+            cumple nada cuando lo que pasa es que nadie ha evaluado todavia. */}
+        {cumplimientoPct === null ? (
+          <p className="mt-2 text-lg font-medium text-slate-500">
+            Sin evaluar
+            <span className="ml-1.5 text-xs font-normal">
+              — aun no hay articulos evaluados
+            </span>
+          </p>
+        ) : (
+          <p className="mt-2 text-3xl font-semibold text-brand-700">
+            {Math.round(cumplimientoPct * 100)}%
+          </p>
+        )}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ class CriticalDeadline(BaseModel):
 
 
 class GlobalMetrics(BaseModel):
-    compliance_percentage: float = Field(
+    compliance_percentage: float | None = Field(
         description=(
             "0 a 100, un decimal. Los articulos 'not_applicable' salen del "
             "denominador; los 'not_evaluated' se quedan dentro, para que una "
@@ -47,7 +47,9 @@ class FacilityMetrics(BaseModel):
     # planta; sin ellos habria que pedir /facilities aparte solo para eso.
     commune_code: str | None = None
     region_code: str | None = None
-    compliance_percentage: float
+    #: `None` = todavia no hay articulos evaluados. **No es cero:** cero
+    #: significa que no se cumple nada, y son cosas distintas.
+    compliance_percentage: float | None
     non_compliant_count: int
     nc_open_count: int
     critical_deadline: CriticalDeadline | None = None

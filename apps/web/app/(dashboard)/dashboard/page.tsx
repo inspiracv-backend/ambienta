@@ -111,11 +111,18 @@ export default function DashboardPage() {
   };
 
   const plantas = metrics?.plantas ?? respaldo.plantas;
+  // El promedio del respaldo **solo sobre las plantas que tienen algo que
+  // medir**. Sumar las que valen `null` como ceros hundia la cifra global: una
+  // empresa con tres plantas y una sola evaluada al 90 % salia en 30 %.
+  //
+  // `??` y no `||`: el global puede ser legitimamente `0` —todo evaluado y
+  // nada cumplido— y con `||` ese cero real caeria al respaldo.
+  const medibles = respaldo.plantas
+    .map((m) => m.cumplimientoPct)
+    .filter((p): p is number => p !== null);
   const cumplimientoGlobal =
     metrics?.cumplimientoGlobal ??
-    (respaldo.plantas.length > 0
-      ? respaldo.plantas.reduce((sum, m) => sum + m.cumplimientoPct, 0) / respaldo.plantas.length
-      : 0);
+    (medibles.length > 0 ? medibles.reduce((sum, p) => sum + p, 0) / medibles.length : null);
 
   const proximoCritico =
     metrics?.proximoCritico ??

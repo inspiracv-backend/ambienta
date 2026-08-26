@@ -7,5 +7,6 @@ export interface DashboardHeroCardProps {
    */
   obligation: VencimientoResumen | null;
   /** Fraccion 0-1, no porcentaje. La tarjeta lo multiplica por 100. */
-  cumplimientoPct: number;
+  /** `null` = todavia no hay articulos evaluados. **No es cero.** */
+  cumplimientoPct: number | null;
 }

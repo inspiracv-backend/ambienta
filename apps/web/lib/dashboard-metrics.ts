@@ -8,7 +8,14 @@ import type { SemaforoStatus } from '@/components/atoms/StatusBadge/StatusBadge.
  */
 export interface PlantMetric {
   plant: Pick<Plant, 'id' | 'nombre' | 'comuna' | 'region'>;
-  cumplimientoPct: number;
+  /**
+   * `null` = la planta **todavia no tiene articulos evaluados**.
+   *
+   * No es cero. Cero dice que no cumple nada; `null` dice que nadie lo ha
+   * mirado. En el seed, dos de las tres plantas estaban en ese estado y el
+   * tablero ejecutivo las mostraba en **0 % de cumplimiento**.
+   */
+  cumplimientoPct: number | null;
   incumplimientos: number;
   noConformidadesActivas: number;
   proximoVencimiento: VencimientoResumen | null;
@@ -43,8 +50,8 @@ export interface ApiDashboardMetrics {
   tenant_id: string;
   generated_at: string;
   global: {
-    /** 0 a 100. Ojo: la UI trabaja en 0 a 1. */
-    compliance_percentage: number;
+    /** 0 a 100, o `null` si no hay nada evaluado. Ojo: la UI trabaja en 0 a 1. */
+    compliance_percentage: number | null;
     articles_evaluated: number;
     articles_non_compliant: number;
     total_obligations: number;
@@ -59,7 +66,7 @@ export interface ApiDashboardMetrics {
     name: string;
     commune_code: string | null;
     region_code: string | null;
-    compliance_percentage: number;
+    compliance_percentage: number | null;
     non_compliant_count: number;
     nc_open_count: number;
     critical_deadline: ApiCriticalDeadline | null;
@@ -72,8 +79,9 @@ export interface ApiDashboardMetrics {
  * Una sola funcion hace la conversion para que el error no se pueda repetir
  * en cada punto de uso.
  */
-function aFraccion(porcentaje: number): number {
-  return porcentaje / 100;
+/** De 0-100 a 0-1, conservando el `null` en vez de convertirlo en cero. */
+function aFraccion(porcentaje: number | null): number | null {
+  return porcentaje === null ? null : porcentaje / 100;
 }
 
 /**
@@ -148,7 +156,10 @@ export function computePlantMetrics(
     const plantObligations = obligations.filter((o) => o.plantId === plant.id);
     const incumplimientos = plantObligations.filter((o) => INCUMPLIMIENTO_STATES.has(o.estado)).length;
     const vigentes = plantObligations.filter((o) => o.estado === 'vigente').length;
-    const cumplimientoPct = plantObligations.length > 0 ? vigentes / plantObligations.length : 0;
+    // Sin obligaciones no hay porcentaje que dar, por la misma razon que en
+    // la API: una planta que nadie evaluo no es una planta que incumple.
+    const cumplimientoPct =
+      plantObligations.length > 0 ? vigentes / plantObligations.length : null;
 
     const proxima =
       [...plantObligations]

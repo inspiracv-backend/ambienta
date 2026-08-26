@@ -28,6 +28,11 @@ function pct(n: number): string {
  * evaluar. El informe estaba declarando incumplida a la empresa por normas que
  * nadie habia revisado todavia.
  */
+/** Un porcentaje que puede no existir todavia. Mismo criterio que `pctNorma`. */
+function pctOpcional(valor: number | null): string {
+  return valor === null ? 'Sin evaluar' : pct(valor);
+}
+
 function pctNorma(n: LegalNorm): string {
   const valor = computeNormComplianceOrNull(n);
   return valor === null ? 'Sin evaluar' : pct(valor);
@@ -64,8 +69,15 @@ export function ReporteCumplimientoPdf({
   const registrar = useRegistrarAuditoria();
 
   const metrics = computePlantMetrics(plants, obligations, nonConformities);
+  // **El promedio solo sobre las plantas medibles.** Una planta sin ninguna
+  // evaluacion vale `null`, no cero: contarla como cero hundia la cifra global
+  // del informe que se le entrega a un fiscalizador — con tres plantas y una
+  // sola evaluada al 90 %, el documento decia 30 %.
+  const medibles = metrics
+    .map((m) => m.cumplimientoPct)
+    .filter((p): p is number => p !== null);
   const cumplimientoGlobal =
-    metrics.length > 0 ? metrics.reduce((s, m) => s + m.cumplimientoPct, 0) / metrics.length : 0;
+    medibles.length > 0 ? medibles.reduce((s, p) => s + p, 0) / medibles.length : null;
   const ncAbiertas = nonConformities.filter((nc) => nc.estado !== 'cerrada');
 
   function handleImprimir() {
@@ -78,7 +90,7 @@ export function ReporteCumplimientoPdf({
       resumen: 'Emitió el informe de cumplimiento en PDF',
       cambios: [
         { campo: 'Plantas incluidas', antes: null, despues: String(plants.length) },
-        { campo: 'Cumplimiento global', antes: null, despues: pct(cumplimientoGlobal) },
+        { campo: 'Cumplimiento global', antes: null, despues: pctOpcional(cumplimientoGlobal) },
       ],
     });
     window.print();
@@ -124,7 +136,7 @@ export function ReporteCumplimientoPdf({
             <dl className="mt-2 grid grid-cols-3 gap-3">
               <div className="rounded border border-slate-200 p-3">
                 <dt className="text-[10px] uppercase tracking-wide text-slate-500">Cumplimiento global</dt>
-                <dd className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">{pct(cumplimientoGlobal)}</dd>
+                <dd className="mt-0.5 text-2xl font-bold tabular-nums text-slate-900">{pctOpcional(cumplimientoGlobal)}</dd>
               </div>
               <div className="rounded border border-slate-200 p-3">
                 <dt className="text-[10px] uppercase tracking-wide text-slate-500">Obligaciones</dt>
@@ -162,7 +174,7 @@ export function ReporteCumplimientoPdf({
                     <td className="py-1.5 pr-2 text-slate-500">
                       {m.plant.comuna}, {m.plant.region}
                     </td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">{pct(m.cumplimientoPct)}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">{pctOpcional(m.cumplimientoPct)}</td>
                     <td
                       className={cn(
                         'py-1.5 text-right tabular-nums',

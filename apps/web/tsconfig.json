@@ -7,7 +7,21 @@
     ],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    // Encendido el 26-ago-2026, y **costo cero errores**: el codigo ya era
+    // estricto, la bandera estaba apagada.
+    //
+    // Estuvo en `false` mientras el tablero mostraba "0 %" en plantas sin
+    // evaluar. El arreglo cambio el tipo a `number | null` y `npx tsc` no
+    // dijo nada: sin `strictNullChecks`, `number | null` se asigna a
+    // `number` y `Math.round(null * 100)` compila. **El typecheck no podia
+    // cazar esa clase de fallo**, que es justo la que este repo lleva
+    // encontrando a mano una y otra vez.
+    //
+    // Ojo si alguien lo apaga para "arreglar" algo: con `strictNullChecks`
+    // a solas salen 9 errores que con `strict` completo no aparecen —
+    // `noImplicitAny` cambia como se infieren los arreglos vacios, que si
+    // no quedan en `never[]`. Va entero o no va.
+    "strict": true,
     "noEmit": true,
     "incremental": true,
     "module": "esnext",
