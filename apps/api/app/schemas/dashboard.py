@@ -1,4 +1,7 @@
 """Contrato del Dashboard. De aca sale el OpenAPI que consume el frontend."""
+from datetime import datetime
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -79,3 +82,59 @@ class DashboardMetrics(BaseModel):
     )
 
     model_config = {"populate_by_name": True}
+
+
+# ── Vista de incumplimientos (#126) ───────────────────────────────────────
+
+class ArticuloEnIncumplimiento(BaseModel):
+    """Un requisito legal que la empresa reconoce que no cumple."""
+
+    article_compliance_id: UUID
+    norm_title: str
+    norm_number: str
+    article_number: str
+    article_heading: str | None
+    #: `None` = evaluado a nivel de empresa, sin planta concreta.
+    facility_name: str | None
+    #: El enlace a la evidencia. **`None` es el caso que importa:** un
+    #: incumplimiento sin nada que mostrar deja a la empresa muda ante una
+    #: fiscalizacion.
+    evidence_url: str | None
+    compliance_method: str | None
+    responsible_user_id: UUID | None
+    assessed_at: datetime | None
+    risk_level: str | None
+
+
+class DeclaracionVencida(BaseModel):
+    """Un tramite que no se presento a tiempo."""
+
+    obligation_id: UUID
+    code: str
+    title: str
+    due_at: datetime | None
+    status: str
+    external_receipt: str | None
+    owner_user_id: UUID | None
+    facility_name: str | None
+    days_overdue: int | None
+
+
+class Incumplimientos(BaseModel):
+    """Lo que la empresa esta incumpliendo ahora mismo.
+
+    Las dos colecciones van separadas a proposito: un articulo incumplido se
+    resuelve con un plan de accion y una declaracion vencida se resuelve
+    presentandola. Mezclarlas haria que la urgencia de una tapara la de la otra.
+    """
+
+    generated_at: datetime
+    articles: list[ArticuloEnIncumplimiento]
+    declarations: list[DeclaracionVencida]
+    #: `true` = la lista se corto en el tope. **Se dice en vez de truncar en
+    #: silencio:** una lista cortada sin avisar se lee como "esto es todo".
+    articles_truncated: bool
+    declarations_truncated: bool
+    #: Cuantos de los articulos listados no tienen evidencia. Va aparte para que
+    #: la pantalla no tenga que recorrer la lista para saberlo.
+    articles_without_evidence: int

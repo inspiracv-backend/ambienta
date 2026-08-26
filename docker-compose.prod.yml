@@ -65,6 +65,7 @@ services:
       - ./db/13_usuario_interno_con_departamento.sql:/docker-entrypoint-initdb.d/13-usuario-interno-departamento.sql:ro
       - ./db/14_ds90_es_de_la_bcn.sql:/docker-entrypoint-initdb.d/14-ds90-bcn.sql:ro
       - ./db/15_declaracion_ante_su_sistema.sql:/docker-entrypoint-initdb.d/15-declaracion-sistema.sql:ro
+      - ./db/16_evidencia_del_articulo.sql:/docker-entrypoint-initdb.d/16-evidencia-articulo.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s

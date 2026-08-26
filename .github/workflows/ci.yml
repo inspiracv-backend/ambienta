@@ -119,7 +119,8 @@ jobs:
                    07_rol_aplicacion 08_perfil_normativo 03_seed_catalogos 02_seed \
                    09_roles_por_codigo 10_acceso_invitado 11_solicitud_de_invitado \
                    12_reportabilidad_retc 13_usuario_interno_con_departamento 14_ds90_es_de_la_bcn \
-                   15_declaracion_ante_su_sistema; do
+                   15_declaracion_ante_su_sistema \
+                   16_evidencia_del_articulo; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"

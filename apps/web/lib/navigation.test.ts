@@ -45,6 +45,7 @@ describe('navItemsParaRol — Superadmin (A0)', () => {
       '/calendario',
       '/auditorias',
       '/no-conformidades',
+      '/incumplimientos',
       '/catalogo-normativo',
       '/gestores',
       '/reportes',

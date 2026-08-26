@@ -50,6 +50,7 @@ SIN_CRUD_COMPLETO = {
     "/support/chatbot": "una conversacion no se edita; se cierra o se retira entera",
     "/obligations/matrix-link": "no es un recurso: es el vinculo de una obligacion con el articulo que la origina (RF-14). Se pone con PUT y se suelta con DELETE sobre la propia obligacion, que es donde vive el dato. No hay `POST` porque el vinculo no se crea aparte, ni `GET` porque ya viaja en la obligacion",
     "/compliance/article-compliance/obligations": "es la relacion leida desde el lado de la matriz (RF-09): las obligaciones que nacieron de un articulo. Editarlas o borrarlas se hace en `/obligations`, que es donde son un recurso; duplicar ahi el CRUD serian dos caminos que mantener coherentes",
+    "/dashboard/incumplimientos": "no es un recurso: es una **vista** sobre dos que ya existen. Cada fila es un `article_compliance` o una `obligation`, y ahi es donde se crean, editan y borran. Darle CRUD propio serian dos caminos para escribir lo mismo, y el dia que uno valide algo que el otro no, la matriz legal y esta pantalla dirian cosas distintas sobre la misma empresa",
     "/obligations/tasks": "las tareas se listan dentro de su obligacion, no sueltas",
     "/documents": "las versiones se listan dentro de su documento",
     "/me": (
