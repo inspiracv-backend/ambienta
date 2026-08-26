@@ -46,6 +46,7 @@ psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1
   -f db/11_solicitud_de_invitado.sql \
   -f db/12_reportabilidad_retc.sql \
   -f db/13_usuario_interno_con_departamento.sql \
+  -f db/14_ds90_es_de_la_bcn.sql \
   -f db/03_seed_catalogos.sql \
   -f db/02_seed.sql
 ```
@@ -79,6 +80,7 @@ bash db/run.sh
 | `11_solicitud_de_invitado.sql` | Vincula la solicitud con la credencial que la abrió (`support_tickets.guest_credential_id`). Sin esto, «el invitado ve solo lo suyo» no se puede cumplir: filtrar por `guest_email` sería **peor que no filtrar**, porque el correo lo escribe la misma persona en el formulario y cualquiera puede poner el de otro. **No crea tablas**, así que hereda RLS y GRANT de `support_tickets`. Idempotente |
 | `12_reportabilidad_retc.sql` | Sistemas sectoriales del RETC y su reportabilidad por instalación (ADR-004, #102 y #103). **Dos tablas y la separación importa:** `retc_systems` es catálogo global sin `tenant_id` —los portales son los mismos para todas— y `facility_retc_reporting` es dato de empresa, con RLS propia. **Un sistema sectorial NO es un sector CIIU**: uno dice *ante quién se declara*, el otro *a qué se dedica la empresa*. Siembra los **12 sectoriales** del portal oficial con su procedencia en cada fila, en `active = false` hasta que negocio los confirme; los 9 de la SMA que menciona ADR-004 **no se siembran** porque no hay fuente verificable. Idempotente |
 | `13_usuario_interno_con_departamento.sql` | RF-11: todo Usuario Interno pertenece a un Departamento. **No es un `NOT NULL` a secas y esa es la decisión:** `user_type` admite cinco valores y solo `internal` y `tenant_admin` son «Usuario Interno». Un `NOT NULL` plano obligaría al Admin Global a pertenecer a un departamento de una empresa cliente, y el día que entrara el primero habría que romper la restricción. Va un CHECK condicionado al tipo. Rellena antes con el primer departamento de la empresa, y **se detiene con un mensaje** si alguna empresa tiene internos y ningún departamento — adivinar por ellas sería inventar estructura organizacional. Idempotente |
+| `14_ds90_es_de_la_bcn.sql` | Mueve el DS 90/2000 de `ISO` a `BCN_LEYCHILE`. **No es cosmetico:** con la fuente equivocada la sincronizacion no lo reconoce como suyo, no lo adopta, y crea la norma real **al lado** de la sembrada. La clasificacion por sector queda pegada a la copia falsa y la matriz de la empresa se vacia sin ningun error a la vista. Solo mueve la fila si sigue en ISO y sin `external_norm_id` — si alguien ya la corrigio a mano, no la toca. Idempotente |
 | `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
 `02_smoke_test.sql` no es parte del despliegue — es la verificación. Corrélo después de cualquier cambio al esquema.

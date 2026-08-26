@@ -62,6 +62,7 @@ services:
       - ./db/11_solicitud_de_invitado.sql:/docker-entrypoint-initdb.d/11-solicitud-de-invitado.sql:ro
       - ./db/12_reportabilidad_retc.sql:/docker-entrypoint-initdb.d/12-reportabilidad-retc.sql:ro
       - ./db/13_usuario_interno_con_departamento.sql:/docker-entrypoint-initdb.d/13-usuario-interno-departamento.sql:ro
+      - ./db/14_ds90_es_de_la_bcn.sql:/docker-entrypoint-initdb.d/14-ds90-bcn.sql:ro
       - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
       # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
       # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —

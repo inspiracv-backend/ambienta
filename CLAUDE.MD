@@ -207,7 +207,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **74 %.** 29 de 39 acciones llegan a la base. Las 10 restantes tienen causa documentada en su propio docstring. El conteo anterior (26 de 37) estaba mal por dentro: decia 10 pendientes y listaba 11 — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
-| Catalogo normativo | **Se alimenta de la BCN.** Normas, versiones y articulado reales. La Ley 19.300 entra con sus 151 partes y su version vigente de 2024-04-10. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
+| Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas.sincronizar_bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
 | Auth — clave local con RUT (RF-06) | **Funcionando desde el 25-ago.** Quien entro por SSO fija RUT y clave en su perfil y despues entra con ellos. **La clave la guarda Clerk, no nosotros** (D1). El RUT viaja como `username` con prefijo `rut`, porque Clerk rechaza los que son solo digitos — y un RUT lo es salvo cuando el verificador es K |
@@ -408,6 +408,17 @@ pegada a la fila sembrada. Duplicar dejaria la clasificacion en la copia falsa y
 la norma real sin nada: **las matrices de las empresas se vaciarian sin ningun
 error a la vista**.
 
+**La BCN devuelve la misma norma varias veces, y el `LIMIT` no la protege.**
+SPARQL cuenta filas, no normas: pedir 5 puede traer 5 filas de 2 normas. `buscar()`
+pide de mas y deduplica por codigo, quedandose con la fila que **mas campos
+resueltos** trae — no con la primera, porque las filas de una misma norma no dicen
+todas lo mismo y la primera suele ser la mas pobre.
+
+**Y la busqueda distingue acentos.** `emision` no encuentra `EMISION` con tilde:
+devuelve **cero resultados y ningun error**, que se lee como "esa norma no esta en
+la BCN". Los terminos de `app/tareas/sincronizar_bcn.py` van sin acentos a
+proposito, y hay una prueba que lo fija.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -415,7 +426,7 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 474 pruebas, 34 archivos
+cd apps/api && python -m pytest         # 487 pruebas, 34 archivos
 cd apps/web && npx vitest run           # 331 pruebas, 26 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```

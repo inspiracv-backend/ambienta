@@ -118,7 +118,7 @@ jobs:
           for f in 01_schema 04_clerk_auth 05_user_permissions 06_ticket_number \
                    07_rol_aplicacion 08_perfil_normativo 03_seed_catalogos 02_seed \
                    09_roles_por_codigo 10_acceso_invitado 11_solicitud_de_invitado \
-                   12_reportabilidad_retc 13_usuario_interno_con_departamento; do
+                   12_reportabilidad_retc 13_usuario_interno_con_departamento 14_ds90_es_de_la_bcn; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"

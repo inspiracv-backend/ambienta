@@ -235,6 +235,35 @@ def db():
         engine.dispose()
 
 
+def _sembrar_sin_adoptar(db, numero: str) -> None:
+    """Deja en el catalogo una norma **sin identificador externo**, como el seed.
+
+    Antes estas pruebas usaban la Ley 19.300 del seed y afirmaban que se
+    adoptaba. **Dejo de funcionar en cuanto el catalogo se sincronizo de
+    verdad**: la 19.300 real ya tiene su `external_norm_id`, asi que la
+    sincronizacion la encuentra por ahi y no hay nada que adoptar — el resultado
+    correcto, medido contra una prueba que media otra cosa.
+
+    Es la misma leccion que ya dejo `test_perfil_empresa.py`: **una prueba que
+    asume datos ajenos mide otra cosa el dia que alguien los toca.** Ahora la
+    prueba pone el estado que quiere medir.
+    """
+    fuente = db.execute(
+        text("SELECT id FROM legal_sources WHERE code = 'BCN_LEYCHILE'")
+    ).scalar_one()
+    pais = db.execute(
+        text("SELECT id FROM countries WHERE name = 'Chile'")
+    ).scalar_one()
+    db.execute(
+        text(
+            "INSERT INTO legal_norms "
+            "(country_id, source_id, norm_type, norm_number, title, status) "
+            "VALUES (:p, :f, 'ley', :n, 'SEMBRADA DE PRUEBA', 'vigente')"
+        ),
+        {"p": pais, "f": fuente, "n": numero},
+    )
+
+
 def _norma(numero="19300", codigo="30667", tipo="ley", versiones=None):
     base = f"http://datos.bcn.cl/recurso/cl/{tipo}/organismo/1994-03-09/{numero}"
     return bcn.NormaBCN(
@@ -267,11 +296,17 @@ class TestAdoptarLoSembrado:
         la copia falsa, y la norma real sin clasificar. Las matrices se vaciarian
         sin ningun error a la vista.
         """
+        numero = f"PRUEBA-{uuid.uuid4().hex[:8]}"
+        _sembrar_sin_adoptar(db, numero)
         antes = db.execute(
-            text("SELECT count(*) FROM legal_norms WHERE norm_number = '19300'")
+            text("SELECT count(*) FROM legal_norms WHERE norm_number = :n"),
+            {"n": numero},
         ).scalar_one()
 
-        r = bcn.sincronizar(db, [_norma()], con_texto=False)
+        r = bcn.sincronizar(
+            db, [_norma(numero=numero, codigo=f"c{uuid.uuid4().hex[:8]}")],
+            con_texto=False,
+        )
 
         assert r.adoptadas == 1
         assert r.nuevas == 0
@@ -535,7 +570,12 @@ class TestElXmlDecideLaVigencia:
 
         monkeypatch.setattr(bcn.urllib.request, "urlopen", revienta)
 
-        r = bcn.sincronizar(db, [_norma()])
+        numero = f"PRUEBA-{uuid.uuid4().hex[:8]}"
+        _sembrar_sin_adoptar(db, numero)
+
+        r = bcn.sincronizar(
+            db, [_norma(numero=numero, codigo=f"c{uuid.uuid4().hex[:8]}")]
+        )
 
         assert r.con_texto == 0
         assert r.adoptadas == 1
