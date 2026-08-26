@@ -58,11 +58,28 @@ describe('computePlantMetrics', () => {
     expect(metrics[1]!.cumplimientoPct).toBe(1);
   });
 
-  it('devuelve 0% en una planta sin obligaciones, sin dividir por cero', () => {
+  it('una planta sin obligaciones no tiene porcentaje, y no divide por cero', () => {
+    // **Esta prueba fijaba el error.** Afirmaba `toBe(0)`, y ese cero llegaba
+    // hasta el tablero ejecutivo: dos de las tres plantas del seed no tienen
+    // una sola evaluacion y aparecian en rojo, con "0 % de cumplimiento".
+    //
+    // La intencion original era buena —que no se divida por cero— y esa parte
+    // se conserva. Lo que estaba mal era el valor con el que se cumplia.
     const [m] = computePlantMetrics([planta('p1')], [], []);
-    expect(m!.cumplimientoPct).toBe(0);
+    expect(m!.cumplimientoPct).toBeNull();
     expect(m!.incumplimientos).toBe(0);
     expect(m!.proximoVencimiento).toBeNull();
+  });
+
+  it('con obligaciones y ninguna vigente el cero SI es un cero medido', () => {
+    // El otro lado: distinguir "sin datos" no puede tapar el incumplimiento
+    // real. Aca hay una obligacion y esta vencida — el cero corresponde.
+    const [m] = computePlantMetrics(
+      [planta('p1')],
+      [obligacion({ id: 'o1', plantId: 'p1', estado: 'vencida' })],
+      [],
+    );
+    expect(m!.cumplimientoPct).toBe(0);
   });
 
   it('elige como próximo vencimiento el más cercano entre los no vigentes', () => {
@@ -248,5 +265,66 @@ describe('fromApiMetrics', () => {
     expect(vm.ncAbiertas).toBe(0);
     expect(vm.plantas).toEqual([]);
     expect(vm.proximoCritico).toBeNull();
+  });
+});
+
+/**
+ * Que "todavía no se sabe" no se muestre como "no cumple nada" (#125).
+ *
+ * **Medido en el seed antes de arreglarlo:** de las tres plantas de la empresa
+ * 1, dos —Faena Antofagasta y Oficina Santiago— tienen **cero evaluaciones de
+ * artículo**, y el tablero ejecutivo las mostraba en rojo con "0 % de
+ * cumplimiento". Es la pantalla que el Admin Empresa mira para decidir dónde
+ * poner recursos: lo mandaba a apagar un incendio que nadie había comprobado.
+ *
+ * La causa era `if total else 0.0` en `services/dashboard.py`, y un
+ * `.get(f.id, {}).get('compliance_percentage', 0.0)` para las plantas que ni
+ * siquiera aparecen en el agregado. `resumen_cumplimiento.py` ya devolvía
+ * `None` en el mismo caso — dos servicios calculando el mismo número, uno bien
+ * y otro no.
+ *
+ * **Ojo con el typecheck:** `apps/web` tiene `"strict": false`, así que
+ * `number | null` pasa por `number` sin error y la aritmética sobre `null` no
+ * se detecta al compilar. Estas pruebas son la única red para esto.
+ */
+describe('sin evaluar no es 0% en el tablero', () => {
+  it('conserva el null de la API en vez de convertirlo en cero', () => {
+    const vm = fromApiMetrics(
+      apiResponse({ global: { ...apiResponse().global, compliance_percentage: null } }),
+    );
+
+    expect(vm.cumplimientoGlobal).toBeNull();
+  });
+
+  it('lo conserva también por planta', () => {
+    const vm = fromApiMetrics(
+      apiResponse({
+        facilities: [
+          {
+            facility_id: 'f1',
+            name: 'Faena Antofagasta',
+            commune_code: '02101',
+            region_code: 'II',
+            compliance_percentage: null,
+            non_compliant_count: 0,
+            nc_open_count: 0,
+            critical_deadline: null,
+          },
+        ],
+      }),
+    );
+
+    expect(vm.plantas[0]!.cumplimientoPct).toBeNull();
+  });
+
+  it('un 0 de la API SÍ llega como 0, no como null', () => {
+    // `null` y `0` viajan distinto y tienen que llegar distinto. Un `??` mal
+    // puesto en el adaptador convertiría el cero medido en "sin evaluar", que
+    // es el error opuesto y igual de grave: taparía un incumplimiento real.
+    const vm = fromApiMetrics(
+      apiResponse({ global: { ...apiResponse().global, compliance_percentage: 0 } }),
+    );
+
+    expect(vm.cumplimientoGlobal).toBe(0);
   });
 });

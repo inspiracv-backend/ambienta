@@ -84,6 +84,7 @@ class ArticleComplianceCreate(BaseModel):
     department_id: UUID | None = None
     compliance_status: str = "pending"
     compliance_method: str | None = None
+    evidence_url: str | None = None
     assessment_reason: str | None = None
     risk_level: str | None = None
     responsible_user_id: UUID | None = None
@@ -98,6 +99,7 @@ class ArticleComplianceRead(OrmBase):
     department_id: UUID | None
     compliance_status: str
     compliance_method: str | None
+    evidence_url: str | None
     assessment_reason: str | None
     risk_level: str | None
     responsible_user_id: UUID | None
@@ -114,6 +116,7 @@ class ArticleComplianceRead(OrmBase):
 class ArticleComplianceUpdate(BaseModel):
     compliance_status: str | None = None
     compliance_method: str | None = None
+    evidence_url: str | None = None
     assessment_reason: str | None = None
     risk_level: str | None = None
     responsible_user_id: UUID | None = None

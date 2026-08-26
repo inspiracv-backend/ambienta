@@ -1,10 +1,25 @@
 import { StatusBadge } from '@/components/atoms';
 import type { MultiPlantTableProps } from './MultiPlantTable.types';
 
-function estadoSemaforo(pct: number) {
+/**
+ * El semaforo de una planta, con `null` — nada evaluado — como `pendiente`.
+ *
+ * **Antes `null` caia en `no_cumple`.** Dos de las tres plantas del seed no
+ * tienen una sola evaluacion, y el tablero ejecutivo las mostraba en rojo con
+ * "0 %": la pantalla que el Admin Empresa mira para decidir donde poner
+ * recursos lo mandaba a apagar un incendio que nadie habia comprobado que
+ * existiera.
+ */
+function estadoSemaforo(pct: number | null) {
+  if (pct === null) return 'pendiente' as const;
   if (pct >= 0.8) return 'cumple' as const;
   if (pct >= 0.5) return 'parcial' as const;
   return 'no_cumple' as const;
+}
+
+/** El porcentaje como texto, o el aviso de que todavia no hay ninguno. */
+function texto(pct: number | null): string {
+  return pct === null ? 'Sin evaluar' : `${Math.round(pct * 100)}%`;
 }
 
 /**
@@ -15,7 +30,18 @@ function estadoSemaforo(pct: number) {
  * Ordenado por peor cumplimiento primero.
  */
 export function MultiPlantTable({ metrics }: MultiPlantTableProps) {
-  const ordered = [...metrics].sort((a, b) => a.cumplimientoPct - b.cumplimientoPct);
+  // Peor cumplimiento primero, **y las plantas sin evaluar al final**.
+  //
+  // Ordenarlas como si valieran cero las pondria arriba del todo, que es el
+  // lugar reservado a lo urgente. Una planta que nadie miro no es la peor: es
+  // una incognita, y encabezar la lista con incognitas tapa los problemas
+  // reales que hay debajo.
+  const ordered = [...metrics].sort((a, b) => {
+    if (a.cumplimientoPct === null && b.cumplimientoPct === null) return 0;
+    if (a.cumplimientoPct === null) return 1;
+    if (b.cumplimientoPct === null) return -1;
+    return a.cumplimientoPct - b.cumplimientoPct;
+  });
 
   return (
     <div className="rounded-card border border-slate-200 bg-white">
@@ -37,7 +63,7 @@ export function MultiPlantTable({ metrics }: MultiPlantTableProps) {
               <td className="px-4 py-3 font-medium text-slate-800">{plant.nombre}</td>
               <td className="px-4 py-3">
                 <StatusBadge status={estadoSemaforo(cumplimientoPct)} />
-                <span className="ml-2 text-slate-500">{Math.round(cumplimientoPct * 100)}%</span>
+                <span className="ml-2 text-slate-500">{texto(cumplimientoPct)}</span>
               </td>
               <td className="px-4 py-3">{incumplimientos}</td>
               <td className="px-4 py-3">{noConformidadesActivas}</td>

@@ -105,7 +105,16 @@ def _cumplimiento_global(db: Session, tenant_id: UUID) -> dict:
         )
     ).one()
 
-    pct = round(cumplen / total * 100, 1) if total else 0.0
+    # **`None` y no `0.0` cuando no hay nada que medir.**
+    #
+    # Un cero se lee como "no cumple nada", y con el articulado real de la BCN
+    # una empresa recien puesta en marcha tiene la matriz cargada y ninguna
+    # evaluacion: el tablero ejecutivo la acusaba de incumplimiento total.
+    #
+    # `resumen_cumplimiento.py` ya devolvia `None` en el mismo caso y lo explica
+    # en su docstring. Este servicio se habia escrito aparte y no heredo la
+    # decision — dos calculos del mismo numero, uno correcto y otro no.
+    pct = round(cumplen / total * 100, 1) if total else None
     return {
         "compliance_percentage": pct,
         "articles_evaluated": total,
@@ -150,7 +159,7 @@ def _cumplimiento_por_facility(db: Session, tenant_id: UUID) -> dict[UUID, dict]
 
     return {
         fid: {
-            "compliance_percentage": round(ok / total * 100, 1) if total else 0.0,
+            "compliance_percentage": round(ok / total * 100, 1) if total else None,
             "articles_non_compliant": malos,
         }
         for fid, total, ok, malos in filas
@@ -320,8 +329,12 @@ def _metricas_por_facility(
             "name": f.name,
             "commune_code": f.commune_code,
             "region_code": f.region_code,
+            # Una planta sin una sola evaluacion **no aparece en el diccionario**,
+            # asi que el valor por defecto es el que se muestra. Era `0.0`: dos
+            # de las tres plantas del seed salian en "0 % de cumplimiento" sin
+            # que nadie hubiera evaluado nada en ellas.
             "compliance_percentage": cumplimiento.get(f.id, {}).get(
-                "compliance_percentage", 0.0
+                "compliance_percentage", None
             ),
             "non_compliant_count": cumplimiento.get(f.id, {}).get(
                 "articles_non_compliant", 0

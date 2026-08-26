@@ -130,6 +130,11 @@ class ArticleCompliance(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
         String(24), nullable=False, server_default="pending"
     )
     compliance_method: Mapped[str | None] = mapped_column(Text)
+    # El enlace a la evidencia (db/16). **Faltaba, y `evaluate_article()` se
+    # lo asignaba igual:** SQLAlchemy deja poner atributos sueltos en una
+    # instancia y no los persiste, asi que el endpoint respondia 200 y el
+    # dato se perdia sin que nada avisara.
+    evidence_url: Mapped[str | None] = mapped_column(Text)
     assessment_reason: Mapped[str | None] = mapped_column(Text)
     risk_level: Mapped[str | None] = mapped_column(String(16))
     responsible_user_id: Mapped[PyUUID | None] = mapped_column(

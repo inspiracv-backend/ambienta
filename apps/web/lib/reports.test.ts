@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Audit, LegalNorm, NonConformity, Obligation, Plant } from '@ambienta/shared';
 import {
   buildAuditFolderContent,
@@ -398,5 +398,67 @@ describe('los dos formatos salen del mismo reporte', () => {
     expect(buildMatrizLegalReport([], []).titulo).toMatch(/Matriz Legal/);
     expect(buildNoConformidadesReport([], [], '', '').titulo).toMatch(/No Conformidades/);
     expect(buildCumplimientoReport([], [], [], '', '').titulo).toMatch(/Cumplimiento/);
+  });
+});
+
+/**
+ * Que el CSV se abra bien en Excel (#127, RF-57).
+ *
+ * **Sin el BOM, Excel en Windows asume la codificación local** y los acentos
+ * salen rotos: "Fecha detección" se ve como "Fecha detecciÃ³n". Los encabezados
+ * de estos reportes llevan acentos y los títulos de las normas de la BCN vienen
+ * en mayúsculas con tilde ("ESTABLECE NORMA DE EMISIÓN..."), así que el archivo
+ * entero se ve mal — y el usuario concluye, con razón, que el sistema exporta
+ * basura.
+ *
+ * El `charset=utf-8` del tipo MIME no alcanza: Excel no lo mira, mira los
+ * primeros bytes del archivo.
+ */
+describe('el CSV se abre bien en Excel', () => {
+  let creado: { partes: unknown[]; tipo: string } | null = null;
+
+  beforeEach(() => {
+    creado = null;
+    // `Blob` se intercepta para poder mirar lo que se escribe: en jsdom no hay
+    // forma de leer el contenido de un Blob de vuelta.
+    vi.stubGlobal(
+      'Blob',
+      class {
+        constructor(partes: unknown[], opts: { type: string }) {
+          creado = { partes, tipo: opts.type };
+        }
+      },
+    );
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('un .csv sale con el BOM al principio', () => {
+    downloadTextFile('reporte.csv', 'Planta,Fecha detección\nNorte,01 ago', 'text/csv');
+
+    expect(String(creado!.partes[0])).toMatch(/^﻿/);
+  });
+
+  it('y el contenido sigue completo detrás del BOM', () => {
+    // El BOM se agrega, no reemplaza. Una prueba que solo mirara el primer
+    // carácter pasaría con el archivo vacío.
+    downloadTextFile('reporte.csv', 'Planta,Fecha detección', 'text/csv');
+
+    expect(String(creado!.partes[0])).toBe('﻿Planta,Fecha detección');
+  });
+
+  it('un archivo que NO es csv no lo lleva', () => {
+    // Metérselo a un .txt o a un JSON lo ensuciaría: quien lo lea con otra
+    // herramienta vería tres bytes basura al principio.
+    downloadTextFile('carpeta-auditoria.txt', 'CARPETA DE AUDITORÍA', 'text/plain');
+
+    expect(String(creado!.partes[0])).toBe('CARPETA DE AUDITORÍA');
+  });
+
+  it('reconoce la extensión sin importar mayúsculas', () => {
+    downloadTextFile('REPORTE.CSV', 'a,b', 'text/csv');
+
+    expect(String(creado!.partes[0])).toMatch(/^﻿/);
   });
 });

@@ -62,7 +62,7 @@ const EN_20_DIAS = new Date(Date.now() + 20 * 86_400_000).toISOString();
 
 function obligacionApi(extra: Record<string, unknown> = {}) {
   return {
-    id: 'ob-1',
+    id: ID,
     tenant_id: 't-1',
     code: 'OBL-SIDREP-2026S1',
     title: 'Declaracion SIDREP',
@@ -73,13 +73,26 @@ function obligacionApi(extra: Record<string, unknown> = {}) {
   };
 }
 
+/** El id de la obligacion que devuelve la API en estas pruebas. */
+const ID = 'ob-1';
+
 async function montar(filas: Record<string, unknown>[]) {
   iniciarSesionComo('admin_empresa');
   get.mockImplementation((ruta: string) =>
     Promise.resolve(ruta.startsWith('/obligations') ? filas : []),
   );
   const r = renderHook(() => useObligations(), { wrapper });
-  await waitFor(() => expect(r.result.current.obligations.length).toBeGreaterThan(0));
+
+  // **Se espera la fila de la API, no que la lista deje de estar vacia.**
+  //
+  // El store arranca con `mockObligations` —17 entradas— asi que
+  // `length > 0` es cierto desde el primer render y el `waitFor` no esperaba
+  // nada: las afirmaciones corrian contra los datos de ejemplo.
+  //
+  // En local ganaba la carrera y pasaba; **en CI no**, y ahi salio.
+  await waitFor(() =>
+    expect(r.result.current.obligations.some((o) => o.id === ID)).toBe(true),
+  );
   return r;
 }
 
@@ -92,7 +105,7 @@ describe('el semaforo lo decide el servidor', () => {
   it('usa la urgencia que llega en la respuesta', async () => {
     const { result } = await montar([obligacionApi({ urgencia: 'critica' })]);
 
-    expect(result.current.obligations[0]!.estado).toBe('por_vencer');
+    expect(result.current.obligations.find((o) => o.id === ID)!.estado).toBe('por_vencer');
   });
 
   it('a 20 dias obedece al servidor, no a su propia cuenta', async () => {
@@ -101,7 +114,7 @@ describe('el semaforo lo decide el servidor', () => {
     // tramo es de 15. Gana el servidor.
     const { result } = await montar([obligacionApi({ urgencia: 'vigente' })]);
 
-    expect(result.current.obligations[0]!.estado).toBe('vigente');
+    expect(result.current.obligations.find((o) => o.id === ID)!.estado).toBe('vigente');
   });
 
   it('una aceptada con plazo pasado no sale vencida', async () => {
@@ -113,7 +126,7 @@ describe('el semaforo lo decide el servidor', () => {
       }),
     ]);
 
-    expect(result.current.obligations[0]!.estado).toBe('vigente');
+    expect(result.current.obligations.find((o) => o.id === ID)!.estado).toBe('vigente');
   });
 
   it('rechazada gana sobre la urgencia, porque no habla del plazo', async () => {
@@ -123,7 +136,7 @@ describe('el semaforo lo decide el servidor', () => {
       obligacionApi({ status: 'rejected', urgencia: 'vigente' }),
     ]);
 
-    expect(result.current.obligations[0]!.estado).toBe('sin_evidencia');
+    expect(result.current.obligations.find((o) => o.id === ID)!.estado).toBe('sin_evidencia');
   });
 
   it('sin urgencia en la respuesta no inventa tramos', async () => {
@@ -131,7 +144,7 @@ describe('el semaforo lo decide el servidor', () => {
     // reimplementara los tramos volveria a haber dos criterios.
     const { result } = await montar([obligacionApi()]);
 
-    expect(result.current.obligations[0]!.estado).toBe('vigente');
+    expect(result.current.obligations.find((o) => o.id === ID)!.estado).toBe('vigente');
   });
 
   it('sin urgencia, lo vencido igual se ve vencido', async () => {
@@ -139,6 +152,6 @@ describe('el semaforo lo decide el servidor', () => {
       obligacionApi({ due_at: new Date(Date.now() - 86_400_000).toISOString() }),
     ]);
 
-    expect(result.current.obligations[0]!.estado).toBe('vencida');
+    expect(result.current.obligations.find((o) => o.id === ID)!.estado).toBe('vencida');
   });
 });

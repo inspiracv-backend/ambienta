@@ -48,6 +48,7 @@ psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1
   -f db/13_usuario_interno_con_departamento.sql \
   -f db/14_ds90_es_de_la_bcn.sql \
   -f db/15_declaracion_ante_su_sistema.sql \
+  -f db/16_evidencia_del_articulo.sql \
   -f db/03_seed_catalogos.sql \
   -f db/02_seed.sql
 ```
@@ -83,6 +84,7 @@ bash db/run.sh
 | `13_usuario_interno_con_departamento.sql` | RF-11: todo Usuario Interno pertenece a un Departamento. **No es un `NOT NULL` a secas y esa es la decisión:** `user_type` admite cinco valores y solo `internal` y `tenant_admin` son «Usuario Interno». Un `NOT NULL` plano obligaría al Admin Global a pertenecer a un departamento de una empresa cliente, y el día que entrara el primero habría que romper la restricción. Va un CHECK condicionado al tipo. Rellena antes con el primer departamento de la empresa, y **se detiene con un mensaje** si alguna empresa tiene internos y ningún departamento — adivinar por ellas sería inventar estructura organizacional. Idempotente |
 | `14_ds90_es_de_la_bcn.sql` | Mueve el DS 90/2000 de `ISO` a `BCN_LEYCHILE`. **No es cosmetico:** con la fuente equivocada la sincronizacion no lo reconoce como suyo, no lo adopta, y crea la norma real **al lado** de la sembrada. La clasificacion por sector queda pegada a la copia falsa y la matriz de la empresa se vacia sin ningun error a la vista. Solo mueve la fila si sigue en ISO y sin `external_norm_id` — si alguien ya la corrigio a mano, no la toca. Idempotente |
 | `15_declaracion_ante_su_sistema.sql` | La obligacion declara **ante que portal se presenta** (#114). Antes el sistema se deducia partiendo el codigo por guiones (`OBL-SIDREP-2026S1`), y el codigo lo escribe una persona en texto libre: uno con otra forma dejaba la obligacion sin sistema **y sin ningun error** — el boton de ir al sistema oficial simplemente no aparecia. La referencia va a `retc_systems`, que es donde vive `url_oficial`; copiarla en cada fila obligaria a corregirlas una por una el dia que el Estado mueva un portal. Es **opcional**: un compromiso de RCA no se presenta ante ninguno. Idempotente |
+| `16_evidencia_del_articulo.sql` | La evidencia de un articulo evaluado (#126). **Se estaba perdiendo en silencio, con respuesta 200:** el dialogo la pide, el store la manda como `evidence_url`, `evaluate_article()` la asignaba... y la columna no existia. SQLAlchemy acepta que se le ponga un atributo cualquiera a una instancia y no lo persiste, asi que nada fallaba — pegabas el enlace, veias «guardado», recargabas y no estaba. Va como URL y no por `entity_documents` porque RF-07 pide adjuntar desde Drive u OneDrive: un enlace a un archivo que vive fuera, no un documento nuestro con versiones. Trae un indice parcial para separar lo que incumple **sin nada que mostrar**, que es lo que hay que atender primero. Idempotente |
 | `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
 `02_smoke_test.sql` no es parte del despliegue — es la verificación. Corrélo después de cualquier cambio al esquema.

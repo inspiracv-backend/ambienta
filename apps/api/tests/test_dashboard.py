@@ -31,25 +31,36 @@ class SesionQueCompila:
     porque confundirlas hace pasar tests que en realidad no ejercitan nada:
 
     - `execute(...).one()` da los contadores agregados
-    - `execute(...).all()` da las filas de un GROUP BY
+    - `execute(...).all()` da las filas de un GROUP BY — hay dos, con formas
+      distintas, y se distinguen por la tabla que aparece en el SQL
     - `execute(...).scalars()` da las obligaciones del DISTINCT ON
     - `scalars(...)` da las plantas
     """
 
-    def __init__(self, obligaciones=None, facilities=None, agrupadas=None):
+    def __init__(self, obligaciones=None, facilities=None, agrupadas=None, nc_por_planta=None):
         self.sql: list[str] = []
         self._obligaciones = obligaciones or []
         self._facilities = facilities or []
         self._agrupadas = agrupadas or []
+        self._nc_por_planta = nc_por_planta or []
 
-    def _compilar(self, stmt) -> None:
-        self.sql.append(str(stmt.compile(dialect=postgresql.dialect())))
+    def _compilar(self, stmt) -> str:
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        self.sql.append(sql)
+        return sql
 
     def execute(self, stmt):
-        self._compilar(stmt)
+        sql = self._compilar(stmt)
         res = MagicMock()
         res.one.return_value = (0, 0, 0)
-        res.all.return_value = self._agrupadas
+        # **Hay DOS `GROUP BY` distintos y devuelven formas distintas:**
+        # cumplimiento por planta da 4 columnas y no conformidades abiertas da
+        # 2. El doble devolvia la misma lista a los dos, asi que una tupla de 4
+        # reventaba el segundo con "too many values to unpack" — un fallo que se
+        # lee como un error del servicio y es del doble.
+        res.all.return_value = (
+            self._nc_por_planta if "nonconformities" in sql else self._agrupadas
+        )
         res.scalars.return_value.all.return_value = self._obligaciones
         return res
 
@@ -72,6 +83,21 @@ def _obligacion(dias: int, titulo: str, facility_id=None):
 
 
 # --- Regresion de columnas ---------------------------------------------------
+
+
+def _planta(nombre: str):
+    """Una planta falsa **con su nombre puesto de verdad**.
+
+    `MagicMock(name="X")` NO crea el atributo `name`: `name` es un parametro
+    reservado del constructor que bautiza al propio mock. El atributo queda
+    siendo otro `MagicMock`, asi que `f["name"] == "Planta Calama"` falla con un
+    mensaje que no se parece en nada a la causa.
+
+    Hay que asignarlo despues de construirlo.
+    """
+    m = MagicMock(id=uuid4())
+    m.name = nombre
+    return m
 
 
 def test_todas_las_consultas_compilan():
@@ -144,13 +170,40 @@ def test_forma_de_la_respuesta():
     }
 
 
-def test_sin_datos_devuelve_ceros_no_nulos():
-    """Un tenant recien creado muestra 0, no null ni error."""
+def test_sin_datos_no_revienta_y_no_acusa():
+    """Un tenant recien creado no rompe el tablero **ni sale acusado**.
+
+    ## Esta prueba decia lo contrario, y fijaba el error
+
+    Se llamaba `test_sin_datos_devuelve_ceros_no_nulos` y afirmaba
+    `compliance_percentage == 0.0` con el comentario *"muestra 0, no null ni
+    error"*. La intencion —que no reviente ni devuelva algo que la pantalla no
+    sepa pintar— era buena; el valor elegido para cumplirla, no.
+
+    **Un cero se lee como "no cumple nada".** Medido en el seed: de las tres
+    plantas de la empresa 1, dos no tienen una sola evaluacion, y el tablero
+    las mostraba en rojo con "0 % de cumplimiento". Es la pantalla que el Admin
+    Empresa mira para decidir donde poner recursos.
+
+    ## Dos servicios decidieron distinto sobre el mismo numero
+
+    `services/resumen_cumplimiento.py` ya devolvia `None` en este caso, y lo
+    argumenta en su docstring: *"Cero significa 'no cumple nada'; `None`
+    significa 'todavia no hay nada que medir'. Mostrar 0 % a una empresa recien
+    creada seria una acusacion falsa"*.
+
+    `services/dashboard.py` se escribio aparte y no heredo esa decision. Gana la
+    que trae el razonamiento; lo que no puede sostenerse es que el mismo numero
+    valga `0.0` en un endpoint y `None` en otro.
+
+    Los conteos **si son cero de verdad**: cero no conformidades abiertas es un
+    hecho medido, no una ausencia de datos.
+    """
     db = SesionQueCompila()
 
     g = svc.get_dashboard_metrics(db, TENANT)["global"]
 
-    assert g["compliance_percentage"] == 0.0
+    assert g["compliance_percentage"] is None
     assert g["nc_open"] == 0
     assert g["total_obligations"] == 0
 
@@ -247,3 +300,96 @@ def test_una_obligacion_sin_fecha_no_entra_en_la_lista():
     res = svc.get_dashboard_metrics(db, TENANT)
 
     assert res["upcoming_deadlines"] == []
+
+
+# ── Que una planta sin evaluar no salga acusada (#125) ────────────────────
+#
+# **El desglose por planta no tenia ninguna prueba, y ahi estaba el dano real.**
+# Medido en el seed antes de arreglarlo: de las tres plantas de la empresa 1,
+# dos —Faena Antofagasta y Oficina Santiago— tienen cero evaluaciones de
+# articulo, y el endpoint las devolvia con `compliance_percentage: 0.0`.
+#
+# Lo delato la mutacion: revertir el arreglo por planta **sobrevivia**, porque
+# la unica prueba del caso miraba el agregado global.
+
+def test_una_planta_sin_evaluaciones_no_dice_cero():
+    """La planta no aparece en el GROUP BY, asi que manda el valor por defecto.
+
+    Ese defecto era `0.0`. Una planta que nadie evaluo no es una planta que
+    incumple: son estados distintos y el tablero ejecutivo los pintaba igual.
+    """
+    planta = _planta("Faena Antofagasta")
+    db = SesionQueCompila(facilities=[planta], agrupadas=[])
+
+    metricas = svc.get_dashboard_metrics(db, TENANT)["facilities"]
+
+    assert metricas[0]["compliance_percentage"] is None
+
+
+def test_una_planta_evaluada_y_sin_nada_cumplido_SI_dice_cero():
+    """El otro lado: distinguir "sin datos" no puede tapar el incumplimiento.
+
+    Aca hay cuatro articulos evaluados y ninguno cumplido — el cero es un cero
+    medido y tiene que verse como tal.
+    """
+    planta = _planta("Planta Calama")
+    # (facility_id, total, cumplen, incumplen)
+    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 4, 0, 4)])
+
+    metricas = svc.get_dashboard_metrics(db, TENANT)["facilities"]
+
+    assert metricas[0]["compliance_percentage"] == 0.0
+
+
+def test_el_porcentaje_por_planta_se_calcula_sobre_sus_propios_articulos():
+    """Y no sobre el total de la empresa: cada planta responde por lo suyo."""
+    planta = _planta("Planta Calama")
+    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 5, 2, 1)])
+
+    metricas = svc.get_dashboard_metrics(db, TENANT)["facilities"]
+
+    assert metricas[0]["compliance_percentage"] == 40.0
+    assert metricas[0]["non_compliant_count"] == 1
+
+
+def test_dos_plantas_una_con_datos_y_otra_sin_ellos():
+    """El caso exacto del seed, y el que hay que poder distinguir de un vistazo."""
+    con_datos = _planta("Planta Calama")
+    sin_datos = _planta("Oficina Santiago")
+    db = SesionQueCompila(
+        facilities=[con_datos, sin_datos],
+        agrupadas=[(con_datos.id, 5, 2, 1)],
+    )
+
+    por_nombre = {
+        f["name"]: f["compliance_percentage"]
+        for f in svc.get_dashboard_metrics(db, TENANT)["facilities"]
+    }
+
+    assert por_nombre["Planta Calama"] == 40.0
+    assert por_nombre["Oficina Santiago"] is None
+
+
+def test_una_planta_con_TODO_no_aplicable_tampoco_dice_cero():
+    """La planta si aparece en el GROUP BY, pero con denominador cero.
+
+    Es un caso distinto del anterior y por eso necesita su propia prueba: aca
+    **si hay evaluaciones**, solo que todas son `not_applicable`, que salen del
+    denominador. La fila existe, `total` vale 0, y la division no se puede
+    hacer.
+
+    Lo delato una mutacion que sobrevivio: quitar el `if total else None` de
+    `_cumplimiento_por_facility` no hacia fallar nada, porque las otras pruebas
+    solo cubrian la planta que **no aparece** en el agrupado.
+
+    Cero seria decir que la planta no cumple nada cuando lo que pasa es que no
+    le aplica nada. Una minera cuya oficina administrativa tiene todos los
+    articulos de emisiones marcados "no aplica" es exactamente este caso.
+    """
+    planta = _planta("Oficina Santiago")
+    # (facility_id, total_aplicable, cumplen, incumplen) — todo no aplicable
+    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 0, 0, 0)])
+
+    metricas = svc.get_dashboard_metrics(db, TENANT)["facilities"]
+
+    assert metricas[0]["compliance_percentage"] is None

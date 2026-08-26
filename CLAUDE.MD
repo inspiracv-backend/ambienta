@@ -217,6 +217,8 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Usuario Interno con departamento (RF-11) | **Exigido por la base desde el 25-ago.** CHECK condicionado al tipo: solo `internal` y `tenant_admin`, porque un Admin Global no pertenece a un departamento de una empresa cliente. Borrar un departamento con gente dentro responde **409** hasta reasignarla |
 | Matriz Legal ↔ Obligaciones | **Cerrado el 26-ago (#110), y era mas que un vinculo que faltaba.** La obligacion se cuelga de la **evaluacion** del articulo y no del articulo del catalogo, que es global. Los dos sentidos existen y la norma, la planta y el responsable se derivan de la evaluacion. Al medirlo aparecio que `POST /obligations/` aceptaba `article_compliance_id` sin mirarlo: **la empresa B podia colgar su obligacion de la evaluacion de la empresa A** — ver abajo |
 | Declaraciones y calendario RETC | **Cerrada el 26-ago (epica #21).** El flujo de RF-31 completo —presentar, aceptar, rechazar con motivo— con las transiciones declaradas en un solo lugar, el folio del portal exigido para aceptar, la urgencia calculada en el servidor y el recordatorio que adjunta la plantilla del sistema. **`fulfill` respondia 422 en el 100 % de los casos** desde siempre: escribia un estado que el CHECK no admite. Lo que NO entra: el repositorio de plantillas Excel esta vacio a proposito — ver abajo |
+| Dashboard ejecutivo | **Corregido el 26-ago (#125).** Dos de las tres plantas del seed no tienen una sola evaluacion y el tablero las mostraba **en rojo con 0 %** — cuarta vez que aparece el mismo error en esta serie. Ahora `null` es `Sin evaluar`, y esas plantas van al **final** de la tabla en vez de encabezarla como si fueran las peores |
+| Incumplimientos (#126) | **Nueva el 26-ago.** `/incumplimientos` lista articulos incumplidos y declaraciones vencidas, **con lo que no tiene evidencia primero**. Al construirla aparecio que `evidence_url` se perdia en silencio con respuesta 200: la columna no existia — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -506,6 +508,32 @@ punto donde enchufar la libreria.
 separado serian dos reportes con el mismo nombre, y agregar una columna a uno
 dejaria al otro diciendo otra cosa sobre la misma empresa.
 
+**El typecheck del frontend no cazaba errores de `null`, y ahora si.**
+`apps/web` tenia **`"strict": false`**. Al arreglar el tablero cambie un tipo a
+`number | null` y `npx tsc` no dijo nada: sin `strictNullChecks`,
+`number | null` se asigna a `number` y `Math.round(null * 100)` compila. Hubo
+que encontrar cada sitio a mano.
+
+Medido antes de encenderlo: `strict` completo cuesta **cero errores** — el
+codigo ya era estricto, la bandera estaba apagada. **Ojo con la trampa si
+alguien lo apaga para "arreglar" algo:** con `strictNullChecks` a solas salen 9
+errores que con `strict` entero no aparecen, porque `noImplicitAny` cambia como
+se infieren los arreglos vacios (quedan en `never[]`). Va entero o no va.
+
+**El CSV llevaba los acentos rotos en Excel.** Se exportaba UTF-8 **sin BOM**, y
+Excel en Windows asume la codificacion local: "Fecha deteccion" con tilde salia
+como `Fecha detecciÃ³n`, y los titulos de la BCN vienen en mayusculas con tilde,
+asi que el archivo entero se veia mal. El `charset=utf-8` del tipo MIME no
+alcanza — Excel mira los primeros bytes, no la cabecera. El BOM se agrega
+**solo a los `.csv`**: metérselo a un `.txt` dejaria tres bytes basura al
+principio para cualquier otra herramienta.
+
+**Un arnes de mutacion sin linea base miente.** Me paso en esta serie: una
+prueba ya estaba en rojo —fijaba el comportamiento viejo— asi que **todas las
+mutaciones salian "DETECTADA"** sin que ninguna prueba las estuviera cazando.
+Con la linea base arreglada, dos de tres sobrevivian. **Comprobar que la suite
+este verde antes de mutar**, y negarse a informar si no lo esta.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -513,8 +541,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 544 pruebas, 36 archivos
-cd apps/web && npx vitest run           # 378 pruebas, 30 archivos
+cd apps/api && python -m pytest         # 562 pruebas, 37 archivos
+cd apps/web && npx vitest run           # 406 pruebas, 32 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 
