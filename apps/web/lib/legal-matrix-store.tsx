@@ -14,6 +14,11 @@ interface LegalMatrixContextValue {
   loading: boolean;
   updateArticulo: (normId: string, articuloId: string, updates: Partial<Articulo>) => void;
   setIncluidoEnCalculo: (normId: string, articuloId: string, incluido: boolean) => void;
+  generarObligacion: (
+    normId: string,
+    articuloId: string,
+    titulo: string,
+  ) => Promise<{ id: string; code: string }>;
   addNorm: (input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) => void;
   setNormPlants: (normId: string, plantIds: string[]) => void;
 }
@@ -603,6 +608,50 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   }
 
   /**
+   * Genera una obligacion desde un articulo de la matriz (RF-09, #110).
+   *
+   * **Necesita que el articulo este evaluado**, porque la obligacion se cuelga
+   * de `article_compliance` y no del articulo del catalogo — que es global y no
+   * sabria de que empresa ni de que planta es. Si nadie lo evaluo todavia, se
+   * crea la fila de evaluacion en estado `pending`: dejar que el boton falle
+   * con un error tecnico seria peor que crear el registro que igual va a hacer
+   * falta.
+   *
+   * No es optimista a proposito. Las demas escrituras de este store pintan el
+   * cambio y revierten si la API falla, porque el usuario ve el resultado en la
+   * misma pantalla. Aca el resultado es **otra pantalla** —el detalle de la
+   * obligacion— y navegar hacia algo que quiza no existe deja al usuario en un
+   * 404 sin saber por que.
+   */
+  async function generarObligacion(normId: string, articuloId: string, titulo: string) {
+    if (!user?.tenantId) throw new Error('Sin sesion no se puede generar una obligacion.');
+    const opts = { tenantId: user.tenantId };
+
+    let evaluacion = evaluacionRef.current.get(articuloId);
+
+    if (!evaluacion) {
+      const matrixNormId = matrizNormaRef.current.get(normId);
+      if (!matrixNormId) {
+        throw new Error('Agregala a la matriz legal antes de generar obligaciones.');
+      }
+      const creada = await api.post<Record<string, unknown>>(
+        '/compliance/article-compliance',
+        { matrix_norm_id: matrixNormId, article_id: articuloId, compliance_status: 'pending' },
+        opts,
+      );
+      evaluacion = String(creada.id);
+      evaluacionRef.current.set(articuloId, evaluacion);
+    }
+
+    const obligacion = await api.post<Record<string, unknown>>(
+      `/compliance/article-compliance/${evaluacion}/obligations`,
+      { title: titulo },
+      opts,
+    );
+    return { id: String(obligacion.id), code: String(obligacion.code) };
+  }
+
+  /**
    * **Esto todavía no llega a la base, pero el bloqueo se redujo a la mitad.**
    *
    * Los dos identificadores que exige `POST /catalog/norms` **ya se pueden
@@ -716,7 +765,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <LegalMatrixContext.Provider value={{ norms, loading, updateArticulo, setIncluidoEnCalculo, addNorm, setNormPlants }}>
+    <LegalMatrixContext.Provider value={{ norms, loading, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
       {children}
     </LegalMatrixContext.Provider>
   );

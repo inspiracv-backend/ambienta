@@ -5,9 +5,11 @@ from sqlalchemy.orm import Session
 
 from ..crud.obligations import crud_obligation, crud_task
 from ..deps import get_tenant_db, get_tenant_id
-from ._comun import borrar_o_404, obtener_o_404
+from ..crud.compliance import crud_article_compliance, crud_matrix_norm
+from ._comun import borrar_o_404, obtener_o_404, validar_visible
 from ..schemas.obligations import (
     ObligationCreate,
+    VincularAMatriz,
     ObligationRead,
     ObligationUpdate,
     TaskCreate,
@@ -37,6 +39,13 @@ def create_obligation(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    # **Las claves foraneas no pasan por RLS.** Sin estas dos lineas, una
+    # empresa podia colgar su obligacion de la evaluacion de otra: medido antes
+    # de escribirlas, un id inventado daba 422 y uno real ajeno daba **201**.
+    validar_visible(crud_article_compliance, db, data.article_compliance_id,
+                    campo="article_compliance_id")
+    validar_visible(crud_matrix_norm, db, data.matrix_norm_id, campo="matrix_norm_id")
+
     obj = crud_obligation.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return obj
@@ -47,7 +56,68 @@ def update_obligation(obligation_id: UUID, data: ObligationUpdate, db: Session =
     obj = crud_obligation.get(db, obligation_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Obligation not found")
+    validar_visible(crud_article_compliance, db, data.article_compliance_id,
+                    campo="article_compliance_id")
+    validar_visible(crud_matrix_norm, db, data.matrix_norm_id, campo="matrix_norm_id")
+
     obj = crud_obligation.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+# ── Vinculo con la Matriz Legal (RF-14) ──────────────────────────────────
+
+@router.put(
+    "/{obligation_id}/matrix-link",
+    response_model=ObligationRead,
+    tags=["business-logic"],
+    summary="Vincular la obligacion a un articulo de la Matriz Legal",
+    description=(
+        "Ata una obligacion existente al articulo que la origina (RF-14): el "
+        "sentido inverso a generarla desde la matriz.\n\n"
+        "La norma y la planta se **reescriben** desde la evaluacion, para que "
+        "las tres referencias no puedan contradecirse. Un articulo de otra "
+        "empresa responde 422, igual que uno inexistente — distinguirlos "
+        "permitiria enumerar identificadores ajenos."
+    ),
+)
+def vincular_a_matriz(
+    obligation_id: UUID,
+    data: VincularAMatriz,
+    db: Session = Depends(get_tenant_db),
+):
+    from ..services.vinculo_matriz_obligacion import EvaluacionInvisible, vincular
+
+    obj = obtener_o_404(crud_obligation, db, obligation_id, recurso="Obligation")
+    try:
+        obj = vincular(db, obligacion=obj, article_compliance_id=data.article_compliance_id)
+    except EvaluacionInvisible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+    db.commit()
+    return obj
+
+
+@router.delete(
+    "/{obligation_id}/matrix-link",
+    response_model=ObligationRead,
+    tags=["business-logic"],
+    summary="Soltar la obligacion de la Matriz Legal",
+    description=(
+        "Quita el vinculo **sin borrar la obligacion**: sigue existiendo y "
+        "venciendo. Lo que se pierde es la trazabilidad hacia el requisito que "
+        "la origino, y por eso es una operacion propia y no un efecto colateral "
+        "de editar un campo cualquiera.\n\n"
+        "Responde 200 con la obligacion ya suelta, y no 204, porque el recurso "
+        "sigue existiendo y quien llama necesita ver como quedo."
+    ),
+)
+def desvincular_de_matriz(obligation_id: UUID, db: Session = Depends(get_tenant_db)):
+    from ..services.vinculo_matriz_obligacion import desvincular
+
+    obj = obtener_o_404(crud_obligation, db, obligation_id, recurso="Obligation")
+    obj = desvincular(db, obligacion=obj)
     db.commit()
     return obj
 

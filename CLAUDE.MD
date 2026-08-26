@@ -215,6 +215,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Reportabilidad RETC | **Modelo y API desde el 25-ago** (ADR-004). `retc_systems` dice que portales existen; `facility_retc_reporting` cual le toca a cada planta, con los 5 estados del ADR. **El catalogo esta sin confirmar:** trae los 12 sistemas de la Ventanilla Unica con su fuente, y NO los 9 de la SMA — ver abajo |
 | Perfil Empresa obligatorio (RF-10) | **Real desde el 25-ago.** Antes la marca la calculaba el navegador como `giro && rut`, y como el RUT es `NOT NULL` eso daba `true` para todas: **el gate no bloqueaba a nadie**. Ahora el criterio lo decide el servidor —giro + planta + departamento + sector— y la API **rechaza con 409** las escrituras de Matriz Legal y Obligaciones del Admin Empresa con el perfil incompleto |
 | Usuario Interno con departamento (RF-11) | **Exigido por la base desde el 25-ago.** CHECK condicionado al tipo: solo `internal` y `tenant_admin`, porque un Admin Global no pertenece a un departamento de una empresa cliente. Borrar un departamento con gente dentro responde **409** hasta reasignarla |
+| Matriz Legal ↔ Obligaciones | **Cerrado el 26-ago (#110), y era mas que un vinculo que faltaba.** La obligacion se cuelga de la **evaluacion** del articulo y no del articulo del catalogo, que es global. Los dos sentidos existen y la norma, la planta y el responsable se derivan de la evaluacion. Al medirlo aparecio que `POST /obligations/` aceptaba `article_compliance_id` sin mirarlo: **la empresa B podia colgar su obligacion de la evaluacion de la empresa A** — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -438,6 +439,25 @@ que significaba ese cero**, y el `normSemaforo(0) === 'no_cumple'` estaba en otr
 `describe`. Las dos en verde y el error entre las dos. Por eso
 `NormDetailView.test.tsx` afirma sobre **texto visible** y no sobre funciones.
 
+**Una clave foranea aceptada del cuerpo es una fuga, no un descuido de estilo.**
+Ya paso y se midio: `POST /obligations/` recibia `article_compliance_id` y lo
+escribia sin comprobarlo. Como **las claves foraneas no pasan por RLS**, la
+restriccion solo exige que la fila exista — no que sea de esta empresa. Desde la
+empresa B:
+
+| lo que se manda | antes | ahora |
+|---|---|---|
+| un id inventado | 422 | 422 |
+| un id real de la empresa A | **201, y la fila quedaba escrita** | 422 |
+
+Dos sintomas distintos y el segundo es el grave: no solo se distinguia "no
+existe" de "existe pero es de otro" —un oraculo para enumerar identificadores
+ajenos— sino que la escritura se completaba.
+
+`routers/_comun.py::validar_visible` es el arreglo y ya existia. **Cualquier
+endpoint nuevo que acepte un id en el cuerpo tiene que llamarlo**, y las dos
+respuestas deben ser identicas: mismo codigo y mismo mensaje.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -445,8 +465,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 487 pruebas, 34 archivos
-cd apps/web && npx vitest run           # 350 pruebas, 28 archivos
+cd apps/api && python -m pytest         # 512 pruebas, 35 archivos
+cd apps/web && npx vitest run           # 354 pruebas, 28 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

@@ -15,6 +15,7 @@ from ..services.sincronizar_matriz import (
     sincronizar as sincronizar_matriz,
 )
 from ._comun import borrar_o_404, obtener_o_404
+from ..schemas.obligations import ObligacionDesdeArticulo, ObligationRead
 from ..schemas.compliance import (
     NormaAplicableRead,
     NormativaAplicableRead,
@@ -150,6 +151,88 @@ def evaluate(
         return obj
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# ── Vinculo con Obligaciones (RF-09, RF-14) ──────────────────────────────
+#
+# El gap que `seccion-d-matriz-legal.md` dejo anotado como "requiere decidir
+# como se vincula un Articulo con una Obligation". La decision y sus razones
+# estan en `services/vinculo_matriz_obligacion.py`; en resumen: se cuelga de la
+# **evaluacion** (`article_compliance`) y no del articulo del catalogo, porque
+# el articulo es global y la evaluacion es de esta empresa y esta planta.
+
+@router.get(
+    "/article-compliance/{ac_id}/obligations",
+    response_model=list[ObligationRead],
+    tags=["business-logic"],
+    summary="Obligaciones nacidas de este articulo",
+    description=(
+        "Las obligaciones que se generaron desde la evaluacion de un articulo "
+        "(RF-09).\n\n"
+        "Un articulo de otra empresa responde **422 y no una lista vacia**: "
+        "devolver vacio haria que 'no tiene obligaciones' y 'no es tuyo' se "
+        "vieran igual, y la pantalla mostraria un vacio tranquilo sobre un "
+        "identificador ajeno."
+    ),
+)
+def obligaciones_del_articulo(ac_id: UUID, db: Session = Depends(get_tenant_db)):
+    from ..services.vinculo_matriz_obligacion import (
+        EvaluacionInvisible,
+        obligaciones_de_articulo,
+    )
+    try:
+        return obligaciones_de_articulo(db, ac_id)
+    except EvaluacionInvisible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+
+@router.post(
+    "/article-compliance/{ac_id}/obligations",
+    response_model=ObligationRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["business-logic"],
+    summary="Generar una obligacion desde un articulo",
+    description=(
+        "Crea una obligacion que nace de la evaluacion de un articulo de la "
+        "Matriz Legal (RF-09).\n\n"
+        "**La norma y la planta no se piden:** salen de la evaluacion. Si "
+        "vinieran en el cuerpo podrian contradecirla —una obligacion apuntando "
+        "al articulo X de la norma A mientras declara la norma B— y las tres "
+        "claves foraneas son independientes, asi que nada en la base lo "
+        "impediria.\n\n"
+        "El responsable, si no se indica, se hereda del articulo: quien "
+        "responde por cumplirlo suele ser quien responde por la obligacion."
+    ),
+)
+def generar_obligacion_desde_articulo(
+    ac_id: UUID,
+    data: ObligacionDesdeArticulo,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    from ..services.vinculo_matriz_obligacion import (
+        EvaluacionInvisible,
+        crear_obligacion_desde_articulo,
+    )
+    try:
+        obj = crear_obligacion_desde_articulo(
+            db,
+            article_compliance_id=ac_id,
+            tenant_id=tenant_id,
+            title=data.title,
+            period_start=data.period_start,
+            period_end=data.period_end,
+            due_at=data.due_at,
+            owner_user_id=data.owner_user_id,
+        )
+    except EvaluacionInvisible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+    db.commit()
+    return obj
 
 
 @router.delete("/matrices/{matrix_id}", status_code=status.HTTP_204_NO_CONTENT)

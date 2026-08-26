@@ -33,7 +33,7 @@ const ESTADOS: { value: RespuestaCumplimiento; label: string; ayuda: string }[] 
  * real desde Google Drive/OneDrive Picker (RF-07) cuando exista spec aprobada.
  */
 export function ArticleEvaluationModal({ articulo, normId, normNombre, tenantId, responsableOptions, onOpenChange }: ArticleEvaluationModalProps) {
-  const { updateArticulo } = useLegalMatrix();
+  const { updateArticulo, generarObligacion } = useLegalMatrix();
   const { createPlan, findByOrigen } = usePlanAccion();
   const router = useRouter();
   const formId = useId();
@@ -43,6 +43,8 @@ export function ArticleEvaluationModal({ articulo, normId, normNombre, tenantId,
   const [responsableId, setResponsableId] = useState('');
   const [evidenciaUrl, setEvidenciaUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [generando, setGenerando] = useState(false);
+  const [errorObligacion, setErrorObligacion] = useState<string | null>(null);
 
   useEffect(() => {
     if (articulo) {
@@ -51,6 +53,7 @@ export function ArticleEvaluationModal({ articulo, normId, normNombre, tenantId,
       setResponsableId(articulo.responsableId ?? '');
       setEvidenciaUrl(articulo.evidenciaUrl ?? '');
       setError(null);
+      setErrorObligacion(null);
     }
   }, [articulo]);
 
@@ -70,6 +73,34 @@ export function ArticleEvaluationModal({ articulo, normId, normNombre, tenantId,
     });
     onOpenChange(false);
     router.push(`/planes-accion/${plan.id}`);
+  }
+
+  /**
+   * Genera la obligacion que nace de este articulo (RF-09).
+   *
+   * **No cierra el dialogo hasta que la API responde.** Cerrar antes y navegar
+   * dejaria al usuario en el detalle de una obligacion que quiza no se creo, y
+   * el error aparecería en una pantalla que no tiene nada que ver con lo que
+   * acaba de hacer.
+   */
+  async function handleGenerarObligacion() {
+    setGenerando(true);
+    setErrorObligacion(null);
+    try {
+      const creada = await generarObligacion(
+        normId,
+        articulo!.id,
+        `${articulo!.numero} — ${normNombre}`,
+      );
+      onOpenChange(false);
+      router.push(`/obligaciones/${creada.id}`);
+    } catch (e) {
+      setErrorObligacion(
+        e instanceof Error ? e.message : 'No se pudo generar la obligacion.',
+      );
+    } finally {
+      setGenerando(false);
+    }
   }
 
   function handleSave() {
@@ -187,17 +218,39 @@ export function ArticleEvaluationModal({ articulo, normId, normNombre, tenantId,
               />
             </FormField>
 
-            {estado === 'NO' && (
-              existingPlan ? (
-                <Button variant="secondary" type="button" onClick={() => { onOpenChange(false); router.push(`/planes-accion/${existingPlan.id}`); }}>
-                  Ver Plan de Acción existente
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-700">Obligaciones y plan de accion</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Una obligacion nace de este articulo y hereda su norma, su planta y su responsable.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={handleGenerarObligacion}
+                  disabled={generando}
+                >
+                  {generando ? 'Generando…' : 'Generar obligación desde este artículo'}
                 </Button>
-              ) : (
-                <Button variant="secondary" type="button" onClick={handleGenerarPlan}>
-                  Generar Plan de Acción
-                </Button>
-              )
-            )}
+
+                {estado === 'NO' && (
+                  existingPlan ? (
+                    <Button variant="secondary" type="button" onClick={() => { onOpenChange(false); router.push(`/planes-accion/${existingPlan.id}`); }}>
+                      Ver Plan de Acción existente
+                    </Button>
+                  ) : (
+                    <Button variant="secondary" type="button" onClick={handleGenerarPlan}>
+                      Generar Plan de Acción
+                    </Button>
+                  )
+                )}
+              </div>
+              {errorObligacion && (
+                <p role="alert" className="mt-2 text-xs text-semaforo-no-cumple">
+                  {errorObligacion}
+                </p>
+              )}
+            </div>
             </div>
           </div>
 

@@ -3,7 +3,7 @@
 import { useId, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
-import { CalendarDays, Plus, X } from 'lucide-react';
+import { CalendarDays, Plus, Scale, X } from 'lucide-react';
 import type { ObligationTask } from '@ambienta/shared';
 import { Button, Input, StatusBadge } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
@@ -73,9 +73,24 @@ export function ObligationDetailView({ obligation: obligationProp, responsableOp
             <CalendarDays className="h-4 w-4" aria-hidden />
             Ver en Calendario/Gantt
           </Link>
-          <span title="Requiere definir el vínculo entre artículo y obligación (ver gap en seccion-e-obligaciones.md)" className="cursor-not-allowed rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-400">
-            Vincular a Matriz Legal — Próximamente
-          </span>
+          {/* Estuvo como chip muerto ("Vincular a Matriz Legal — Proximamente")
+              mientras el vinculo no estaba definido (#110). Ya lo esta: se
+              cuelga de la evaluacion del articulo, y el sentido matriz →
+              obligacion se dispara desde el dialogo de evaluar. Aca se muestra
+              el sentido inverso — de donde vino esta obligacion.
+
+              Cuando no viene de la matriz **no se muestra nada**: un control
+              deshabilitado permanente es ruido, y "nacio libremente" es un
+              estado legitimo que RF-14 contempla, no una carencia. */}
+          {obligation.normaOrigenId && (
+            <Link
+              href={`/matriz-legal/${obligation.normaOrigenId}`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100"
+            >
+              <Scale className="h-4 w-4" aria-hidden />
+              Ver el artículo de la Matriz Legal que la origina
+            </Link>
+          )}
         </div>
       </div>
 

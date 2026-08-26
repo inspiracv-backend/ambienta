@@ -103,6 +103,14 @@ function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
       proximoVencimiento: vencimiento,
       responsableId: raw.owner_user_id ? String(raw.owner_user_id) : '',
       tasks: [],
+      // El vinculo con la Matriz Legal (RF-09, RF-14). Se mapea aunque hoy solo
+      // lo lea el detalle: sin esto, la obligacion generada desde un articulo
+      // llega al navegador **sin rastro de donde vino**, y la relacion
+      // bidireccional existiria en la base sin verse en ningun lado.
+      ...(raw.article_compliance_id
+        ? { articuloOrigenId: String(raw.article_compliance_id) }
+        : {}),
+      ...(raw.matrix_norm_id ? { normaOrigenId: String(raw.matrix_norm_id) } : {}),
     };
   } catch {
     return null;

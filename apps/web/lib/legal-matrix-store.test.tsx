@@ -320,3 +320,77 @@ describe('qué artículos cuentan para el porcentaje (RF-24)', () => {
     await waitFor(() => expect(result.current.norms[0]!.articulos[0]!.incluidoEnCalculo).toBe(true));
   });
 });
+
+describe('generar una obligacion desde un articulo (RF-09, #110)', () => {
+  const OBLIGACION = 'ob000000-0000-0000-0000-000000000001';
+
+  it('la cuelga de la evaluacion, no del articulo del catalogo', async () => {
+    // **La decision del vinculo, verificada donde se aplica.** El articulo del
+    // catalogo es global —lo comparten todas las empresas— asi que una
+    // obligacion colgada de el no diria de quien es. Se cuelga de
+    // `article_compliance`, que si es de esta empresa y esta planta.
+    const { result } = await montar([articuloApi()], [{ id: AC, article_id: ARTICULO }]);
+    post.mockResolvedValue({ id: OBLIGACION, code: 'MTZ-0001' });
+
+    await act(async () => {
+      await result.current.generarObligacion(NORMA, ARTICULO, 'Declaracion anual');
+    });
+
+    expect(post).toHaveBeenCalledWith(
+      `/compliance/article-compliance/${AC}/obligations`,
+      { title: 'Declaracion anual' },
+      expect.anything(),
+    );
+  });
+
+  it('si el articulo no estaba evaluado, crea la evaluacion primero', async () => {
+    // Sin esto el boton falla con un error tecnico sobre una fila que el
+    // usuario no sabe que existe. La evaluacion nace en `pending`: generar una
+    // obligacion no es responder el articulo.
+    const { result } = await montar([articuloApi()], []);
+    post
+      .mockResolvedValueOnce({ id: AC })
+      .mockResolvedValueOnce({ id: OBLIGACION, code: 'MTZ-0001' });
+
+    await act(async () => {
+      await result.current.generarObligacion(NORMA, ARTICULO, 'Declaracion anual');
+    });
+
+    expect(post).toHaveBeenNthCalledWith(
+      1,
+      '/compliance/article-compliance',
+      expect.objectContaining({ matrix_norm_id: MATRIX_NORM, compliance_status: 'pending' }),
+      expect.anything(),
+    );
+    expect(post).toHaveBeenNthCalledWith(
+      2,
+      `/compliance/article-compliance/${AC}/obligations`,
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('no inventa nada si la norma no esta en la matriz de la empresa', async () => {
+    // Sin `matrix_norm_id` no hay de donde colgar la evaluacion. Antes de esta
+    // guarda saldria un 422 de la API con un mensaje que no dice que hacer.
+    const { result } = await montar([articuloApi()], [], []);
+
+    await expect(
+      result.current.generarObligacion(NORMA, ARTICULO, 'Declaracion anual'),
+    ).rejects.toThrow(/matriz legal/i);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('propaga el fallo en vez de decir que se creo', async () => {
+    // **Lo contrario de las demas escrituras de este store, y a proposito.**
+    // Las otras son optimistas porque el resultado se ve en la misma pantalla;
+    // aca el resultado es navegar a otra, y navegar hacia algo que no se creo
+    // deja al usuario en un 404 sin explicacion.
+    const { result } = await montar([articuloApi()], [{ id: AC, article_id: ARTICULO }]);
+    post.mockRejectedValue(new ApiError(422, 'no corresponde a esta empresa'));
+
+    await expect(
+      result.current.generarObligacion(NORMA, ARTICULO, 'Declaracion anual'),
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+});
