@@ -207,7 +207,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **74 %.** 29 de 39 acciones llegan a la base. Las 10 restantes tienen causa documentada en su propio docstring. El conteo anterior (26 de 37) estaba mal por dentro: decia 10 pendientes y listaba 11 — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
-| Catalogo normativo | **Se alimenta de la BCN.** Normas, versiones y articulado reales. La Ley 19.300 entra con sus 151 partes y su version vigente de 2024-04-10. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
+| Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas.sincronizar_bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
 | Auth — clave local con RUT (RF-06) | **Funcionando desde el 25-ago.** Quien entro por SSO fija RUT y clave en su perfil y despues entra con ellos. **La clave la guarda Clerk, no nosotros** (D1). El RUT viaja como `username` con prefijo `rut`, porque Clerk rechaza los que son solo digitos — y un RUT lo es salvo cuando el verificador es K |
@@ -215,6 +215,8 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Reportabilidad RETC | **Modelo y API desde el 25-ago** (ADR-004). `retc_systems` dice que portales existen; `facility_retc_reporting` cual le toca a cada planta, con los 5 estados del ADR. **El catalogo esta sin confirmar:** trae los 12 sistemas de la Ventanilla Unica con su fuente, y NO los 9 de la SMA — ver abajo |
 | Perfil Empresa obligatorio (RF-10) | **Real desde el 25-ago.** Antes la marca la calculaba el navegador como `giro && rut`, y como el RUT es `NOT NULL` eso daba `true` para todas: **el gate no bloqueaba a nadie**. Ahora el criterio lo decide el servidor —giro + planta + departamento + sector— y la API **rechaza con 409** las escrituras de Matriz Legal y Obligaciones del Admin Empresa con el perfil incompleto |
 | Usuario Interno con departamento (RF-11) | **Exigido por la base desde el 25-ago.** CHECK condicionado al tipo: solo `internal` y `tenant_admin`, porque un Admin Global no pertenece a un departamento de una empresa cliente. Borrar un departamento con gente dentro responde **409** hasta reasignarla |
+| Matriz Legal ↔ Obligaciones | **Cerrado el 26-ago (#110), y era mas que un vinculo que faltaba.** La obligacion se cuelga de la **evaluacion** del articulo y no del articulo del catalogo, que es global. Los dos sentidos existen y la norma, la planta y el responsable se derivan de la evaluacion. Al medirlo aparecio que `POST /obligations/` aceptaba `article_compliance_id` sin mirarlo: **la empresa B podia colgar su obligacion de la evaluacion de la empresa A** — ver abajo |
+| Declaraciones y calendario RETC | **Cerrada el 26-ago (epica #21).** El flujo de RF-31 completo —presentar, aceptar, rechazar con motivo— con las transiciones declaradas en un solo lugar, el folio del portal exigido para aceptar, la urgencia calculada en el servidor y el recordatorio que adjunta la plantilla del sistema. **`fulfill` respondia 422 en el 100 % de los casos** desde siempre: escribia un estado que el CHECK no admite. Lo que NO entra: el repositorio de plantillas Excel esta vacio a proposito — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -408,6 +410,102 @@ pegada a la fila sembrada. Duplicar dejaria la clasificacion en la copia falsa y
 la norma real sin nada: **las matrices de las empresas se vaciarian sin ningun
 error a la vista**.
 
+**La BCN devuelve la misma norma varias veces, y el `LIMIT` no la protege.**
+SPARQL cuenta filas, no normas: pedir 5 puede traer 5 filas de 2 normas. `buscar()`
+pide de mas y deduplica por codigo, quedandose con la fila que **mas campos
+resueltos** trae — no con la primera, porque las filas de una misma norma no dicen
+todas lo mismo y la primera suele ser la mas pobre.
+
+**Y la busqueda distingue acentos.** `emision` no encuentra `EMISION` con tilde:
+devuelve **cero resultados y ningun error**, que se lee como "esa norma no esta en
+la BCN". Los terminos de `app/tareas/sincronizar_bcn.py` van sin acentos a
+proposito, y hay una prueba que lo fija.
+
+**"Sin evaluar" no es "no cumple", y el codigo los daba iguales.**
+`computeNormCompliance` devuelve `0` tanto cuando todo se evaluo y todo salio NO
+como cuando **no se evaluo nada**, y `normSemaforo(0)` es `no_cumple`. Con el
+catalogo sembrado no se veia; con el articulado de la BCN, una norma recien
+importada llega entera en `N_E` y la pantalla mostraba **"No cumple · 0 %"** —
+una acusacion contra la empresa, en la vista que se exporta a un auditor.
+
+Para la pantalla existe `computeNormComplianceOrNull`, que devuelve `null`
+cuando no hay nada que medir. **Los reportes tambien lo usan desde el 26-ago**
+(#205): el CSV y el PDF imprimen "Sin evaluar" en vez de `0%`, y el promedio por
+planta deja fuera las normas sin evaluar en lugar de contarlas como ceros — una
+planta con dos normas, una al 100 % y otra sin revisar, salia en 50 %.
+
+`computeNormCompliance` **se queda igual**: es el espejo de
+`resumen_cumplimiento.py`. Y al medirlo aparecio que **la API ya lo hacia bien**
+—devuelve `None`, no cero, y su docstring lo explica— asi que el acoplamiento
+que se temia no existia: el `0%` lo ponia solo el frontend.
+
+Y una leccion sobre las pruebas: **habia una que fijaba `toBe(0)` sin preguntar
+que significaba ese cero**, y el `normSemaforo(0) === 'no_cumple'` estaba en otro
+`describe`. Las dos en verde y el error entre las dos. Por eso
+`NormDetailView.test.tsx` afirma sobre **texto visible** y no sobre funciones.
+
+**Una clave foranea aceptada del cuerpo es una fuga, no un descuido de estilo.**
+Ya paso y se midio: `POST /obligations/` recibia `article_compliance_id` y lo
+escribia sin comprobarlo. Como **las claves foraneas no pasan por RLS**, la
+restriccion solo exige que la fila exista — no que sea de esta empresa. Desde la
+empresa B:
+
+| lo que se manda | antes | ahora |
+|---|---|---|
+| un id inventado | 422 | 422 |
+| un id real de la empresa A | **201, y la fila quedaba escrita** | 422 |
+
+Dos sintomas distintos y el segundo es el grave: no solo se distinguia "no
+existe" de "existe pero es de otro" —un oraculo para enumerar identificadores
+ajenos— sino que la escritura se completaba.
+
+`routers/_comun.py::validar_visible` es el arreglo y ya existia. **Cualquier
+endpoint nuevo que acepte un id en el cuerpo tiene que llamarlo**, y las dos
+respuestas deben ser identicas: mismo codigo y mismo mensaje.
+
+**El repositorio de plantillas Excel esta vacio, y es deliberado.**
+`declaration_templates` tiene **cero filas**. El mecanismo existe y esta probado
+—el recordatorio busca la plantilla vigente del sistema ante el que se declara y
+la adjunta al aviso— pero las plantillas mismas son **contenido oficial que hay
+que descargar de cada portal del Estado**, no codigo.
+
+Inventar una estructura de pestanas seria peor que no tenerla: la empresa
+prepararia su declaracion en un formato que el portal rechaza, y se entera
+cuando le devuelven el archivo y ya no hay plazo. Es el mismo criterio que la
+`periodicidad` vacia de `retc_systems`.
+
+Lo que si esta fijado por pruebas: una plantilla **caducada o inactiva no se
+adjunta**. Una marcada activa cuyo `valid_to` ya paso corresponde a una
+estructura que el portal dejo de aceptar.
+
+**Y la urgencia se calcula en un solo lado desde el 26-ago.** Estaba escrita dos
+veces y **ya separada**: el navegador avisaba a 30 dias y el servidor no tenia
+criterio. Ahora vive en `services/declaracion.py` (`DIAS_CRITICO`,
+`DIAS_PROXIMO`) y el navegador la consume. Ojo con confundirla con las ventanas
+de aviso 15/7/3/1 de #120: esas dicen **cuando escribirle a alguien**, la
+urgencia dice **de que color se ve**.
+
+**Los reportes salen en PDF por defecto, y el PDF no necesita una libreria.**
+La pantalla exportaba solo CSV y avisaba que *"la generacion de PDF queda
+pendiente de una libreria aprobada"*. **La frase era falsa desde hacia rato**:
+`ReportePdf` produce un PDF de verdad con el motor de impresion del navegador
+—texto seleccionable, enlaces vivos, el papel de quien lo emite— reutilizando el
+HTML de la aplicacion. Lo que faltaba no era la dependencia: era que el selector
+lo ofreciera y que existiera el documento para los otros tipos de reporte.
+
+El defecto es PDF porque un reporte de cumplimiento casi siempre se pide para
+**entregarlo** a un fiscalizador o un certificador. Una planilla no se entrega,
+se procesa. **El CSV no se quito**: esta a un clic en el mismo selector.
+
+Lo que se cede eligiendo el motor del navegador es el control fino de los saltos
+de pagina. Si algun dia hace falta control tipografico, `ReportePdf` es el unico
+punto donde enchufar la libreria.
+
+**Y los dos formatos salen del mismo `Reporte`** (`lib/reports.ts`): `headers` y
+`rows` se calculan una vez, el CSV se deriva y el PDF los pinta. Construirlos por
+separado serian dos reportes con el mismo nombre, y agregar una columna a uno
+dejaria al otro diciendo otra cosa sobre la misma empresa.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -415,8 +513,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 474 pruebas, 34 archivos
-cd apps/web && npx vitest run           # 331 pruebas, 26 archivos
+cd apps/api && python -m pytest         # 544 pruebas, 36 archivos
+cd apps/web && npx vitest run           # 378 pruebas, 30 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

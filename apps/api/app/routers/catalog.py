@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..crud.catalog import (
@@ -14,6 +14,7 @@ from ..crud.catalog import (
 )
 from ..models.catalog import (
     LegalArticle,
+    LegalNorm,
     LegalNormVersion,
     NormSector,
     RetcSystem,
@@ -86,9 +87,47 @@ def list_sectors(db: Session = Depends(get_db)):
     return crud_sector.get_multi(db)
 
 
-@router.get("/norms", response_model=list[LegalNormRead])
-def list_norms(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return crud_legal_norm.get_multi(db, skip=skip, limit=limit)
+@router.get(
+    "/norms",
+    response_model=list[LegalNormRead],
+    summary="Catalogo normativo",
+    description=(
+        "Las normas del catalogo, **en orden estable**: tipo, luego numero.\n\n"
+        "El orden no es cosmetico. Sin `ORDER BY`, Postgres devuelve las filas "
+        "como quiera y **la paginacion se rompe en silencio**: la pagina 2 puede "
+        "repetir o saltarse normas de la 1, y nadie lo nota hasta que falta una.\n\n"
+        "`buscar` filtra por titulo o numero, sin distinguir mayusculas. Es lo "
+        "que hace usable un catalogo que ya no tiene ocho normas: la BCN tiene "
+        "748.000 y de aca salen las que alguien decidio traer."
+    ),
+)
+def list_norms(
+    skip: int = 0,
+    limit: int = 100,
+    buscar: str | None = None,
+    tipo: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Lista el catalogo, opcionalmente filtrado."""
+    stmt = select(LegalNorm).where(LegalNorm.deleted_at.is_(None))
+
+    if buscar:
+        patron = f"%{buscar.strip()}%"
+        stmt = stmt.where(
+            or_(
+                LegalNorm.title.ilike(patron),
+                LegalNorm.norm_number.ilike(patron),
+            )
+        )
+    if tipo:
+        stmt = stmt.where(LegalNorm.norm_type == tipo)
+
+    # Por tipo y despues por numero. El numero va como texto porque lo es
+    # —"1139 exenta", "RE-574/2019"— asi que ordenarlo como entero perderia
+    # justamente las que no lo son.
+    stmt = stmt.order_by(LegalNorm.norm_type, LegalNorm.norm_number, LegalNorm.id)
+
+    return list(db.scalars(stmt.offset(skip).limit(limit)).all())
 
 
 @router.get("/norms/{norm_id}", response_model=LegalNormRead)

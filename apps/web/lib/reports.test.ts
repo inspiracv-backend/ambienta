@@ -262,3 +262,141 @@ describe('downloadTextFile', () => {
     click.mockRestore();
   });
 });
+
+/**
+ * Que el documento entregable no acuse a la empresa de algo que no pasó (#205).
+ *
+ * **El informe imprimía `0%` sobre normas que nadie había evaluado.** Con el
+ * catálogo sembrado apenas se veía; con el articulado real de la BCN, cada
+ * norma importada entra con sus artículos en `N_E` y el reporte la declaraba
+ * incumplida — en el archivo que se le entrega a un fiscalizador.
+ *
+ * La causa es la misma que ya se corrigió en la pantalla: `computeNormCompliance`
+ * devuelve `0` tanto para "todo evaluado y todo NO" como para "nada evaluado".
+ * Estas pruebas afirman sobre **el texto que sale en el archivo**.
+ */
+function articulo(over: Partial<import('@ambienta/shared').Articulo> = {}) {
+  return {
+    id: 'a1',
+    numero: 'Art. 1',
+    descripcion: 'Texto',
+    respuesta: 'N_E',
+    incluidoEnCalculo: true,
+    ...over,
+  } as import('@ambienta/shared').Articulo;
+}
+
+function norma(over: Partial<LegalNorm> = {}): LegalNorm {
+  return {
+    id: 'n1',
+    tenantId: 'tenant-1',
+    nombre: 'DS 1/2013 RETC',
+    fuente: 'BCN',
+    plantIds: ['p1'],
+    articulos: [],
+    ...over,
+  } as LegalNorm;
+}
+
+describe('sin evaluar no se imprime como 0%', () => {
+  it('la matriz legal dice "Sin evaluar", no 0%', () => {
+    const r = buildMatrizLegalReport([norma({ articulos: [articulo(), articulo({ id: 'a2' })] })], [
+      planta('p1', 'Planta Norte'),
+    ]);
+
+    expect(r.rows[0]).toContain('Sin evaluar');
+    expect(r.rows[0]).not.toContain('0%');
+  });
+
+  it('un cero medido SÍ se imprime como 0%', () => {
+    // El otro lado: arreglar el falso positivo no puede tapar el incumplimiento
+    // real. Todo evaluado y todo NO es un 0 % que corresponde.
+    const r = buildMatrizLegalReport(
+      [norma({ articulos: [articulo({ respuesta: 'NO' }), articulo({ id: 'a2', respuesta: 'NO' })] })],
+      [planta('p1', 'Planta Norte')],
+    );
+
+    expect(r.rows[0]).toContain('0%');
+  });
+
+  it('dice cuántos artículos faltan por evaluar', () => {
+    // Sin esta columna, "Sin evaluar" no dice cuánto falta, y un 100 % sobre un
+    // artículo de doscientos se lee igual que uno sobre los doscientos.
+    const r = buildMatrizLegalReport(
+      [norma({ articulos: [articulo({ respuesta: 'SI' }), articulo({ id: 'a2' }), articulo({ id: 'a3' })] })],
+      [planta('p1', 'Planta Norte')],
+    );
+
+    expect(r.headers).toContain('Artículos sin evaluar');
+    expect(r.rows[0]![r.headers.indexOf('Artículos sin evaluar')]).toBe('2');
+  });
+
+  it('el promedio por planta ignora las normas sin evaluar', () => {
+    // **El error que más engañaba.** Una planta con dos normas, una al 100 % y
+    // otra sin evaluar, salía en 50 % — como si incumpliera la mitad.
+    const r = buildCumplimientoReport(
+      [planta('p1', 'Planta Norte')],
+      [obligacion({ id: 'o1', plantId: 'p1' })],
+      [
+        norma({ id: 'n1', articulos: [articulo({ respuesta: 'SI' })] }),
+        norma({ id: 'n2', articulos: [articulo({ id: 'a9' })] }),
+      ],
+      '',
+      '',
+    );
+
+    expect(r.rows[0]![1]).toBe('100%');
+  });
+
+  it('y avisa al pie que el promedio dejó normas fuera', () => {
+    const r = buildCumplimientoReport(
+      [planta('p1', 'Planta Norte')],
+      [obligacion({ id: 'o1', plantId: 'p1' })],
+      [
+        norma({ id: 'n1', articulos: [articulo({ respuesta: 'SI' })] }),
+        norma({ id: 'n2', articulos: [articulo({ id: 'a9' })] }),
+      ],
+      '',
+      '',
+    );
+
+    expect(r.notas.join(' ')).toMatch(/no cuentan como incumplidas/i);
+  });
+
+  it('una planta con todas sus normas sin evaluar tampoco marca 0%', () => {
+    const r = buildCumplimientoReport(
+      [planta('p1', 'Planta Norte')],
+      [obligacion({ id: 'o1', plantId: 'p1' })],
+      [norma({ id: 'n1', articulos: [articulo()] })],
+      '',
+      '',
+    );
+
+    expect(r.rows[0]![1]).toBe('Sin evaluar');
+  });
+});
+
+describe('los dos formatos salen del mismo reporte', () => {
+  it('el CSV se deriva de las mismas filas que ve el PDF', () => {
+    // **La propiedad que impide que diverjan.** Si el CSV y el documento se
+    // construyeran por separado, agregar una columna a uno dejaría al otro
+    // diciendo otra cosa sobre la misma empresa — y nadie compara los dos
+    // archivos hasta que lo hace alguien de afuera.
+    const r = buildMatrizLegalReport([norma({ articulos: [articulo({ respuesta: 'SI' })] })], [
+      planta('p1', 'Planta Norte'),
+    ]);
+
+    const lineas = filas(r.csv);
+    expect(lineas[0]).toBe(r.headers.join(','));
+    expect(lineas).toHaveLength(r.rows.length + 1);
+    for (const celda of r.rows[0]!) {
+      expect(lineas[1]).toContain(celda.includes(',') ? `"${celda}"` : celda);
+    }
+  });
+
+  it('cada reporte lleva su propio título para el documento', () => {
+    expect(buildMatrizLegalReport([], []).titulo).toMatch(/Matriz Legal/);
+    expect(buildNoConformidadesReport([], [], '', '').titulo).toMatch(/No Conformidades/);
+    expect(buildCumplimientoReport([], [], [], '', '').titulo).toMatch(/Cumplimiento/);
+  });
+});

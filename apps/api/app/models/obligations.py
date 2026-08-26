@@ -68,6 +68,13 @@ class Obligation(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     facility_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("facilities.id")
     )
+    # El portal ante el que se declara (db/15). NULL = ninguno: un compromiso de
+    # RCA o una tarea interna no se presentan en ningun lado. La URL vive en
+    # `retc_systems`, no copiada aca: los portales del Estado cambian de
+    # direccion y habria que corregir fila por fila.
+    retc_system_id: Mapped[int | None] = mapped_column(
+        SmallInteger, ForeignKey("retc_systems.id")
+    )
     code: Mapped[str] = mapped_column(String(60), nullable=False)
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     period_start: Mapped[date | None] = mapped_column(Date)

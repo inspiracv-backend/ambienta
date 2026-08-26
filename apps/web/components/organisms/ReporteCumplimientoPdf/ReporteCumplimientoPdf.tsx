@@ -4,7 +4,11 @@ import { useState } from 'react';
 import { FileText, Printer } from 'lucide-react';
 import type { LegalNorm, NonConformity, Obligation, Plant, Tenant, User } from '@ambienta/shared';
 import { Button } from '@/components/atoms';
-import { computeNormCompliance, countArticulosEnIncumplimiento } from '@/lib/legal-matrix';
+import {
+  computeNormComplianceOrNull,
+  countArticulosEnIncumplimiento,
+  countArticulosSinEvaluar,
+} from '@/lib/legal-matrix';
 import { computePlantMetrics } from '@/lib/dashboard-metrics';
 import { NC_ESTADO_LABEL, CRITICIDAD_LABEL } from '@/lib/audit-status';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
@@ -13,6 +17,20 @@ import { cn } from '@/lib/utils';
 
 function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
+}
+
+/**
+ * El porcentaje de una norma, que puede no existir.
+ *
+ * **"Sin evaluar" y no "0%" (#205).** Este documento se le entrega a un
+ * fiscalizador: un cero ahi se lee como incumplimiento total, y con el
+ * articulado real de la BCN toda norma recien importada llega entera sin
+ * evaluar. El informe estaba declarando incumplida a la empresa por normas que
+ * nadie habia revisado todavia.
+ */
+function pctNorma(n: LegalNorm): string {
+  const valor = computeNormComplianceOrNull(n);
+  return valor === null ? 'Sin evaluar' : pct(valor);
 }
 
 /**
@@ -167,6 +185,7 @@ export function ReporteCumplimientoPdf({
                   <th className="py-1.5 pr-2 font-semibold">Norma</th>
                   <th className="py-1.5 pr-2 font-semibold">Fuente</th>
                   <th className="py-1.5 pr-2 text-right font-semibold">Cumplimiento</th>
+                  <th className="py-1.5 pr-2 text-right font-semibold">Art. sin evaluar</th>
                   <th className="py-1.5 text-right font-semibold">Art. en incumplimiento</th>
                 </tr>
               </thead>
@@ -175,7 +194,8 @@ export function ReporteCumplimientoPdf({
                   <tr key={n.id} className="border-b border-slate-100">
                     <td className="py-1.5 pr-2 font-medium text-slate-800">{n.nombre}</td>
                     <td className="py-1.5 pr-2 text-slate-500">{n.fuente}</td>
-                    <td className="py-1.5 pr-2 text-right tabular-nums">{pct(computeNormCompliance(n))}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">{pctNorma(n)}</td>
+                    <td className="py-1.5 pr-2 text-right tabular-nums">{countArticulosSinEvaluar(n)}</td>
                     <td className="py-1.5 text-right tabular-nums">{countArticulosEnIncumplimiento(n)}</td>
                   </tr>
                 ))}

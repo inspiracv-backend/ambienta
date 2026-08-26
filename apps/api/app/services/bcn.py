@@ -80,9 +80,21 @@ TIPO_DE_NORMA = {
     "ley": "ley",
     "dfl": "ley",
     "dl": "ley",
+    # **`dto` es el que usa la BCN de verdad**, no `ds` ni `decreto`.
+    #
+    # Medido: de 23 normas sincronizadas, 9 traen `/recurso/cl/dto/` en su URI y
+    # ninguna trae `ds` ni `decreto`. Sin esta linea los nueve decretos
+    # supremos —el RSEIA, el reglamento de residuos peligrosos, la norma de
+    # ruidos— caian al valor por defecto y quedaban guardados como
+    # **resolucion**. No fallaba nada: la lista simplemente mentia sobre que
+    # tipo de norma era cada una.
+    "dto": "decreto_supremo",
     "ds": "decreto_supremo",
     "decreto": "decreto_supremo",
     "res": "resolucion",
+    # `cir` (circular) cae a `resolucion` a proposito: agregar un cuarto valor
+    # al vocabulario cambiaria las pantallas que agrupan por tipo, y es una
+    # decision de negocio. Hoy es 1 norma de 23.
 }
 TIPO_POR_DEFECTO = "resolucion"
 
@@ -191,11 +203,28 @@ def _tipo_desde_uri(uri: str | None, tipo_declarado: str | None) -> str:
 
 
 def buscar(termino: str, limite: int = 50) -> list[NormaBCN]:
-    """Normas cuyo titulo contiene `termino`, con sus versiones.
+    """Normas **distintas** cuyo titulo contiene `termino`.
 
     Se busca por titulo y no se descarga el catalogo entero a proposito: son
     748.000 normas y la mayoria no tiene nada que ver con medio ambiente.
+
+    ## SPARQL devuelve la misma norma muchas veces, y hay que saberlo
+
+    Los `OPTIONAL` del patron multiplican filas: una norma con tres tipos
+    declarados y dos organismos vuelve **seis veces**. Medido contra la Ley
+    19.300: de 5 filas, **4 eran la misma norma**.
+
+    Eso importa mas de lo que parece porque **el `LIMIT` de SPARQL cuenta filas,
+    no normas**. Pedir 50 puede traer 8 distintas, y quien lea el resultado
+    creera que en la BCN solo hay 8 que coinciden. Por eso se pide `limite * 4`
+    y se deduplica aca: es aproximado, pero el error es traer de mas y no de
+    menos.
+
+    Al deduplicar **gana la fila con mas datos**. Las copias no son identicas:
+    unas traen el numero o el organismo y otras no, segun que `OPTIONAL` haya
+    resuelto. Quedarse con la primera perderia informacion que si estaba.
     """
+    # Se pide de mas porque el LIMIT cuenta filas duplicadas. Ver el docstring.
     filas = _consultar(
         f"""PREFIX bcn: <{BCN_NORMS}>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
@@ -211,25 +240,51 @@ WHERE {{
   OPTIONAL {{ ?norma a ?tipo . FILTER(CONTAINS(STR(?tipo), "norma/tipo#")) }}
   FILTER(CONTAINS(LCASE(STR(?titulo)), LCASE("{termino}")))
 }}
-LIMIT {limite}"""
+LIMIT {limite * 4}"""
     )
 
-    normas = []
+    por_codigo: dict[str, NormaBCN] = {}
     for f in filas:
         uri = _v(f, "norma")
-        normas.append(
-            NormaBCN(
-                uri=uri,
-                leychile_code=_v(f, "codigo") or "",
-                tipo=_tipo_desde_uri(uri, _v(f, "tipo")),
-                numero=_v(f, "numero"),
-                titulo=_v(f, "titulo") or "",
-                organismo=(_v(f, "organismo") or "").split("/")[-1] or None,
-                publicacion=_fecha(_v(f, "publicacion")),
-                promulgacion=_fecha(_v(f, "promulgacion")),
-            )
+        codigo = _v(f, "codigo") or ""
+        if not codigo:
+            # Sin identificador estable no se puede deduplicar ni volver a
+            # reconocerla la proxima corrida.
+            continue
+
+        candidata = NormaBCN(
+            uri=uri,
+            leychile_code=codigo,
+            tipo=_tipo_desde_uri(uri, _v(f, "tipo")),
+            numero=_v(f, "numero"),
+            titulo=_v(f, "titulo") or "",
+            organismo=(_v(f, "organismo") or "").split("/")[-1] or None,
+            publicacion=_fecha(_v(f, "publicacion")),
+            promulgacion=_fecha(_v(f, "promulgacion")),
         )
-    return normas
+
+        previa = por_codigo.get(codigo)
+        if previa is None or _cuanto_dice(candidata) > _cuanto_dice(previa):
+            por_codigo[codigo] = candidata
+
+        if len(por_codigo) >= limite:
+            break
+
+    return list(por_codigo.values())
+
+
+def _cuanto_dice(n: NormaBCN) -> int:
+    """Cuantos campos opcionales trae resueltos.
+
+    Sirve para elegir entre copias de la misma norma: las filas duplicadas no
+    son identicas —cada una resolvio distintos `OPTIONAL`— asi que quedarse con
+    la primera que llega pierde datos que otra fila si tenia.
+    """
+    return sum(
+        1
+        for campo in (n.numero, n.organismo, n.publicacion, n.promulgacion)
+        if campo
+    ) + (1 if n.tipo and n.tipo != "otra" else 0)
 
 
 def versiones_de(uri_norma: str) -> list[VersionBCN]:
@@ -384,6 +439,70 @@ def _guardar_articulado(
     return entraron
 
 
+def _sembrada_equivalente(db: Session, fuente_id: int, n: NormaBCN) -> Any:
+    """La fila sembrada que **es** esta norma, o `None`.
+
+    ## Por que no basta comparar el numero
+
+    El seed escribe los decretos como `numero/anio` —`148/2003`, `90/2000`,
+    `38/2011`— y la BCN devuelve solo `148`, `90`, `38`. Comparando textos
+    iguales **solo calzaban las dos leyes**, que no llevan anio: de las 8 normas
+    clasificadas, 6 se habrian duplicado. Medido en una corrida en seco.
+
+    Y duplicar no da error: `norm_sectors` —la clasificacion por sector, que es
+    trabajo humano— queda pegada a la fila sembrada, mientras la norma real
+    entra sin ninguna. El CORE seguiria proponiendo la copia falsa y **las
+    matrices no mostrarian nada raro**.
+
+    ## Por que se exige tambien el anio
+
+    Un numero solo es ambiguo: hay un DS 90 de 2000 y otros DS 90 de otros anos.
+    Adoptar por numero a secas le cambiaria la identidad a una norma clasificada
+    — peor que duplicarla.
+
+    ## Y por que el anio de promulgacion, no el de publicacion
+
+    Medido contra las cinco normas con anio del seed: **la promulgacion calza en
+    las cinco** y la publicacion se va un ano en tres (el DS 148 se promulgo en
+    2003 y se publico en 2004). El numero del decreto es el del ano en que se
+    firma, no en el que sale en el diario.
+    """
+    numero = (n.numero or "").strip()
+    if not numero:
+        return None
+
+    # Coincidencia exacta: las leyes se escriben sin anio en los dos lados.
+    fila = db.execute(
+        text(
+            "SELECT id FROM legal_norms "
+            "WHERE source_id = :s AND external_norm_id IS NULL "
+            "AND norm_number = :num AND deleted_at IS NULL "
+            "LIMIT 1"
+        ),
+        {"s": fuente_id, "num": numero},
+    ).scalar()
+    if fila:
+        return fila
+
+    anio = n.promulgacion.year if n.promulgacion else None
+    if anio is None:
+        # Sin anio no se puede desambiguar, y adoptar a ciegas es peor que
+        # duplicar. Se prefiere una fila de mas a una identidad cambiada.
+        return None
+
+    return db.execute(
+        text(
+            "SELECT id FROM legal_norms "
+            "WHERE source_id = :s AND external_norm_id IS NULL "
+            "AND deleted_at IS NULL "
+            "AND split_part(norm_number, '/', 1) = :num "
+            "AND split_part(norm_number, '/', 2) = :anio "
+            "LIMIT 1"
+        ),
+        {"s": fuente_id, "num": numero, "anio": str(anio)},
+    ).scalar()
+
+
 def sincronizar(
     db: Session, normas: list[NormaBCN], *, con_texto: bool = True
 ) -> Resultado:
@@ -446,15 +565,7 @@ def sincronizar(
             #
             # Adoptar convierte la fila de ejemplo en la real conservando lo que
             # alguien clasifico.
-            existente = db.execute(
-                text(
-                    "SELECT id FROM legal_norms "
-                    "WHERE source_id = :s AND external_norm_id IS NULL "
-                    "AND norm_number = :num AND deleted_at IS NULL "
-                    "LIMIT 1"
-                ),
-                {"s": fuente_id, "num": n.numero},
-            ).scalar()
+            existente = _sembrada_equivalente(db, fuente_id, n)
             if existente:
                 logger.info(
                     "Se adopta la norma sembrada %s con los datos reales de la BCN",

@@ -63,6 +63,8 @@ export default function ReportesPage() {
         obligations={scopedObligations}
         norms={scopedNorms}
         nonConformities={scopedNcs}
+        tenant={tenant}
+        usuario={user}
       />
 
       {tenant && (

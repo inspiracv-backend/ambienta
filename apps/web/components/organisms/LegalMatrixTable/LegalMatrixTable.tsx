@@ -6,11 +6,11 @@ import { Inbox } from 'lucide-react';
 import { StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
 import {
-  computeNormCompliance,
+  computeNormComplianceOrNull,
   computeNormCoverage,
   countArticulosEnIncumplimiento,
   countArticulosSinEvaluar,
-  normSemaforo,
+  normSemaforoDe,
 } from '@/lib/legal-matrix';
 import { getUserName } from '@/lib/get-user-name';
 import type { LegalMatrixTableProps } from './LegalMatrixTable.types';
@@ -28,7 +28,7 @@ export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
       if (plantaFiltro !== 'todas' && !norm.plantIds.includes(plantaFiltro)) return false;
       if (tipoFiltro !== 'todos' && norm.fuente !== tipoFiltro) return false;
       if (estadoFiltro !== 'todos') {
-        const semaforo = normSemaforo(computeNormCompliance(norm));
+        const semaforo = normSemaforoDe(computeNormComplianceOrNull(norm));
         if (semaforo !== estadoFiltro) return false;
       }
       return true;
@@ -94,7 +94,7 @@ export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
             </thead>
             <tbody>
               {filtered.map((norm) => {
-                const pct = computeNormCompliance(norm);
+                const pct = computeNormComplianceOrNull(norm);
                 return (
                   <tr key={norm.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-800">
@@ -104,8 +104,11 @@ export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
                     </td>
                     <td className="px-4 py-3 text-slate-500">{FUENTE_LABEL[norm.fuente]}</td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={normSemaforo(pct)} />
-                      <span className="ml-2 text-slate-500">{Math.round(pct * 100)}%</span>
+                      <StatusBadge status={normSemaforoDe(pct)} />
+                      {/* Sin nada evaluado no hay porcentaje. Antes salia
+                          "No cumple 0%", que es una afirmacion sobre la
+                          empresa y no sobre lo que se midio. */}
+                      <span className="ml-2 text-slate-500">{pct === null ? '—' : `${Math.round(pct * 100)}%`}</span>
                     </td>
                     {/* Cobertura y cumplimiento responden preguntas distintas: un
                         100% de cumplimiento sobre el 20% evaluado no es cumplimiento,

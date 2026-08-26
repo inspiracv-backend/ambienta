@@ -1,6 +1,7 @@
 """Punto de entrada de las tareas programadas. Se invoca desde cron en el VPS.
 
     python -m app.tareas rotar-auditoria [--mes AAAA-MM] [--en-seco]
+    python -m app.tareas sincronizar-bcn [--en-seco]
 
 ## Por que un modulo y no un script suelto
 
@@ -30,6 +31,7 @@ from pathlib import Path
 from ..config import get_settings
 from ..db import AdminSessionLocal
 from .rotar_auditoria import mes_anterior, rotar
+from .sincronizar_bcn import sincronizar as sincronizar_bcn
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
@@ -95,6 +97,25 @@ def rotar_auditoria(args: argparse.Namespace) -> int:
         db.close()
 
 
+def sincronizar_catalogo(args) -> int:
+    """Trae el catalogo normativo desde la BCN.
+
+    **Sale con codigo distinto de cero si algun termino no encontro su norma.**
+    No es capricho: significa que el catalogo quedo incompleto sin que nada
+    fallara, y en cron eso es indistinguible del exito si no se mira la salida.
+    """
+    with AdminSessionLocal() as db:
+        informe = sincronizar_bcn(db, en_seco=args.en_seco)
+        if not args.en_seco:
+            db.commit()
+
+    logger.info("Sincronizacion BCN:\n%s", informe.resumen())
+
+    if informe.sin_su_norma or informe.errores:
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.tareas")
     sub = parser.add_subparsers(dest="tarea", required=True)
@@ -118,6 +139,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Escribe los archivos y NO borra nada. Para comprobar antes de confiar.",
     )
     p.set_defaults(func=rotar_auditoria)
+
+    b = sub.add_parser(
+        "sincronizar-bcn",
+        help="Trae desde la BCN las normas del catalogo, con sus versiones y articulado.",
+    )
+    b.add_argument(
+        "--en-seco",
+        action="store_true",
+        help="Consulta la BCN y NO escribe nada. Para ver que traeria antes de confiar.",
+    )
+    b.set_defaults(func=sincronizar_catalogo)
 
     args = parser.parse_args(argv)
     return args.func(args)

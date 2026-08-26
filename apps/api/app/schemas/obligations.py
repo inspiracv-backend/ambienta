@@ -29,6 +29,9 @@ class ObligationCreate(BaseModel):
     matrix_norm_id: UUID | None = None
     article_compliance_id: UUID | None = None
     facility_id: UUID | None = None
+    # El portal ante el que se presenta (#114). NULL = ninguno: un
+    # compromiso de RCA o una tarea interna no se declaran en ningun lado.
+    retc_system_id: int | None = None
     code: str
     title: str
     period_start: date | None = None
@@ -38,6 +41,51 @@ class ObligationCreate(BaseModel):
     data: dict = Field(default_factory=dict)
 
 
+class ObligacionDesdeArticulo(BaseModel):
+    """Lo que se puede decir al generar una obligacion desde la Matriz Legal.
+
+    **No lleva `article_compliance_id`, ni `matrix_norm_id`, ni `facility_id`.**
+    El primero va en la URL y los otros dos se derivan de el. Aceptarlos aca
+    permitiria que la obligacion declarara una norma distinta de la del
+    articulo del que dice nacer, y las tres claves foraneas son independientes:
+    la base no lo notaria.
+
+    Tampoco lleva `code`: lo genera el servidor con prefijo `MTZ`, para que se
+    vea de un vistazo cual obligacion nacio de un requisito y cual la escribio
+    una persona.
+    """
+
+    title: str | None = None
+    period_start: date | None = None
+    period_end: date | None = None
+    due_at: datetime | None = None
+    owner_user_id: UUID | None = None
+
+
+class VincularAMatriz(BaseModel):
+    """El otro sentido: atar una obligacion que ya existe a un articulo."""
+
+    article_compliance_id: UUID
+
+
+class RegistrarFolio(BaseModel):
+    """El comprobante que devolvio el portal del Estado."""
+
+    folio: str
+
+
+class AprobarDeclaracion(BaseModel):
+    """El folio puede venir aca o estar ya registrado; lo que no vale es ninguno."""
+
+    folio: str | None = None
+
+
+class RechazarDeclaracion(BaseModel):
+    """El motivo es obligatorio: un rechazo mudo obliga a adivinar que corregir."""
+
+    motivo: str
+
+
 class ObligationRead(OrmBase):
     id: UUID
     tenant_id: UUID
@@ -45,6 +93,9 @@ class ObligationRead(OrmBase):
     matrix_norm_id: UUID | None
     article_compliance_id: UUID | None
     facility_id: UUID | None
+    # El portal ante el que se presenta (#114). NULL = ninguno: un
+    # compromiso de RCA o una tarea interna no se declaran en ningun lado.
+    retc_system_id: int | None
     code: str
     title: str
     period_start: date | None
@@ -57,6 +108,23 @@ class ObligationRead(OrmBase):
     data: dict
     created_at: datetime
     updated_at: datetime
+
+
+class ObligationConUrgencia(ObligationRead):
+    """La obligacion mas su semaforo, calculado por el servidor (#113).
+
+    **Estaba solo en el navegador.** El correo de recordatorio, un informe o una
+    integracion no tenian forma de saber que era urgente sin reimplementar el
+    criterio, y dos criterios escritos dos veces se separan — como ya paso con
+    el porcentaje de cumplimiento entre la pantalla y la API.
+
+    Va como esquema aparte y no como columna: la urgencia **cambia sola con el
+    paso del tiempo**. Guardarla obligaria a recalcular todas las filas cada
+    noche, y una fila que no se recalculo miente sin que nada avise.
+    """
+
+    urgencia: str
+    dias_restantes: int | None
 
 
 class ObligationUpdate(BaseModel):
