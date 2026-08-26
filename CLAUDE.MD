@@ -419,6 +419,25 @@ devuelve **cero resultados y ningun error**, que se lee como "esa norma no esta 
 la BCN". Los terminos de `app/tareas/sincronizar_bcn.py` van sin acentos a
 proposito, y hay una prueba que lo fija.
 
+**"Sin evaluar" no es "no cumple", y el codigo los daba iguales.**
+`computeNormCompliance` devuelve `0` tanto cuando todo se evaluo y todo salio NO
+como cuando **no se evaluo nada**, y `normSemaforo(0)` es `no_cumple`. Con el
+catalogo sembrado no se veia; con el articulado de la BCN, una norma recien
+importada llega entera en `N_E` y la pantalla mostraba **"No cumple · 0 %"** —
+una acusacion contra la empresa, en la vista que se exporta a un auditor.
+
+Para la pantalla existe `computeNormComplianceOrNull`, que devuelve `null`
+cuando no hay nada que medir. **`computeNormCompliance` se queda a proposito:**
+la usan los reportes y es el espejo de `resumen_cumplimiento.py`, asi que
+cambiarla sin cambiar la API dejaria a la pantalla y al informe diciendo cosas
+distintas sobre la misma empresa. Lo que falta ahi es el mismo arreglo del lado
+del PDF, que todavia imprime `0%`.
+
+Y una leccion sobre las pruebas: **habia una que fijaba `toBe(0)` sin preguntar
+que significaba ese cero**, y el `normSemaforo(0) === 'no_cumple'` estaba en otro
+`describe`. Las dos en verde y el error entre las dos. Por eso
+`NormDetailView.test.tsx` afirma sobre **texto visible** y no sobre funciones.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -427,7 +446,7 @@ funcionan en la terminal. Un comando por linea.
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
 cd apps/api && python -m pytest         # 487 pruebas, 34 archivos
-cd apps/web && npx vitest run           # 331 pruebas, 26 archivos
+cd apps/web && npx vitest run           # 350 pruebas, 28 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 
