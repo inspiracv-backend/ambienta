@@ -70,6 +70,46 @@ class DocumentVersionRead(OrmBase):
 
 # ── EntityDocument ────────────────────────────────────────────────────────
 
+# ── Subida de archivos (RF-110) ───────────────────────────────────────────
+
+class PedirSubida(BaseModel):
+    """Lo que la pantalla declara antes de subir.
+
+    Es **lo declarado, no lo real**: con enlaces firmados el archivo va directo
+    al bucket sin pasar por nosotros. Sirve para cortar el caso normal —un
+    `.exe`, un archivo de 800 MB— antes de gastar la subida; lo que llego de
+    verdad se comprueba despues con `confirmar`.
+    """
+
+    file_name: str
+    mime_type: str
+    size_bytes: int
+
+
+class EnlaceDeSubida(BaseModel):
+    """El permiso temporal, y todo lo que el navegador necesita para usarlo."""
+
+    url: str
+    #: Se devuelve para que la pantalla la mande de vuelta al confirmar.
+    storage_key: str
+    expires_in: int
+    #: **Hay que mandarlas tal cual.** Van dentro de la firma: con otras, B2
+    #: rechaza la subida.
+    headers: dict[str, str]
+
+
+class ConfirmarSubida(BaseModel):
+    """Cierra la subida creando la revision, con los datos **reales** del objeto."""
+
+    storage_key: str
+    file_name: str
+
+
+class EnlaceDeDescarga(BaseModel):
+    url: str
+    expires_in: int
+
+
 class EntityDocumentCreate(BaseModel):
     document_id: UUID
     entity_type: str

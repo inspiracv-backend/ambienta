@@ -25,6 +25,11 @@ SUFIJOS_DE_ACCION = (
     # SIN_CRUD_COMPLETO porque son transiciones de estado, igual que /submit:
     # "aprobar una declaracion" no es "leer una declaracion".
     "/approve", "/reject",
+    # Pedir un enlace firmado no es leer ni crear un recurso: es un permiso
+    # temporal que ni siquiera se guarda. Y `confirm-upload` **si crea** una
+    # revision, pero no es el CRUD de `/versions` — es el cierre de una
+    # subida que empezo en otro endpoint.
+    "/upload-url", "/confirm-upload", "/download-url",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )

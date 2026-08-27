@@ -220,7 +220,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Dashboard ejecutivo | **Corregido el 26-ago (#125).** Dos de las tres plantas del seed no tienen una sola evaluacion y el tablero las mostraba **en rojo con 0 %** — cuarta vez que aparece el mismo error en esta serie. Ahora `null` es `Sin evaluar`, y esas plantas van al **final** de la tabla en vez de encabezarla como si fueran las peores |
 | Incumplimientos (#126) | **Nueva el 26-ago.** `/incumplimientos` lista articulos incumplidos y declaraciones vencidas, **con lo que no tiene evidencia primero**. Al construirla aparecio que `evidence_url` se perdia en silencio con respuesta 200: la columna no existia — ver abajo |
 | Avisos de vencimiento | **Rehechos el 26-ago (#119, #120, #123).** El generador anterior **duplicaba** —tres corridas, tres avisos—, **se saltaba en silencio las obligaciones sin responsable** (3 de 8 en el seed) y tenia las ventanas escritas a mano mientras `notification_rules` existia vacia. Ahora: clave unica en la base, escalamiento a los administradores, y ventanas por empresa con defecto 15/7/3/1. **Falta el cron que lo llame** (#119) — ver abajo |
-| Control documental (RF-102 a RF-106) | **Modelo y ciclo de vida desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. **Falta la subida de archivos** — ver abajo |
+| Control documental (RF-102 a RF-106) | **Modelo, ciclo de vida y subida de archivos desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. La subida va por **enlace firmado** directo a B2, con la ruta del objeto llevando el `tenant_id` — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -556,22 +556,46 @@ Quedan tres decisiones antes de escribir el worker, y ninguna es mia:
 Mientras tanto **el generador funciona y se puede llamar a mano**:
 `POST /obligations/generate-notifications/`. Correrlo dos veces no repite nada.
 
-**El esquema no admite guardar un archivo en disco local.** El CHECK de
-`document_versions.storage_provider` son cuatro: `s3`, `backblaze`,
-`google_drive`, `onedrive`. **No hay opcion local ni de desarrollo.**
+**El puente hacia el almacenamiento existe desde el 27-ago, y no guarda nada
+en disco local.** El CHECK de `document_versions.storage_provider` son cuatro
+—`s3`, `backblaze`, `google_drive`, `onedrive`— y **no hay opcion local ni de
+desarrollo**: sin credenciales, la subida responde **503 con un mensaje claro**
+y el resto del sistema funciona igual. Guardar en el disco del servidor sin que
+nadie lo haya decidido produce archivos sin respaldo que se pierden en el primer
+redespliegue, y la empresa los cree guardados.
 
-Eso responde con precision cuando hace falta Backblaze: no es "cuando queramos
-guardar archivos", es que **hoy no se puede registrar una version sin uno de
-esos cuatro proveedores**. El modelo de control documental (RF-102 a RF-106)
-funciona igual —los estados, la aprobacion, la vigencia— pero el archivo en si
-no tiene donde vivir.
+`services/almacenamiento.py` habla con B2 por su **API compatible con S3**, asi
+que las mismas variables sirven para S3 o R2: cambia el endpoint.
 
-Lo que hay que decidir antes de la primera subida, y **antes es mas barato que
-despues**: ADR-005 lo marca como riesgo — **RLS no cubre el object storage**.
-La ruta del objeto tiene que llevar el `tenant_id` y la URL firmada emitirse
-solo tras validar pertenencia, con expiracion corta tambien en descarga. Es la
-misma clase de agujero que las claves foraneas que no pasan por RLS, y esta
-serie ya encontro dos de esos.
+**Las dos reglas que sostienen el aislamiento**, porque ADR-005 tiene razon en
+que **RLS no cubre el object storage** —Postgres no sabe nada de un bucket, y un
+enlace firmado es una credencial que funciona sin pasar por la base—:
+
+1. **La ruta lleva el `tenant_id` adelante**
+   (`tenants/<uuid>/documents/<uuid>/v<n>/<nombre>`). No es cosmetico: es lo que
+   permite acotar una llave de B2 a un prefijo por empresa el dia que haga
+   falta. Con las rutas mezcladas eso ya no se puede sin mover todo.
+2. **El enlace se emite despues de leer la fila con la sesion del tenant.** Si
+   RLS no ve el documento, no hay URL. Y `confirm-upload` comprueba que la clave
+   este dentro del prefijo de **ese** documento: sin eso, alguien podria
+   confirmar una subida apuntando a la carpeta de otra empresa y quedarse con
+   una revision que la descarga.
+
+**Enlaces firmados y no un proxy por la API**: un PDF de 40 MB atravesando
+FastAPI ocupa un worker durante toda la subida. Lo que se cede es que el archivo
+llega sin que lo hayamos visto, asi que `confirmar_subida()` le pregunta al
+bucket el tamano y el tipo **reales** en vez de creerle al navegador — y de paso
+es lo unico que detecta un `PUT` que fallo a la mitad.
+
+Para comprobar que las credenciales sirven de verdad:
+
+```bash
+cd apps/api && python -m app.tareas.comprobar_almacenamiento
+```
+
+Sube, baja, compara el contenido y borra. **Que `boto3` construya una URL
+firmada no prueba nada**: la firma se genera igual con una clave equivocada y
+falla recien al usarla.
 
 **Y una trampa de las pruebas que cuesta media hora:** un `UPDATE` crudo con
 `db.execute(text(...))` **no actualiza el mapa de identidad de la sesion**. La
@@ -586,7 +610,7 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 615 pruebas, 39 archivos
+cd apps/api && python -m pytest         # 642 pruebas, 40 archivos
 cd apps/web && npx vitest run           # 421 pruebas, 34 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```

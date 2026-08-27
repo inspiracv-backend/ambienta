@@ -12,6 +12,10 @@ from ..deps import get_tenant_db, get_tenant_id
 from ..models.documents import EntityDocument
 from ._comun import borrar_o_404, listar_por_padre, obtener_o_404, verificar_padre
 from ..schemas.documents import (
+    ConfirmarSubida,
+    EnlaceDeDescarga,
+    EnlaceDeSubida,
+    PedirSubida,
     DocumentCreate,
     DocumentVersionUpdate,
     EntityDocumentCreate,
@@ -181,3 +185,199 @@ def delete_document_version(document_id: UUID, version_id: UUID, db: Session = D
     obj = obtener_o_404(crud_document_version, db, version_id, recurso="DocumentVersion")
     verificar_padre(obj, document_id, campo="document_id")
     borrar_o_404(crud_document_version, db, version_id, recurso="DocumentVersion")
+
+
+# ── Subida y descarga de archivos (RF-110, ADR-005) ──────────────────────
+#
+# **Row Level Security no cubre el almacenamiento de objetos.** Un enlace
+# firmado es una credencial temporal: quien la tenga baja el archivo sin pasar
+# por la base. Por eso los tres endpoints leen primero la fila con la sesion del
+# tenant — si RLS no la ve, para esta empresa no existe y no hay URL.
+
+@router.post(
+    "/{document_id}/upload-url",
+    response_model=EnlaceDeSubida,
+    tags=["business-logic"],
+    summary="Pedir un enlace para subir un archivo",
+    description=(
+        "Devuelve un enlace firmado para que el navegador suba el archivo "
+        "**directo al almacenamiento**, sin pasar por la API.\n\n"
+        "Es asi porque un PDF de 40 MB atravesando FastAPI ocupa un worker "
+        "durante toda la subida. Lo que se cede: el archivo llega sin que "
+        "nosotros lo hayamos visto, asi que el tamano y el tipo declarados hay "
+        "que verificarlos **despues** — para eso esta `/confirm-upload`.\n\n"
+        "El `Content-Type` va dentro de la firma: si el navegador manda otro, "
+        "el almacenamiento rechaza la subida. Sin eso, un enlace firmado para "
+        "un PDF serviria para subir cualquier cosa.\n\n"
+        "**503 si no hay credenciales configuradas**, y no un respaldo a disco: "
+        "un archivo que la empresa cree subido y no esta es peor que un error."
+    ),
+)
+def pedir_enlace_de_subida(
+    document_id: UUID,
+    datos: PedirSubida,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    from ..services import almacenamiento as alm
+
+    # **Primero la pertenencia.** Firmar sin esto emitiria una credencial para
+    # escribir en la carpeta de otra empresa.
+    doc = obtener_o_404(crud_document, db, document_id, recurso="Document")
+
+    try:
+        alm.validar_archivo(
+            nombre=datos.file_name, mime=datos.mime_type, tamano=datos.size_bytes
+        )
+    except alm.ArchivoRechazado as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+    proxima = _proxima_version(db, document_id)
+    try:
+        enlace = alm.url_para_subir(
+            tenant_id=tenant_id,
+            document_id=doc.id,
+            version_no=proxima,
+            nombre=datos.file_name,
+            mime=datos.mime_type,
+        )
+    except alm.SinConfigurar as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        )
+
+    return EnlaceDeSubida(
+        url=enlace.url,
+        storage_key=enlace.clave,
+        expires_in=enlace.expira_en,
+        headers=enlace.cabeceras,
+    )
+
+
+@router.post(
+    "/{document_id}/confirm-upload",
+    response_model=DocumentVersionRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["business-logic"],
+    summary="Cerrar la subida creando la revision",
+    description=(
+        "Comprueba contra el almacenamiento que el archivo **llego de verdad** "
+        "y crea la revision con su tamano y tipo reales.\n\n"
+        "Es imprescindible: con enlaces firmados, si el `PUT` del navegador "
+        "falla a la mitad la API no se entera de nada, y sin esta comprobacion "
+        "quedaria una revision apuntando a un objeto que no existe.\n\n"
+        "Se guardan los datos que devuelve el almacenamiento, **no los que "
+        "declaro el navegador**: son los unicos que se pueden sostener.\n\n"
+        "La revision nace en `borrador`. Aprobarla y ponerla en vigencia son "
+        "pasos aparte (RF-104/RF-105)."
+    ),
+)
+def confirmar_subida(
+    document_id: UUID,
+    datos: ConfirmarSubida,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    from ..models.documents import DocumentVersion
+    from ..services import almacenamiento as alm
+
+    doc = obtener_o_404(crud_document, db, document_id, recurso="Document")
+
+    # **La clave tiene que estar dentro del prefijo de este documento.** Sin
+    # esta comprobacion, alguien podria confirmar una subida apuntando a la
+    # clave de otra empresa y quedarse con una revision que la descarga.
+    prefijo = f"tenants/{tenant_id}/documents/{doc.id}/"
+    if not datos.storage_key.startswith(prefijo):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="La ruta del archivo no corresponde a este documento.",
+        )
+
+    try:
+        real = alm.confirmar_subida(clave=datos.storage_key)
+    except alm.SinConfigurar as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        )
+    except alm.ErrorDeAlmacenamiento as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+    version = DocumentVersion(
+        tenant_id=tenant_id,
+        document_id=doc.id,
+        version_no=_proxima_version(db, document_id),
+        storage_provider="backblaze",
+        storage_key=datos.storage_key,
+        file_name=datos.file_name,
+        mime_type=real.get("mime_type") or "application/octet-stream",
+        size_bytes=real["size_bytes"],
+        source="upload",
+    )
+    db.add(version)
+    db.flush()
+    db.refresh(version)
+    db.commit()
+    return version
+
+
+@router.get(
+    "/{document_id}/versions/{version_id}/download-url",
+    response_model=EnlaceDeDescarga,
+    tags=["business-logic"],
+    summary="Pedir un enlace para descargar una revision",
+    description=(
+        "Enlace firmado de corta duracion. **Mas corto que el de subida a "
+        "proposito**: una descarga se pide y se usa en el acto, y el enlace da "
+        "acceso al contenido.\n\n"
+        "La revision tiene que pertenecer al documento de la URL: anidar la "
+        "ruta no ata al hijo con el padre por si solo."
+    ),
+)
+def pedir_enlace_de_descarga(
+    document_id: UUID,
+    version_id: UUID,
+    db: Session = Depends(get_tenant_db),
+):
+    from ..models.documents import DocumentVersion
+    from ..services import almacenamiento as alm
+
+    obtener_o_404(crud_document, db, document_id, recurso="Document")
+
+    version = db.get(DocumentVersion, version_id)
+    if version is None or version.document_id != document_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Version not found"
+        )
+
+    try:
+        enlace = alm.url_para_descargar(
+            clave=version.storage_key, nombre=version.file_name
+        )
+    except alm.SinConfigurar as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        )
+
+    return EnlaceDeDescarga(url=enlace.url, expires_in=enlace.expira_en)
+
+
+def _proxima_version(db: Session, document_id: UUID) -> int:
+    """El numero de la revision siguiente.
+
+    Se mira el **maximo** y no la cantidad: `document_versions` es de solo
+    agregar, pero contar filas se rompe en cuanto exista cualquier hueco.
+    """
+    from sqlalchemy import func, select
+
+    from ..models.documents import DocumentVersion
+
+    ultima = db.scalar(
+        select(func.max(DocumentVersion.version_no)).where(
+            DocumentVersion.document_id == document_id
+        )
+    )
+    return (ultima or 0) + 1

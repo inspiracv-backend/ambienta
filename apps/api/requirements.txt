@@ -21,3 +21,12 @@ httpx==0.28.1
 # verificacion de firma, y ahi escribir criptografia propia es como se cuelan
 # los bugs que nadie ve hasta que alguien los explota.
 svix==1.42.0
+
+# --- Almacenamiento de archivos (ADR-005: Backblaze B2) ----------------------
+# B2 expone una API compatible con S3, asi que se usa el cliente de siempre en
+# vez de la libreria propia de Backblaze: si manana el bucket se mueve a S3 o a
+# R2, cambia el endpoint y no el codigo.
+#
+# `boto3` se importa **dentro de la funcion** que lo usa, no al tope del
+# modulo: la API tiene que poder arrancar sin credenciales de almacenamiento.
+boto3==1.35.71
