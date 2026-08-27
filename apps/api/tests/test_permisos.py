@@ -340,3 +340,59 @@ class TestCodigosUsadosEnLaApi:
             "Con Clerk configurado nadie puede pasarlas. Usa un codigo de "
             "`permissions` o agregalo al seed."
         )
+
+
+class TestUnSoloReloj:
+    """La vigencia se compara contra el reloj de la base, no el de la app.
+
+    Esta clase existe por un fallo real. El 27-ago tres pruebas de este archivo
+    fallaron juntas y volvieron a pasar solas minutos despues sin que nadie
+    tocara nada. Las tres eran las unicas que asignan un rol y verifican en
+    seguida que rige; las que afirman lo contrario —un rol vencido no concede—
+    siguieron pasando. Esa asimetria es la firma de un `valid_from` que quedo
+    en el futuro: `now()` lo escribe Postgres, y el filtro lo comparaba contra
+    `datetime.now()` de Python.
+
+    Lo que hacia falta no era otra prueba de comportamiento —las tres que
+    fallaron ya lo cubrian, y pasan igual con el error presente mientras los
+    relojes coincidan—, sino fijar **el mecanismo**: mientras la comparacion
+    viva en SQL, no hay dos relojes que puedan separarse.
+    """
+
+    def test_la_vigencia_no_usa_el_reloj_de_python(self) -> None:
+        """Si alguien vuelve a `datetime.now()`, esto falla en el acto."""
+        from sqlalchemy.sql.elements import ClauseElement
+
+        from app.services.permisos import _ahora
+
+        ahora = _ahora()
+        assert isinstance(ahora, ClauseElement), (
+            "La vigencia volvio a compararse con el reloj de la aplicacion. "
+            "`valid_from` lo escribe Postgres con now(); comparar contra el "
+            "reloj de Python mezcla dos relojes en una sola comparacion y un "
+            "desfase de milisegundos deja a alguien sin el permiso que le "
+            "acaban de dar."
+        )
+        assert str(ahora) == "now()"
+
+    def test_el_filtro_de_vigencia_viaja_en_el_SQL(self, db: Session) -> None:
+        """Y llega hasta la consulta, no solo hasta la funcion.
+
+        Comprobar `_ahora()` sola no basta: alguien podria dejarla intacta y
+        resolver la fecha en Python antes de armar el `where`. Esto mira el SQL
+        que de verdad se manda.
+        """
+        from sqlalchemy import or_, select
+
+        from app.models.organization import UserRole
+        from app.services.permisos import _ahora
+
+        ahora = _ahora()
+        consulta = select(UserRole.user_id).where(
+            UserRole.valid_from <= ahora,
+            or_(UserRole.valid_to.is_(None), UserRole.valid_to > ahora),
+        )
+        sql = str(consulta.compile(db.get_bind()))
+        assert sql.count("now()") == 2, (
+            f"La vigencia deberia resolverse en la base las dos veces. SQL: {sql}"
+        )
