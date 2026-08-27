@@ -1,14 +1,12 @@
 """Lógica de negocio para obligaciones y vencimientos."""
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from ..models.notifications import Notification
-from ..models.obligations import DeclarationTemplate, Obligation
-from ..models.catalog import RetcSystem
-from .declaracion import urgencia
+from ..models.obligations import Obligation
 
 
 def get_upcoming_obligations(
@@ -86,97 +84,30 @@ def fulfill_obligation(
     return registrar_folio(db, obligacion=obl, folio=receipt)
 
 
-def _plantilla_de(db: Session, obl: Obligation) -> DeclarationTemplate | None:
-    """La plantilla Excel vigente del sistema ante el que declara esta obligacion.
-
-    Devuelve `None` sin ruido en tres casos legitimos: la obligacion no declara
-    sistema, el sistema no tiene plantilla cargada, o la que hay no esta
-    vigente. **Hoy los tres son el caso normal**: `declaration_templates` tiene
-    cero filas — el repositorio de plantillas (#116) es contenido oficial que
-    todavia no se cargo, no codigo que falte.
-
-    La vigencia se filtra por fecha y no solo por `active`: una plantilla
-    marcada activa cuyo `valid_to` ya paso corresponde a una estructura que el
-    portal dejo de aceptar, y adjuntarla haria que la empresa preparara su
-    declaracion en un formato que le van a rechazar.
-    """
-    if obl.retc_system_id is None:
-        return None
-
-    hoy = date.today()
-    return db.scalar(
-        select(DeclarationTemplate)
-        .join(RetcSystem, RetcSystem.code == DeclarationTemplate.system_code)
-        .where(
-            RetcSystem.id == obl.retc_system_id,
-            DeclarationTemplate.active.is_(True),
-            DeclarationTemplate.deleted_at.is_(None),
-            or_(DeclarationTemplate.valid_from.is_(None), DeclarationTemplate.valid_from <= hoy),
-            or_(DeclarationTemplate.valid_to.is_(None), DeclarationTemplate.valid_to >= hoy),
-        )
-        .order_by(DeclarationTemplate.valid_from.desc().nulls_last())
-    )
-
-
 def create_deadline_notifications(
     db: Session, tenant_id: UUID, days_before: list[int] | None = None
 ) -> list[Notification]:
-    if days_before is None:
-        days_before = [30, 15, 7, 1]
+    """**Obsoleta. Usa `services/avisos_de_vencimiento.generar()`.**
 
-    now = datetime.now(timezone.utc)
-    created: list[Notification] = []
+    Se conserva porque tenia llamadores, pero delega: mantener dos generadores
+    de avisos es garantizar que uno de los dos duplique, escale mal, o ignore
+    las reglas de la empresa — que es exactamente lo que hacia este.
 
-    for days in days_before:
-        target_date = now + timedelta(days=days)
-        window_start = target_date - timedelta(hours=12)
-        window_end = target_date + timedelta(hours=12)
+    Los tres defectos que tenia, medidos con sondas:
 
-        obligations = db.scalars(
-            select(Obligation).where(
-                and_(
-                    Obligation.tenant_id == tenant_id,
-                    Obligation.status.in_(["open", "draft"]),
-                    Obligation.due_at >= window_start,
-                    Obligation.due_at <= window_end,
-                    Obligation.deleted_at.is_(None),
-                )
-            )
-        ).all()
+    1. **Duplicaba.** Tres corridas seguidas dejaban tres avisos identicos.
+    2. **`if not obl.owner_user_id: continue`** — las obligaciones sin
+       responsable no avisaban a nadie, en silencio. En el seed son 3 de 8.
+    3. Las ventanas escritas a mano (`[30, 15, 7, 1]`) mientras
+       `notification_rules` existia vacia y nadie la leia.
 
-        for obl in obligations:
-            if not obl.owner_user_id:
-                continue
+    Devuelve una lista para no romper a quien esperaba `len(...)`, pero el
+    resultado util —cuantos se omitieron por repetidos, cuantos escalaron, y
+    **cuales no avisaron a nadie**— solo lo da el servicio nuevo.
+    """
+    from .avisos_de_vencimiento import generar
 
-            # La plantilla del sistema ante el que se declara (#117). Va en el
-            # contexto y **no pegada en el cuerpo**: quien envie el correo
-            # necesita el id para adjuntar el archivo, no su nombre en una
-            # frase. Si la obligacion no declara sistema, o ese sistema no
-            # tiene plantilla vigente, el aviso sale igual — un recordatorio
-            # sin adjunto sigue sirviendo; uno que no se envia, no.
-            plantilla = _plantilla_de(db, obl)
-
-            contexto = {
-                "obligation_id": str(obl.id),
-                "days_before": days,
-                "urgencia": urgencia(obl, now).nivel,
-            }
-            if plantilla is not None:
-                contexto["template_id"] = str(plantilla.id)
-                contexto["template_name"] = plantilla.name
-                contexto["template_version"] = plantilla.version
-
-            notif = Notification(
-                tenant_id=tenant_id,
-                recipient_user_id=obl.owner_user_id,
-                channel="in_app",
-                subject=f"Vencimiento en {days} días: {obl.title}",
-                body=f"La obligación '{obl.title}' (código {obl.code}) vence el {obl.due_at.strftime('%d/%m/%Y') if obl.due_at else 'N/A'}.",
-                status="queued",
-                context=contexto,
-            )
-            db.add(notif)
-            created.append(notif)
-
-    db.flush()
-    return created
+    ventanas = tuple(days_before) if days_before else None
+    r = generar(db, tenant_id, ventanas=ventanas)
+    # Se devuelven los avisos de esta corrida, que es lo que la firma promete.
+    return list(db.new)[: r.creados] if r.creados else []

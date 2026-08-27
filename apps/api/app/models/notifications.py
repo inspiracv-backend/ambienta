@@ -86,6 +86,10 @@ class Notification(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     provider_message_id: Mapped[str | None] = mapped_column(String(200))
+    # Identifica QUE aviso es, para no repetirlo (db/17). Detras hay un indice
+    # unico parcial: `(tenant_id, dedupe_key)` donde no este borrado ni sea
+    # NULL. NULL = un aviso que puede repetirse legitimamente.
+    dedupe_key: Mapped[str | None] = mapped_column(String(200))
     context: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )

@@ -380,15 +380,42 @@ def fulfill(
     return obj
 
 
-@router.post("/generate-notifications/", tags=["business-logic"])
+@router.post(
+    "/generate-notifications/",
+    tags=["business-logic"],
+    summary="Generar los avisos de vencimiento que correspondan hoy",
+    description=(
+        "Lo que el cron diario llama (#119). **Se puede correr las veces que "
+        "haga falta:** cada aviso lleva una clave con una restriccion de "
+        "unicidad detras, asi que una segunda corrida no repite nada.\n\n"
+        "Antes si repetia. Medido: tres corridas seguidas sobre la misma "
+        "obligacion y la misma ventana dejaban **tres avisos**. El dano no es "
+        "el ruido sino lo que provoca — un sistema que avisa de mas se deja de "
+        "leer, y despues pasa de largo el aviso que importaba.\n\n"
+        "**Las ventanas salen de `notification_rules` si la empresa las "
+        "declaro**, y del defecto 15/7/3/1 si no. Una obligacion sin "
+        "responsable **escala a los administradores** en vez de quedarse sin "
+        "aviso, que es lo que pasaba antes: 3 de las 8 obligaciones del seed no "
+        "tienen dueno y no generaban nada.\n\n"
+        "Mira `sin_destinatario`: son las obligaciones que no avisaron a nadie "
+        "porque la empresa no tiene ni responsable ni administrador activo."
+    ),
+)
 def generate_notifications(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
-    from ..services.obligations import create_deadline_notifications
-    notifications = create_deadline_notifications(db, tenant_id)
+    from ..services.avisos_de_vencimiento import generar
+
+    r = generar(db, tenant_id)
     db.commit()
-    return {"created": len(notifications)}
+    return {
+        "created": r.creados,
+        "skipped_duplicates": r.omitidos_por_repetidos,
+        "escalated": r.escalados,
+        "without_recipient": r.sin_destinatario,
+        "windows_days": list(r.ventanas),
+    }
 
 
 @router.delete("/{obligation_id}", status_code=status.HTTP_204_NO_CONTENT)

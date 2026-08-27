@@ -219,6 +219,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Declaraciones y calendario RETC | **Cerrada el 26-ago (epica #21).** El flujo de RF-31 completo —presentar, aceptar, rechazar con motivo— con las transiciones declaradas en un solo lugar, el folio del portal exigido para aceptar, la urgencia calculada en el servidor y el recordatorio que adjunta la plantilla del sistema. **`fulfill` respondia 422 en el 100 % de los casos** desde siempre: escribia un estado que el CHECK no admite. Lo que NO entra: el repositorio de plantillas Excel esta vacio a proposito — ver abajo |
 | Dashboard ejecutivo | **Corregido el 26-ago (#125).** Dos de las tres plantas del seed no tienen una sola evaluacion y el tablero las mostraba **en rojo con 0 %** — cuarta vez que aparece el mismo error en esta serie. Ahora `null` es `Sin evaluar`, y esas plantas van al **final** de la tabla en vez de encabezarla como si fueran las peores |
 | Incumplimientos (#126) | **Nueva el 26-ago.** `/incumplimientos` lista articulos incumplidos y declaraciones vencidas, **con lo que no tiene evidencia primero**. Al construirla aparecio que `evidence_url` se perdia en silencio con respuesta 200: la columna no existia — ver abajo |
+| Avisos de vencimiento | **Rehechos el 26-ago (#119, #120, #123).** El generador anterior **duplicaba** —tres corridas, tres avisos—, **se saltaba en silencio las obligaciones sin responsable** (3 de 8 en el seed) y tenia las ventanas escritas a mano mientras `notification_rules` existia vacia. Ahora: clave unica en la base, escalamiento a los administradores, y ventanas por empresa con defecto 15/7/3/1. **Falta el cron que lo llame** (#119) — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -534,6 +535,26 @@ mutaciones salian "DETECTADA"** sin que ninguna prueba las estuviera cazando.
 Con la linea base arreglada, dos de tres sobrevivian. **Comprobar que la suite
 este verde antes de mutar**, y negarse a informar si no lo esta.
 
+**El worker sigue siendo NestJS y eso contradice a ADR-005.** `apps/worker`
+tiene un `package.json` con `@nestjs/common` y `ts-node`, sobrante de antes de
+que ADR-005 unificara `api`, `worker` y `ai-service` **en Python**. La issue
+#118 tambien lo dice: pide "Worker con BullMQ", que es una libreria de Node.
+
+Quedan tres decisiones antes de escribir el worker, y ninguna es mia:
+
+1. **Con que se hace la cola en Python.** ADR-005 puso Redis en la topologia;
+   las opciones razonables son `arq` (async, chico, encaja con FastAPI),
+   `RQ` (simple, sincrono) o Celery (potente y pesado para un equipo de dos).
+2. **Si hace falta cola o basta un cron.** El generador de avisos ya es
+   idempotente, asi que un cron que lo llame alcanza para #119/#120. La cola se
+   necesita de verdad para **reintentar el envio de correo** (#122).
+3. **React Email (#121) es Node.** Con la API en Python, o se renderiza la
+   plantilla en otro lado, o se usa algo de Python, o el worker es el unico
+   servicio en Node — que es lo que ADR-005 rechazo.
+
+Mientras tanto **el generador funciona y se puede llamar a mano**:
+`POST /obligations/generate-notifications/`. Correrlo dos veces no repite nada.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -541,7 +562,7 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 562 pruebas, 37 archivos
+cd apps/api && python -m pytest         # 584 pruebas, 38 archivos
 cd apps/web && npx vitest run           # 406 pruebas, 32 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```

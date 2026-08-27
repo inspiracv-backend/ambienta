@@ -442,6 +442,24 @@ class TestPorLaApi:
         assert r.json()["parent_task_id"] == padre
 
 
+
+def _avisos_de(db, obligacion_id) -> list[dict]:
+    """Los contextos de los avisos de una obligacion, leidos de la base.
+
+    El generador nuevo devuelve conteos, no las filas: mantener una lista de
+    objetos ORM invitaba a afirmar sobre lo que quedo en memoria en vez de sobre
+    lo que se escribio, que no es lo mismo cuando hay un `flush` de por medio.
+    """
+    filas = db.execute(
+        text(
+            "SELECT context FROM notifications "
+            "WHERE context->>'obligation_id' = :o AND deleted_at IS NULL"
+        ),
+        {"o": str(obligacion_id)},
+    ).scalars().all()
+    return list(filas)
+
+
 class TestElRecordatorioLlevaSuPlantilla:
     """#117 — el aviso de vencimiento adjunta la plantilla del sistema.
 
@@ -488,7 +506,7 @@ class TestElRecordatorioLlevaSuPlantilla:
         return fila[0], fila[1]
 
     def test_adjunta_la_plantilla_del_sistema(self, db, declaracion) -> None:
-        from app.services.obligations import _plantilla_de
+        from app.services.avisos_de_vencimiento import _plantilla_de
 
         sistema_id, codigo = self._sistema(db)
         pid = self._plantilla(db, codigo)
@@ -499,7 +517,7 @@ class TestElRecordatorioLlevaSuPlantilla:
 
     def test_sin_sistema_no_hay_plantilla_que_adjuntar(self, db, declaracion) -> None:
         """Una obligacion que no se declara ante ningun portal es legitima."""
-        from app.services.obligations import _plantilla_de
+        from app.services.avisos_de_vencimiento import _plantilla_de
 
         assert declaracion.retc_system_id is None
         assert _plantilla_de(db, declaracion) is None
@@ -514,7 +532,7 @@ class TestElRecordatorioLlevaSuPlantilla:
         """
         from datetime import date as _date
 
-        from app.services.obligations import _plantilla_de
+        from app.services.avisos_de_vencimiento import _plantilla_de
 
         sistema_id, codigo = self._sistema(db)
         self._plantilla(db, codigo, valid_to=_date(2020, 1, 1))
@@ -524,7 +542,7 @@ class TestElRecordatorioLlevaSuPlantilla:
         assert _plantilla_de(db, declaracion) is None
 
     def test_una_plantilla_inactiva_tampoco(self, db, declaracion) -> None:
-        from app.services.obligations import _plantilla_de
+        from app.services.avisos_de_vencimiento import _plantilla_de
 
         sistema_id, codigo = self._sistema(db)
         self._plantilla(db, codigo, active=False)
@@ -535,7 +553,7 @@ class TestElRecordatorioLlevaSuPlantilla:
 
     def test_el_aviso_sale_igual_sin_plantilla(self, db, declaracion) -> None:
         """Un recordatorio sin adjunto sirve; uno que no se envia, no."""
-        from app.services.obligations import create_deadline_notifications
+        from app.services.avisos_de_vencimiento import generar
 
         persona = db.execute(
             text("SELECT id FROM users WHERE deleted_at IS NULL LIMIT 1")
@@ -545,16 +563,16 @@ class TestElRecordatorioLlevaSuPlantilla:
         declaracion.due_at = datetime.now(timezone.utc) + timedelta(days=7)
         db.flush()
 
-        avisos = create_deadline_notifications(db, EMPRESA_A, days_before=[7])
+        generar(db, EMPRESA_A, ventanas=(7,))
 
-        mios = [n for n in avisos if n.context.get("obligation_id") == str(declaracion.id)]
+        mios = _avisos_de(db, declaracion.id)
         assert mios, "no se genero el aviso"
-        assert "template_id" not in mios[0].context
+        assert "template_id" not in mios[0]
         # Y de paso lleva la urgencia, que es lo que decide como se escribe.
-        assert mios[0].context["urgencia"] == "proxima"
+        assert mios[0]["urgencia"] == "proxima"
 
     def test_con_plantilla_el_aviso_la_lleva(self, db, declaracion) -> None:
-        from app.services.obligations import create_deadline_notifications
+        from app.services.avisos_de_vencimiento import generar
 
         sistema_id, codigo = self._sistema(db)
         pid = self._plantilla(db, codigo)
@@ -567,7 +585,8 @@ class TestElRecordatorioLlevaSuPlantilla:
         declaracion.due_at = datetime.now(timezone.utc) + timedelta(days=7)
         db.flush()
 
-        avisos = create_deadline_notifications(db, EMPRESA_A, days_before=[7])
+        generar(db, EMPRESA_A, ventanas=(7,))
 
-        mios = [n for n in avisos if n.context.get("obligation_id") == str(declaracion.id)]
-        assert mios[0].context["template_id"] == str(pid)
+        mios = _avisos_de(db, declaracion.id)
+        assert mios, "no se genero el aviso"
+        assert mios[0]["template_id"] == str(pid)
