@@ -66,6 +66,7 @@ services:
       - ./db/15_declaracion_ante_su_sistema.sql:/docker-entrypoint-initdb.d/15-declaracion-sistema.sql:ro
       - ./db/16_evidencia_del_articulo.sql:/docker-entrypoint-initdb.d/16-evidencia-articulo.sql:ro
       - ./db/17_avisos_sin_duplicados.sql:/docker-entrypoint-initdb.d/17-avisos-sin-duplicados.sql:ro
+      - ./db/18_control_documental.sql:/docker-entrypoint-initdb.d/18-control-documental.sql:ro
       - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
       # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
       # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —

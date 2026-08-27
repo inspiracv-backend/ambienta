@@ -220,6 +220,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Dashboard ejecutivo | **Corregido el 26-ago (#125).** Dos de las tres plantas del seed no tienen una sola evaluacion y el tablero las mostraba **en rojo con 0 %** — cuarta vez que aparece el mismo error en esta serie. Ahora `null` es `Sin evaluar`, y esas plantas van al **final** de la tabla en vez de encabezarla como si fueran las peores |
 | Incumplimientos (#126) | **Nueva el 26-ago.** `/incumplimientos` lista articulos incumplidos y declaraciones vencidas, **con lo que no tiene evidencia primero**. Al construirla aparecio que `evidence_url` se perdia en silencio con respuesta 200: la columna no existia — ver abajo |
 | Avisos de vencimiento | **Rehechos el 26-ago (#119, #120, #123).** El generador anterior **duplicaba** —tres corridas, tres avisos—, **se saltaba en silencio las obligaciones sin responsable** (3 de 8 en el seed) y tenia las ventanas escritas a mano mientras `notification_rules` existia vacia. Ahora: clave unica en la base, escalamiento a los administradores, y ventanas por empresa con defecto 15/7/3/1. **Falta el cron que lo llame** (#119) — ver abajo |
+| Control documental (RF-102 a RF-106) | **Modelo y ciclo de vida desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. **Falta la subida de archivos** — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -555,6 +556,29 @@ Quedan tres decisiones antes de escribir el worker, y ninguna es mia:
 Mientras tanto **el generador funciona y se puede llamar a mano**:
 `POST /obligations/generate-notifications/`. Correrlo dos veces no repite nada.
 
+**El esquema no admite guardar un archivo en disco local.** El CHECK de
+`document_versions.storage_provider` son cuatro: `s3`, `backblaze`,
+`google_drive`, `onedrive`. **No hay opcion local ni de desarrollo.**
+
+Eso responde con precision cuando hace falta Backblaze: no es "cuando queramos
+guardar archivos", es que **hoy no se puede registrar una version sin uno de
+esos cuatro proveedores**. El modelo de control documental (RF-102 a RF-106)
+funciona igual —los estados, la aprobacion, la vigencia— pero el archivo en si
+no tiene donde vivir.
+
+Lo que hay que decidir antes de la primera subida, y **antes es mas barato que
+despues**: ADR-005 lo marca como riesgo — **RLS no cubre el object storage**.
+La ruta del objeto tiene que llevar el `tenant_id` y la URL firmada emitirse
+solo tras validar pertenencia, con expiracion corta tambien en descarga. Es la
+misma clase de agujero que las claves foraneas que no pasan por RLS, y esta
+serie ya encontro dos de esos.
+
+**Y una trampa de las pruebas que cuesta media hora:** un `UPDATE` crudo con
+`db.execute(text(...))` **no actualiza el mapa de identidad de la sesion**. La
+fila cambia en la base y `db.get()` sigue devolviendo el objeto viejo, asi que
+la prueba falla con "DID NOT RAISE" y el mensaje no se parece en nada a la
+causa. `db.expire_all()` despues del `UPDATE`.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
@@ -562,7 +586,7 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 584 pruebas, 38 archivos
+cd apps/api && python -m pytest         # 615 pruebas, 39 archivos
 cd apps/web && npx vitest run           # 421 pruebas, 34 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
