@@ -222,6 +222,10 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Avisos de vencimiento | **Rehechos el 26-ago (#119, #120, #123).** El generador anterior **duplicaba** —tres corridas, tres avisos—, **se saltaba en silencio las obligaciones sin responsable** (3 de 8 en el seed) y tenia las ventanas escritas a mano mientras `notification_rules` existia vacia. Ahora: clave unica en la base, escalamiento a los administradores, y ventanas por empresa con defecto 15/7/3/1. **Falta el cron que lo llame** (#119) — ver abajo |
 | Control documental (RF-102 a RF-106) | **Modelo, ciclo de vida y subida de archivos desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. La subida va por **enlace firmado** directo a B2, con la ruta del objeto llevando el `tenant_id`. **La pantalla `/documentos` existe desde el 27-ago** y con ella el ciclo de vida salio por la API: `control_documental.py` estaba escrito, probado y **sin ningun llamador** — ver abajo |
 | worker · ai-service | Sin implementar |
+| Avisos de vencimiento | **Cerrados el 27-ago (epica #22).** El generador anterior **duplicaba** —tres corridas, tres avisos—, **se saltaba en silencio las obligaciones sin responsable** (3 de 8 en el seed) y tenia las ventanas escritas a mano mientras `notification_rules` existia vacia. Ahora: clave unica en la base, escalamiento a los administradores, y ventanas por empresa con defecto 15/7/3/1. El 27-ago se cerro el resto: la cola sabe **reintentar** (`db/19`), hay un cron (`python -m app.tareas avisos`), el correo sale por **Resend**, y las plantillas de la empresa se rellenan en Python. Al enchufarlas aparecio que el generador **nunca creaba notificaciones de correo** — se podia configurar Resend entero y no salia un solo mensaje — ver abajo |
+| Control documental (RF-102 a RF-106) | **Modelo, ciclo de vida y subida de archivos desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. La subida va por **enlace firmado** directo a B2, con la ruta del objeto llevando el `tenant_id` — ver abajo |
+| worker | **No existe como servicio, a proposito.** El trabajo en segundo plano vive en `apps/api/app/tareas/` y lo dispara cron. Ver `apps/worker/README.md` |
+| ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
 leerlo con cuidado porque son dos estados distintos con arreglos opuestos:
@@ -536,25 +540,75 @@ mutaciones salian "DETECTADA"** sin que ninguna prueba las estuviera cazando.
 Con la linea base arreglada, dos de tres sobrevivian. **Comprobar que la suite
 este verde antes de mutar**, y negarse a informar si no lo esta.
 
-**El worker sigue siendo NestJS y eso contradice a ADR-005.** `apps/worker`
-tiene un `package.json` con `@nestjs/common` y `ts-node`, sobrante de antes de
-que ADR-005 unificara `api`, `worker` y `ai-service` **en Python**. La issue
-#118 tambien lo dice: pide "Worker con BullMQ", que es una libreria de Node.
+**La epica de notificaciones esta cerrada desde el 27-ago, y sin Redis.**
+`apps/worker` ya no tiene NestJS: era un `console.log` que ademas hacia que cada
+`npm install` se bajara NestJS y `ts-node`. Ver `apps/worker/README.md`.
 
-Quedan tres decisiones antes de escribir el worker, y ninguna es mia:
+Las tres decisiones que aca figuraban como abiertas se tomaron asi:
 
-1. **Con que se hace la cola en Python.** ADR-005 puso Redis en la topologia;
-   las opciones razonables son `arq` (async, chico, encaja con FastAPI),
-   `RQ` (simple, sincrono) o Celery (potente y pesado para un equipo de dos).
-2. **Si hace falta cola o basta un cron.** El generador de avisos ya es
-   idempotente, asi que un cron que lo llame alcanza para #119/#120. La cola se
-   necesita de verdad para **reintentar el envio de correo** (#122).
-3. **React Email (#121) es Node.** Con la API en Python, o se renderiza la
-   plantilla en otro lado, o se usa algo de Python, o el worker es el unico
-   servicio en Node — que es lo que ADR-005 rechazo.
+1. **La cola es `notifications` en Postgres, no Redis.** Ya lo era: `status`
+   con `queued` por defecto, `scheduled_at`, `sent_at`, `provider_message_id`,
+   `dedupe_key` con indice unico y un indice parcial sobre los pendientes. Le
+   faltaba el estado de reintento (`db/19`). Y hay una razon de correccion, no
+   solo de ahorro: **la fila del aviso y el hecho que lo causa se escriben en
+   la misma transaccion**, asi que no pueden discrepar. Con Redis son dos
+   almacenes y las dos formas de discrepar son malas — un correo por una
+   obligacion revertida, o una fila `queued` que nadie va a atender.
+2. **Cron, no proceso residente.** `python -m app.tareas avisos` genera y
+   despacha; una linea de crontab a las 7 de la mañana. Un proceso propio se
+   justificara cuando haya trabajo disparado por el usuario que no pueda
+   esperar al proximo cron.
+3. **Las plantillas se rellenan en Python, no con React Email.** La tabla
+   `notification_templates` ya existia con sintaxis `{{variable}}`.
 
-Mientras tanto **el generador funciona y se puede llamar a mano**:
-`POST /obligations/generate-notifications/`. Correrlo dos veces no repite nada.
+**Lo que aparecio al enchufar las plantillas, y era lo grave:** el generador
+**nunca creaba notificaciones de correo** — solo `channel="in_app"`. O sea que
+se podia configurar Resend entero, correr el cron, y no salia un solo mensaje,
+porque no habia ninguna fila que enviar. Nada fallaba. Ahora crea los dos
+canales y la clave de deduplicacion lleva el canal, porque el indice unico es
+`(tenant, clave, destinatario)` y sin eso los dos chocarian.
+
+Y el `event_type` de la constante decia `obligacion_por_vencer` mientras las
+plantillas sembradas usan `obligation_due`. No rompia nada **porque nadie
+buscaba la plantilla todavia**; al enchufarla, el correo habria salido con el
+texto de respaldo para siempre, sin ningun error.
+
+**El relleno de plantillas NO usa Jinja2, y es por seguridad.** Las plantillas
+son dato de empresa —`notification_templates` lleva `tenant_id` y RLS—, o sea
+que un Admin Empresa las edita. Un motor con expresiones convierte "editar una
+plantilla" en "ejecutar codigo en el proceso de la API": `{{ ''.__class__ }}` es
+la primera linea de una cadena conocida. Solo se sustituye `{{nombre}}` por un
+valor de un diccionario. Se pierden los condicionales; el peor caso de una
+plantilla maliciosa pasa a ser un correo feo.
+
+**Los tres tipos de fallo del correo se distinguen, y no es cosmetico.** 401/403
+**cortan la corrida** en vez de matar el aviso: tratarlos como permanentes
+dejaria cada aviso encolado en `failed` en su primer intento, y se descubriria
+al arreglar la llave, cuando ya se perdieron. 429 **no es permanente** aunque
+sea 4xx — es el que siempre se arregla esperando.
+
+**El despachador toma de a un aviso, no por lote.** Un lote con `FOR UPDATE`
+parece mas eficiente, pero el primer `commit` del bucle termina la transaccion y
+**suelta los candados de las filas restantes**: otro despachador las toma
+mientras este recorre su lista en memoria, y los dos mandan el mismo correo.
+
+**Y `SET LOCAL` se pierde en el `commit`.** El cron recorre empresa por empresa
+con RLS puesto —que es lo correcto, §4— pero el despachador confirma cada aviso
+por separado: con el alcance por defecto atendia **un aviso por empresa** y el
+resto quedaba invisible. De ahi `declarar(..., toda_la_sesion=True)` y
+`olvidar()`, que hay que llamar o la conexion vuelve al pool con una empresa
+pegada.
+
+Para comprobar el correo, con un destino real:
+
+```bash
+docker compose exec api python -m app.tareas.comprobar_correo tu@correo.cl
+```
+
+Manda un correo de verdad. El error mas comun —dominio del remitente sin
+verificar en Resend— **no se detecta hasta el primer envio**, que sin esto seria
+el primer aviso de vencimiento de un cliente. Y "aceptado por Resend" no es
+"entregado": si no llega, el problema esta en SPF/DKIM.
 
 **El puente hacia el almacenamiento existe desde el 27-ago, y no guarda nada
 en disco local.** El CHECK de `document_versions.storage_provider` son cuatro
@@ -722,6 +776,8 @@ funcionan en la terminal. Un comando por linea.
 npm run spec:check                      # los 4 artefactos de cada cambio
 cd apps/api && python -m pytest         # 671 pruebas, 41 archivos
 cd apps/web && npx vitest run           # 484 pruebas, 40 archivos
+cd apps/api && python -m pytest         # 738 pruebas, 44 archivos
+cd apps/web && npx vitest run           # 421 pruebas, 34 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 
