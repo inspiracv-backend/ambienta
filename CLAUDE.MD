@@ -590,12 +590,22 @@ es lo unico que detecta un `PUT` que fallo a la mitad.
 Para comprobar que las credenciales sirven de verdad:
 
 ```bash
-cd apps/api && python -m app.tareas.comprobar_almacenamiento
+docker compose exec api python -m app.tareas.comprobar_almacenamiento
 ```
+
+**Dentro del contenedor**, porque es ahi donde llegan las variables: el
+`.env` de la raiz lo lee `docker compose` para interpolar el bloque
+`environment:`, no la API. Correrlo desde el host da "no configurado" aunque
+todo este bien.
 
 Sube, baja, compara el contenido y borra. **Que `boto3` construya una URL
 firmada no prueba nada**: la firma se genera igual con una clave equivocada y
 falla recien al usarla.
+
+Y borra **la version**, no solo el archivo: el bucket guarda todas las
+versiones a proposito (RF-106), asi que un borrado normal deja el objeto
+guardado con un marcador encima. La consola muestra "0 archivos" y se sigue
+pagando por los bytes.
 
 **Y una trampa de las pruebas que cuesta media hora:** un `UPDATE` crudo con
 `db.execute(text(...))` **no actualiza el mapa de identidad de la sesion**. La
