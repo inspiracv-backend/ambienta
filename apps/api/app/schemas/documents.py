@@ -20,6 +20,11 @@ class DocumentRead(OrmBase):
     id: UUID
     tenant_id: UUID
     document_type: str
+    #: **El codigo es lo que se cita en una auditoria.** Existe en la tabla
+    #: desde `db/18` y este esquema no lo exponia, asi que ninguna pantalla
+    #: podia mostrarlo: un documento controlado sin codigo visible no se puede
+    #: referenciar, que es la mitad de para que sirve controlarlo.
+    code: str | None = None
     current_version_id: UUID | None
     title: str
     classification: str
@@ -66,6 +71,19 @@ class DocumentVersionRead(OrmBase):
     version_metadata: dict
     created_at: datetime
     created_by: UUID | None
+    # ── Ciclo de vida (db/18, RF-104 a RF-106) ────────────────────────────
+    #
+    # Estas siete columnas existian en la tabla y **no salian por la API**, asi
+    # que el control documental era invisible desde fuera: no habia forma de
+    # saber si una revision era un borrador o la que rige. Sin esto, la
+    # pantalla no puede distinguir lo que sirve como evidencia de lo que no.
+    lifecycle_status: str
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+    obsoleted_at: datetime | None = None
+    obsoleted_reason: str | None = None
 
 
 # ── EntityDocument ────────────────────────────────────────────────────────
@@ -103,6 +121,25 @@ class ConfirmarSubida(BaseModel):
 
     storage_key: str
     file_name: str
+
+
+class PuestaEnVigencia(BaseModel):
+    """Desde cuando rige, y por que se retira la anterior.
+
+    Las dos opcionales: lo normal es "desde hoy" y sin explicacion. El motivo
+    viaja aca y no en una llamada aparte porque **retirar la anterior pasa en el
+    mismo paso** —lo exige la restriccion de una sola revision vigente— y
+    pedirlo despues dejaria la obsolescencia sin explicar si alguien no vuelve.
+    """
+
+    desde: date | None = None
+    motivo: str | None = None
+
+
+class MotivoDeObsolescencia(BaseModel):
+    """Obligatorio, y por eso es un esquema y no un parametro opcional."""
+
+    motivo: str
 
 
 class EnlaceDeDescarga(BaseModel):

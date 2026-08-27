@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..crud.documents import (
@@ -8,11 +9,16 @@ from ..crud.documents import (
     crud_document_version,
     crud_entity_document,
 )
-from ..deps import get_tenant_db, get_tenant_id
-from ..models.documents import EntityDocument
+from ..auth import CurrentUser
+from ..deps import get_current_user, get_tenant_db, get_tenant_id
+from ..models.documents import DocumentVersion, EntityDocument
+from ..models.organization import User
+from ..services import control_documental as cd
 from ._comun import borrar_o_404, listar_por_padre, obtener_o_404, verificar_padre
 from ..schemas.documents import (
     ConfirmarSubida,
+    MotivoDeObsolescencia,
+    PuestaEnVigencia,
     EnlaceDeDescarga,
     EnlaceDeSubida,
     PedirSubida,
@@ -381,3 +387,169 @@ def _proxima_version(db: Session, document_id: UUID) -> int:
         )
     )
     return (ultima or 0) + 1
+
+
+# ── Ciclo de vida de la revision (RF-104 a RF-106, #121 del control documental) ──
+#
+# `services/control_documental.py` existia desde el 27-ago con las transiciones,
+# la aprobacion firmada y la obsolescencia, **y ningun router lo llamaba**. Es el
+# mismo patron que tuvo `bcn.sincronizar()`: escrito, probado y sin llamador, o
+# sea invisible desde fuera y sin forma de saberlo mirando la API.
+
+
+def _traducir(exc: cd.ErrorDocumental) -> HTTPException:
+    """Cada error documental a su codigo HTTP.
+
+    `TransicionInvalida` es **409 y no 422**: el cuerpo esta bien formado y la
+    peticion es legitima; lo que pasa es que el recurso esta en un estado que no
+    admite ese salto. Un 422 le diria a la pantalla "corrige lo que mandaste", y
+    no hay nada que corregir — hay que mirar en que estado esta el documento.
+    """
+    if isinstance(exc, cd.TransicionInvalida):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+    )
+
+
+def _revision_de(db: Session, document_id: UUID, version_id: UUID):
+    """La revision, comprobando que sea **de ese documento**.
+
+    RLS ya impide ver las de otra empresa. Lo que RLS no comprueba es que la
+    revision pertenezca al documento de la URL: sin esto, `/documents/A/versions/B`
+    con B de otro documento aprobaria B mientras la pantalla cree estar
+    trabajando sobre A.
+    """
+    revision = db.get(DocumentVersion, version_id)
+    if revision is None or revision.document_id != document_id:
+        # Mismo mensaje para los dos casos: distinguirlos seria un oraculo para
+        # enumerar identificadores ajenos.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="La revision no corresponde a este documento.",
+        )
+    return revision
+
+
+@router.post(
+    "/{document_id}/versions/{version_id}/submit-review",
+    response_model=DocumentVersionRead,
+    summary="Enviar la revision a revisar",
+    description=(
+        "El borrador queda listo para que alguien lo revise. Desde `en_revision` "
+        "se puede aprobar o devolver a borrador."
+    ),
+)
+def enviar_a_revision(
+    document_id: UUID,
+    version_id: UUID,
+    db: Session = Depends(get_tenant_db),
+):
+    _revision_de(db, document_id, version_id)
+    try:
+        revision = cd.enviar_a_revision(db, version_id=version_id)
+    except cd.ErrorDocumental as exc:
+        raise _traducir(exc) from None
+    db.commit()
+    return revision
+
+
+@router.post(
+    "/{document_id}/versions/{version_id}/approve",
+    response_model=DocumentVersionRead,
+    summary="Aprobar la revision, dejando quien y cuando",
+    description=(
+        "**Quien aprueba queda escrito.** La base tiene un CHECK que lo exige, "
+        "asi que ni un UPDATE a mano puede dejar una revision aprobada sin firma: "
+        "ante una auditoria la pregunta no es si se aprobo, es quien. "
+        "Aprobada **todavia no rige** — para eso esta `publish`."
+    ),
+)
+def aprobar_revision(
+    document_id: UUID,
+    version_id: UUID,
+    db: Session = Depends(get_tenant_db),
+    usuario: CurrentUser = Depends(get_current_user),
+):
+    _revision_de(db, document_id, version_id)
+
+    aprobador = (
+        db.scalar(select(User).where(User.clerk_id == usuario.user_id))
+        if usuario.user_id
+        else None
+    )
+    if aprobador is None:
+        # **No se inventa un aprobador.** La alternativa —tomar al primer
+        # administrador de la empresa— dejaria escrito que esa persona aprobo
+        # algo que no aprobo, y eso es exactamente lo que un auditor lee.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se puede registrar quien aprueba: la sesion no esta asociada "
+                "a un usuario de esta empresa. Aprobar exige una sesion "
+                "identificada."
+            ),
+        )
+
+    try:
+        revision = cd.aprobar(db, version_id=version_id, aprobador_id=aprobador.id)
+    except cd.ErrorDocumental as exc:
+        raise _traducir(exc) from None
+    db.commit()
+    return revision
+
+
+@router.post(
+    "/{document_id}/versions/{version_id}/publish",
+    response_model=DocumentVersionRead,
+    summary="Poner la revision en vigencia",
+    description=(
+        "Empieza a regir, y **la anterior queda obsoleta en el mismo paso**: hay "
+        "una restriccion en la base que impide dos revisiones vigentes del mismo "
+        "documento. Solo una revision vigente sirve como evidencia."
+    ),
+)
+def poner_en_vigencia(
+    document_id: UUID,
+    version_id: UUID,
+    datos: PuestaEnVigencia | None = None,
+    db: Session = Depends(get_tenant_db),
+):
+    _revision_de(db, document_id, version_id)
+    try:
+        revision = cd.poner_en_vigencia(
+            db,
+            version_id=version_id,
+            desde=datos.desde if datos else None,
+            motivo=datos.motivo if datos else None,
+        )
+    except cd.ErrorDocumental as exc:
+        raise _traducir(exc) from None
+    db.commit()
+    return revision
+
+
+@router.post(
+    "/{document_id}/versions/{version_id}/obsolete",
+    response_model=DocumentVersionRead,
+    summary="Retirar la revision conservandola",
+    description=(
+        "RF-106: un documento controlado **no se borra**, se marca obsoleto. "
+        "El motivo es obligatorio — un obsoleto sin explicacion obliga a quien "
+        "lo encuentre a adivinar si todavia sirve, y en la duda se usa. "
+        "Obsoleto **no tiene salida**: para volver se emite una revision nueva."
+    ),
+)
+def marcar_obsoleta(
+    document_id: UUID,
+    version_id: UUID,
+    datos: MotivoDeObsolescencia,
+    db: Session = Depends(get_tenant_db),
+):
+    _revision_de(db, document_id, version_id)
+    try:
+        revision = cd.marcar_obsoleta(db, version_id=version_id, motivo=datos.motivo)
+    except cd.ErrorDocumental as exc:
+        raise _traducir(exc) from None
+    db.commit()
+    return revision
