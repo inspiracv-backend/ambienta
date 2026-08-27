@@ -336,7 +336,16 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
           fuente: FUENTE_POR_CODIGO[codigoPorFuente.get(String(raw.source_id)) ?? ''] ?? 'RCA',
           articulos: articulosPorNorma.get(String(raw.id)) ?? [],
         }));
-        if (mapped.length > 0) setNorms(mapped);
+        // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
+        // de antes no distinguia dos cosas muy distintas: que la API fallara
+        // —donde quedarse con lo que hay es un respaldo razonable— y que
+        // respondiera **cero filas**, donde quedarse con los datos de ejemplo
+        // es mostrar algo que no existe.
+        //
+        // El `catch` sigue conservando lo ultimo conocido, asi que trabajar sin
+        // backend levantado sigue funcionando: ahi la peticion falla, no
+        // devuelve vacio.
+        setNorms(mapped);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });

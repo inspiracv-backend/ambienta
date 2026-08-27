@@ -563,7 +563,7 @@ funcionan en la terminal. Un comando por linea.
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
 cd apps/api && python -m pytest         # 584 pruebas, 38 archivos
-cd apps/web && npx vitest run           # 413 pruebas, 33 archivos
+cd apps/web && npx vitest run           # 421 pruebas, 34 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

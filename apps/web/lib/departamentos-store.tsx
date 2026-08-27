@@ -105,10 +105,18 @@ export function DepartamentosProvider({ children }: { children: ReactNode }) {
         const mapeados = data
           .map(mapApiProceso)
           .filter((d): d is Departamento => d !== null);
-        // Solo se reemplaza si la API trajo algo: una empresa sin procesos
-        // cargados deja los datos de ejemplo, que es lo que permite trabajar
-        // en el frontend sin backend levantado.
-        if (mapeados.length > 0) setDepartamentos(mapeados);
+        // **La intencion de antes era buena; el mecanismo, no** (#208).
+        //
+        // Decia: "solo se reemplaza si la API trajo algo, para poder trabajar
+        // sin backend levantado". Trabajar sin backend sigue funcionando — y
+        // por el camino correcto: sin backend la peticion **falla**, cae en el
+        // `catch`, y los datos de ejemplo se conservan.
+        //
+        // Lo que no puede pasar es que una empresa que de verdad no tiene
+        // departamentos vea los de ejemplo como si fueran suyos. Con backend
+        // levantado y cero filas, la respuesta es 200 con `[]`, y eso es un
+        // dato, no una ausencia de datos.
+        setDepartamentos(mapeados);
       })
       .catch(() => {})
       .finally(() => {

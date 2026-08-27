@@ -50,7 +50,16 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
           estado: (raw.status === 'closed' ? 'cerrado' : raw.status === 'in_progress' ? 'en_progreso' : 'abierto') as PlanAccion['estado'],
           tareas: [],
         }));
-        if (mapped.length > 0) setPlans(mapped);
+        // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
+        // de antes no distinguia dos cosas muy distintas: que la API fallara
+        // —donde quedarse con lo que hay es un respaldo razonable— y que
+        // respondiera **cero filas**, donde quedarse con los datos de ejemplo
+        // es mostrar algo que no existe.
+        //
+        // El `catch` sigue conservando lo ultimo conocido, asi que trabajar sin
+        // backend levantado sigue funcionando: ahi la peticion falla, no
+        // devuelve vacio.
+        setPlans(mapped);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });

@@ -165,11 +165,20 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       .then(([auditsData, ncData]) => {
         if (cancelled) return;
         const mappedAudits = auditsData.map(mapApiAudit).filter((a): a is Audit => a !== null);
-        if (mappedAudits.length > 0) setAudits(mappedAudits);
+        // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
+        // de antes no distinguia dos cosas muy distintas: que la API fallara
+        // —donde quedarse con lo que hay es un respaldo razonable— y que
+        // respondiera **cero filas**, donde quedarse con los datos de ejemplo
+        // es mostrar algo que no existe.
+        //
+        // El `catch` sigue conservando lo ultimo conocido, asi que trabajar sin
+        // backend levantado sigue funcionando: ahi la peticion falla, no
+        // devuelve vacio.
+        setAudits(mappedAudits);
         const mappedNc = ncData
           .map(mapApiNonConformity)
           .filter((n): n is NonConformity => n !== null);
-        if (mappedNc.length > 0) setNonConformities(mappedNc);
+        setNonConformities(mappedNc);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
