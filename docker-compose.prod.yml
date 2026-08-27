@@ -134,8 +134,13 @@ services:
       STORAGE_BUCKET: ${STORAGE_BUCKET:?falta el nombre del bucket (el NOMBRE, no el ID)}
       STORAGE_KEY_ID: ${STORAGE_KEY_ID:?falta el keyID del almacenamiento}
       STORAGE_KEY: ${STORAGE_KEY:?falta la llave de aplicacion del almacenamiento}
-      # Correo transaccional. Opcional hasta que existan las notificaciones.
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      # Correo transaccional (#122). Ya no es opcional: las notificaciones
+      # existen. En produccion un sistema de avisos de vencimiento que no puede
+      # mandar correo no cumple su unica funcion, y es mejor que el despliegue
+      # falle a que los avisos se acumulen encolados sin que nadie lo note.
+      RESEND_API_KEY: ${RESEND_API_KEY:?falta la llave de Resend}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:?falta el remitente, con dominio verificado en Resend}
+      CORREO_RESPONDER_A: ${CORREO_RESPONDER_A:-}
     # Sin `ports`: el único camino desde internet es a través de Caddy.
     depends_on:
       postgres:

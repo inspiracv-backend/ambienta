@@ -35,6 +35,7 @@ from app.services import despacho
 from app.services.despacho import (
     ESPERAS,
     MAX_INTENTOS,
+    ErrorDeConfiguracion,
     ErrorPermanente,
     Resultado,
     atrasados,
@@ -365,6 +366,52 @@ class TestElReintento:
         assert a.status == "failed"
         assert a.attempts == 1, "se rindio al primero, como corresponde"
         assert r.fallidos >= 1
+
+
+class TestLaLlaveRota:
+    """Una llave que no sirve corta la corrida. No mata avisos."""
+
+    def test_no_gasta_el_intento(self, db: Session) -> None:
+        """Deshace el intento que se habia anotado antes de enviar.
+
+        Nunca hubo un proveedor con el que hablar, asi que no hubo intento. Si
+        contara, unas cuantas corridas con la llave vencida agotarian los cinco
+        intentos de la cola entera y todo terminaria en `failed` — descubierto
+        el dia que alguien arregla la llave, cuando ya se perdieron.
+        """
+        a = _aviso(db, canal="email")
+        t = TransporteFalso(falla=ErrorDeConfiguracion("llave rechazada"))
+
+        r = despachar(db, transporte=t, limite=50)
+
+        db.refresh(a)
+        assert a.attempts == 0, "el intento tiene que quedar deshecho"
+        assert a.status == "queued", "el aviso sigue vivo para cuando se arregle la llave"
+        assert a.next_attempt_at is None
+        assert r.configuracion_rota is not None
+
+    def test_corta_y_no_sigue_con_los_demas(self, db: Session) -> None:
+        """Va a fallar identico con el siguiente: seguir es gastar la cola."""
+        avisos = [_aviso(db, canal="email") for _ in range(4)]
+        t = TransporteFalso(falla=ErrorDeConfiguracion("llave rechazada"))
+
+        despachar(db, transporte=t, limite=50)
+
+        assert len(t.llamadas) == 1, (
+            f"se intentaron {len(t.llamadas)} envios con la llave rota; tenia que cortar al primero"
+        )
+        for a in avisos:
+            db.refresh(a)
+            assert a.attempts == 0
+            assert a.status == "queued"
+
+    def test_el_resumen_lo_dice_fuerte(self, db: Session) -> None:
+        _aviso(db, canal="email")
+        r = despachar(
+            db, transporte=TransporteFalso(falla=ErrorDeConfiguracion("llave vencida")), limite=5
+        )
+        assert "CORRIDA CORTADA" in r.resumen()
+        assert "llave vencida" in r.resumen()
 
 
 class TestElAisladoEntreEmpresas:

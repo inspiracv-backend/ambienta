@@ -106,6 +106,21 @@ class ErrorPermanente(Exception):
     """
 
 
+class ErrorDeConfiguracion(Exception):
+    """La llave del proveedor no sirve. **No es culpa de este aviso.**
+
+    Merece su propia clase porque el manejo correcto es el opuesto al de un
+    fallo de entrega. Si una llave vencida se tratara como error permanente,
+    **cada aviso encolado moriria en su primer intento**: se arregla la llave y
+    todo lo pendiente ya esta en `failed`, perdido por una variable de entorno.
+    Si se tratara como reintentable, gastaria los cinco intentos de la cola
+    entera contra un servicio que nunca va a aceptar la peticion.
+
+    Lo correcto es parar: deshacer el intento y cortar la corrida. Lo que falla
+    es la configuracion, y va a fallar identico con el aviso siguiente.
+    """
+
+
 class Transporte(Protocol):
     """Lo que sabe entregar un aviso por un canal externo.
 
@@ -136,6 +151,10 @@ class Resultado:
     #: configuracion, y mezclarlos haria que un `.env` incompleto se leyera
     #: como un problema del proveedor.
     sin_proveedor: int = 0
+    #: Si la llave del proveedor no sirve, el motivo. La corrida se corta aca:
+    #: seguir gastaria los intentos de toda la cola contra un servicio que va a
+    #: rechazar cada peticion igual.
+    configuracion_rota: str | None = None
     motivos: list[str] = field(default_factory=list)
 
     def resumen(self) -> str:
@@ -146,6 +165,8 @@ class Resultado:
             f"rechazados sin reintento: {self.fallidos}",
             f"sin proveedor de correo: {self.sin_proveedor}",
         ]
+        if self.configuracion_rota:
+            lineas.append(f"CORRIDA CORTADA: {self.configuracion_rota}")
         return "\n".join(lineas + [f"  - {m}" for m in self.motivos])
 
 
@@ -331,6 +352,19 @@ def despachar(
                 cuerpo=aviso.body,
                 contexto=aviso.context or {},
             )
+        except ErrorDeConfiguracion as exc:
+            # El intento no cuenta: nunca hubo un proveedor con el que hablar.
+            aviso.attempts -= 1
+            aviso.next_attempt_at = None
+            db.flush()
+            db.commit()
+            r.configuracion_rota = str(exc)
+            r.motivos.append(f"la configuracion de correo no sirve: {exc}")
+            logger.error(
+                "Se corta el despacho: %s. Quedan avisos encolados sin gastar intentos.",
+                exc,
+            )
+            break
         except ErrorPermanente as exc:
             _rendirse(db, aviso, str(exc))
             r.fallidos += 1
