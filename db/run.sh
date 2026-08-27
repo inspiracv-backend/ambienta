@@ -42,6 +42,7 @@ run "$DIR/13_usuario_interno_con_departamento.sql"
 run "$DIR/14_ds90_es_de_la_bcn.sql"
 run "$DIR/15_declaracion_ante_su_sistema.sql"
 run "$DIR/16_evidencia_del_articulo.sql"
+run "$DIR/17_avisos_sin_duplicados.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"

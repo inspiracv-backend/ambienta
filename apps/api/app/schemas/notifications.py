@@ -84,6 +84,7 @@ class NotificationRead(OrmBase):
     sent_at: datetime | None
     read_at: datetime | None
     provider_message_id: str | None
+    dedupe_key: str | None
     context: dict
     created_at: datetime
     updated_at: datetime

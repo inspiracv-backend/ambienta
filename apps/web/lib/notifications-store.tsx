@@ -45,8 +45,22 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
           fecha: String(raw.created_at ?? new Date().toISOString()),
           leida: raw.read_at !== null,
         }));
-        if (mapped.length > 0) setNotifications(mapped);
+        // **Se escribe siempre, incluso vacio.** El `if (length > 0)` de antes
+        // no distinguia dos cosas muy distintas:
+        //
+        // - la API fallo  -> quedarse con lo que hay es un respaldo razonable
+        // - la API respondio **cero** -> quedarse con los datos de ejemplo es
+        //   mentir, y aca la mentira mueve la campana: una empresa sin
+        //   notificaciones veia tres inventadas y un contador de no leidas que
+        //   no correspondia a nada.
+        //
+        // Un badge rojo con un numero falso hace que alguien deje lo que esta
+        // haciendo para ir a mirar. Cuando descubre que no habia nada, deja de
+        // creerle al badge — y entonces el aviso real pasa de largo.
+        setNotifications(mapped);
       })
+      // El fallo NO borra lo que ya estaba: sin red, seguir viendo lo ultimo
+      // conocido es mejor que una pantalla vacia que parece un sistema roto.
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
