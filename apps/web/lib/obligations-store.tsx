@@ -219,7 +219,16 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
       .then((data) => {
         if (cancelled) return;
         const mapped = data.map(mapApiObligation).filter((o): o is Obligation => o !== null);
-        if (mapped.length > 0) setObligations(mapped);
+        // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
+        // de antes no distinguia dos cosas muy distintas: que la API fallara
+        // —donde quedarse con lo que hay es un respaldo razonable— y que
+        // respondiera **cero filas**, donde quedarse con los datos de ejemplo
+        // es mostrar algo que no existe.
+        //
+        // El `catch` sigue conservando lo ultimo conocido, asi que trabajar sin
+        // backend levantado sigue funcionando: ahi la peticion falla, no
+        // devuelve vacio.
+        setObligations(mapped);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -342,7 +351,11 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
       user.tenantId,
     );
     const mapeadas = filas.map(mapApiObligation).filter(Boolean) as Obligation[];
-    if (mapeadas.length > 0) setObligations(mapeadas);
+    // Relectura tras mover una declaracion. Se escribe igual que en la
+    // carga inicial: si la API dice que no hay ninguna, la pantalla tiene que
+    // decir lo mismo. Un fallo de red no llega aca — `moverDeclaracion` deja
+    // que la excepcion suba para que la pantalla muestre el error.
+    setObligations(mapeadas);
   }
 
   function addObligation(input: {

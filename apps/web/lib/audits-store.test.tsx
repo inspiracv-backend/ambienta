@@ -249,3 +249,26 @@ describe('alta de un hallazgo', () => {
     expect(result.current.a.nonConformities).toHaveLength(0);
   });
 });
+
+/**
+ * Un fallo de la API no puede dejar la pantalla colgada.
+ *
+ * **Lo que este archivo NO puede probar** es que un fallo conserve los datos
+ * de ejemplo: stubea `@/mocks/audits` a vacio a proposito —"lo que se mida
+ * viene de la API o no viene"— asi que no hay nada que conservar.
+ *
+ * Por eso las pruebas de "cero filas no muestra los ejemplos" (#208) viven en
+ * `stores-sin-datos.test.tsx`, donde los datos de ejemplo reales si estan. Una
+ * version anterior las puso aca y **sobrevivian a la mutacion**: afirmaban 0 y
+ * obtenian 0 con el arreglo puesto o quitado.
+ */
+describe('cuando la API falla', () => {
+  it('la pantalla termina de cargar igual', async () => {
+    iniciarSesionComo('admin_empresa');
+    get.mockRejectedValue(new Error('sin red'));
+
+    const r = renderHook(() => ({ a: useAudits(), toast: useToast() }), { wrapper });
+
+    await waitFor(() => expect(r.result.current.a.loading).toBe(false));
+  });
+});

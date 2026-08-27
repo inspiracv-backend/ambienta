@@ -56,7 +56,16 @@ export function SupportTicketsProvider({ children }: { children: ReactNode }) {
           visibleParaCliente: true,
           correcciones: [],
         }));
-        if (mapped.length > 0) setTickets(mapped);
+        // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
+        // de antes no distinguia dos cosas muy distintas: que la API fallara
+        // —donde quedarse con lo que hay es un respaldo razonable— y que
+        // respondiera **cero filas**, donde quedarse con los datos de ejemplo
+        // es mostrar algo que no existe.
+        //
+        // El `catch` sigue conservando lo ultimo conocido, asi que trabajar sin
+        // backend levantado sigue funcionando: ahi la peticion falla, no
+        // devuelve vacio.
+        setTickets(mapped);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
