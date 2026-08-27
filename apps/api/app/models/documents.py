@@ -29,6 +29,9 @@ class Document(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     current_version_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("document_versions.id", use_alter=True)
     )
+    # RF-103. Lo elige la empresa segun su nomenclatura: PR-07, IT-12, PO-01.
+    # NULL en los archivos de la operacion, que no se citan por codigo.
+    code: Mapped[str | None] = mapped_column(String(60))
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     classification: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="internal"
@@ -84,6 +87,24 @@ class DocumentVersion(Base, TenantMixin):
     created_by: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
     )
+
+    # ── Control documental (db/18, RF-103 a RF-106) ──────────────────────
+    #
+    # El ciclo de vida vive aca y no en `Document`: lo que se aprueba y entra
+    # en vigencia son las **revisiones**. Ponerlo en el documento haria que
+    # aprobar la revision 4 borrara el rastro de que la 3 estuvo vigente entre
+    # tales fechas, que es lo que pregunta una auditoria.
+    lifecycle_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="borrador"
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id")
+    )
+    valid_from: Mapped[date | None] = mapped_column(Date)
+    valid_to: Mapped[date | None] = mapped_column(Date)
+    obsoleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    obsoleted_reason: Mapped[str | None] = mapped_column(Text)
 
     document = relationship(
         "Document",
