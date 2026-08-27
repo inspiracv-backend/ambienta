@@ -24,10 +24,9 @@ llevaria a creer que un permiso alcanza para proteger datos de otra empresa.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.organization import (
@@ -39,8 +38,27 @@ from ..models.organization import (
 )
 
 
-def _ahora() -> datetime:
-    return datetime.now(timezone.utc)
+def _ahora():
+    """El reloj de **la base**, no el de la aplicacion.
+
+    `user_roles.valid_from` tiene `now()` por defecto, o sea que lo escribe
+    Postgres. Comparar esa columna contra `datetime.now()` de Python mezcla dos
+    relojes en una sola comparacion, y basta un desfase de milisegundos para
+    que un rol recien asignado se lea como **todavia no vigente**: la persona
+    entra, se le da el rol, y el sistema le dice que no tiene permiso.
+
+    No es teorico. Pasa en esta maquina: el 27-ago tres pruebas de este modulo
+    fallaron de golpe y volvieron a pasar solas minutos despues, sin que nadie
+    tocara nada. Las tres eran las unicas que asignan un rol y comprueban en
+    seguida que rige; las que afirman lo contrario —rol vencido no concede—
+    siguieron pasando, que es exactamente la firma de un `valid_from` que quedo
+    en el futuro. En produccion la API y la base son maquinas distintas, donde
+    el desfase es la norma y no la excepcion.
+
+    Con `func.now()` la comparacion la resuelve Postgres contra su propio
+    reloj, que es el mismo que escribio el valor. Un reloj, una comparacion.
+    """
+    return func.now()
 
 
 def permisos_de_roles(db: Session, user_id: UUID) -> set[str]:

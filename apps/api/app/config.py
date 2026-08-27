@@ -35,6 +35,28 @@ class Settings(BaseSettings):
     #: que sabe donde escribe.
     ruta_archivo_auditoria: str = "/var/lib/ambienta/auditoria"
 
+    # ── Almacenamiento de archivos (ADR-005: Backblaze B2) ───────────────
+    #
+    # Se habla por la API compatible con S3, asi que sirve igual para S3 o
+    # cualquier otro proveedor: cambia el endpoint y nada mas.
+    #
+    # **Vacias por defecto, y sin respaldo a disco local.** Sin credenciales la
+    # subida de archivos responde 503 con un mensaje claro; el resto del
+    # sistema funciona igual. Guardar en el disco del servidor sin que nadie lo
+    # haya decidido produce archivos sin respaldo que se pierden en el primer
+    # redespliegue, y la empresa los cree guardados.
+    #
+    # `STORAGE_KEY` es un secreto: va en `.env`, **nunca en el repositorio**.
+    storage_endpoint: str = ""
+    storage_bucket: str = ""
+    storage_key_id: str = ""
+    storage_key: str = ""
+    #: La region va dentro del endpoint de B2 (`s3.us-east-005.backblazeb2.com`
+    #: -> `us-east-005`). Se declara aparte porque la firma v4 la necesita
+    #: explicita, y deducirla partiendo la cadena se rompe con cualquier
+    #: endpoint que no siga ese formato.
+    storage_region: str = "us-east-005"
+
     # Origenes permitidos por CORS, separados por coma.
     cors_origins: str = "http://localhost:3000"
 
