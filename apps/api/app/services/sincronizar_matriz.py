@@ -29,7 +29,7 @@ la matriz.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -298,3 +298,98 @@ def desactualizadas(db: Session, matrix_id: UUID) -> list[NormaDesactualizada]:
             )
         )
     return resultado
+
+
+@dataclass
+class ResultadoActualizacion:
+    """Que paso al mover normas a su version vigente."""
+
+    #: Normas que se movieron.
+    actualizadas: int = 0
+    #: Evaluaciones pendientes creadas para los articulos del texto nuevo.
+    articulos_nuevos: int = 0
+    #: **Evaluaciones anteriores conservadas.** No se tocan ni se borran: se
+    #: hicieron sobre el texto que regia entonces y son la respuesta correcta
+    #: ante una auditoria de ese periodo.
+    evaluaciones_conservadas: int = 0
+    #: Normas que ya estaban en su version vigente. Se cuentan aparte de
+    #: `actualizadas` para que "no habia nada que hacer" no se lea como exito
+    #: de una operacion que no ocurrio.
+    ya_estaban_al_dia: int = 0
+    titulos: list[str] = field(default_factory=list)
+
+
+def actualizar_a_version_vigente(
+    db: Session,
+    matrix_id: UUID,
+    tenant_id: UUID,
+    matrix_norm_ids: list[UUID] | None = None,
+) -> ResultadoActualizacion:
+    """Mueve normas de la matriz al texto que rige hoy.
+
+    ## Que hace exactamente, y que NO
+
+    Apunta `selected_version_id` a la version vigente y **siembra las
+    evaluaciones pendientes** de los articulos del texto nuevo. Nada mas.
+
+    **No migra las evaluaciones anteriores, y no las borra.** Migrarlas seria
+    inventar: entre dos versiones los articulos se renumeran, se parten y
+    desaparecen, asi que decir "el articulo 5 de antes es el 7 de ahora"
+    requiere leer los dos textos. Un sistema que lo adivine produce una
+    evaluacion firmada por alguien que nunca vio el articulo que ahora dice
+    respaldar.
+
+    Borrarlas seria peor: son la respuesta ante una auditoria del periodo en que
+    se hicieron. Se quedan colgando de los articulos de su version, que es donde
+    corresponde.
+
+    Lo que la persona ve despues de esto: la norma con su articulado nuevo, todo
+    por evaluar. Es incomodo y es honesto — el texto cambio y hay que leerlo.
+
+    ## Por que hace falta
+
+    La matriz **ya mostraba los articulos del texto vigente**: la pantalla los
+    pide por `/catalog/norms/{id}/articles`, que devuelve los de `is_current`.
+    O sea que `selected_version_id` quedaba como un dato que solo miraba el
+    aviso, y las evaluaciones viejas eran invisibles sin que nada lo dijera.
+    Esto hace que el registro coincida con lo que se ve.
+    """
+    pendientes = desactualizadas(db, matrix_id)
+    if matrix_norm_ids is not None:
+        elegidas = set(matrix_norm_ids)
+        # Las que se pidieron y no estan desactualizadas no son un error: puede
+        # que otra persona ya las actualizara entre que se dibujo la pantalla y
+        # se apreto el boton.
+        ya_al_dia = len(elegidas - {n.matrix_norm_id for n in pendientes})
+        pendientes = [n for n in pendientes if n.matrix_norm_id in elegidas]
+    else:
+        ya_al_dia = 0
+
+    r = ResultadoActualizacion(ya_estaban_al_dia=ya_al_dia)
+
+    # **De donde sale el aislamiento aca.** No hay una comprobacion de
+    # `fila.matrix_id == matrix_id` en este bucle, y no es un descuido: la lista
+    # sale de `desactualizadas(db, matrix_id)`, que ya filtra por matriz, y RLS
+    # impide ver las de otra empresa. Una comprobacion adicional seria
+    # inalcanzable —lo confirmo el arnes de mutacion: quitarla no rompia
+    # ninguna prueba, porque no podia romper nada—. Un `if` que parece proteger
+    # y no puede ejecutarse es peor que no tenerlo: la proxima persona lo lee
+    # como la barrera y deja de buscar donde esta de verdad.
+    #
+    # Si algun dia esta lista viniera de otro lado, **ahi** hay que poner la
+    # comprobacion, y con una prueba que la alcance.
+    for norma in pendientes:
+        fila = db.get(MatrixNorm, norma.matrix_norm_id)
+        if fila is None:
+            continue
+
+        r.evaluaciones_conservadas += norma.evaluaciones_sobre_la_anterior
+        fila.selected_version_id = norma.version_vigente
+        db.flush()
+
+        r.articulos_nuevos += _sembrar_articulos(db, fila, tenant_id)
+        r.actualizadas += 1
+        r.titulos.append(norma.title)
+
+    db.flush()
+    return r

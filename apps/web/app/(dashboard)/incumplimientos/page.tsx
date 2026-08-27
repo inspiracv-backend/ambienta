@@ -172,11 +172,29 @@ export default function IncumplimientosPage() {
                 {datos.articulos.map((a) => (
                   <tr key={a.articleComplianceId} className="border-b border-slate-100 align-top last:border-0 hover:bg-slate-50">
                     <td className="px-4 py-3">
-                      <p className="font-medium text-slate-800">{a.normaNumero}</p>
+                      <Link
+                        href={`/matriz-legal/${a.normId}`}
+                        className="font-medium text-brand-600 hover:underline"
+                      >
+                        {a.normaNumero}
+                      </Link>
                       <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{a.normaTitulo}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-slate-800">{a.articuloNumero}</p>
+                      {/* El atajo que faltaba. Las declaraciones ya enlazaban a
+                          su obligación; los artículos dejaban a la persona
+                          buscándolos a mano, norma por norma — que es justo lo
+                          que esta pantalla existe para evitar.
+
+                          El ancla `#articulo-{id}` importa tanto como el
+                          enlace: sin ella, en una norma de 151 artículos la
+                          persona aterriza al principio y vuelve a buscar. */}
+                      <Link
+                        href={`/matriz-legal/${a.normId}#articulo-${a.articuloId}`}
+                        className="font-medium text-brand-600 hover:underline"
+                      >
+                        {a.articuloNumero}
+                      </Link>
                       {a.articuloEpigrafe && (
                         <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{a.articuloEpigrafe}</p>
                       )}

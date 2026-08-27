@@ -141,7 +141,14 @@ export function NormDetailView({ norm: normProp, activeTenantId, responsableOpti
           </thead>
           <tbody>
             {norm.articulos.map((articulo) => (
-              <tr key={articulo.id} className="border-b border-slate-100 align-top last:border-0 hover:bg-slate-50">
+              <tr
+                key={articulo.id}
+                // El ancla que hace util el atajo desde `/incumplimientos`:
+                // sin ella, el enlace deja a la persona al principio de una
+                // norma de 151 articulos buscando el que la trajo.
+                id={`articulo-${articulo.id}`}
+                className="border-b border-slate-100 align-top last:border-0 target:bg-amber-50 hover:bg-slate-50"
+              >
                 <td className="px-4 py-3">
                   <p className="font-medium text-slate-800">{articulo.numero}</p>
                   <TextoDeArticulo texto={articulo.descripcion} />

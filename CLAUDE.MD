@@ -652,6 +652,61 @@ puerto, para probar algo— hacia que la API rechazara el origen y la pantalla
 dijera *"no se pudo contactar al servidor"*, que se lee como que la API esta
 caida. Mismo valor por defecto de antes.
 
+**Un `204` rompia TODOS los borrados de la aplicacion.** `res.json()` sobre un
+cuerpo vacio lanza `SyntaxError`, y `request()` lo hacia siempre. Todos los
+`DELETE` de la API responden 204, asi que cada borrado se leia como fallido: la
+fila desaparecia de la base, la pantalla mostraba un error y **no recargaba**, y
+quien lo hizo veia el registro seguir ahi. Reintentar daba 404, que se lee como
+"esto esta roto". Se encontro borrando un equipo desde la pantalla y comparando
+con la API — ninguna prueba lo habria visto, porque todas simulan `api`.
+
+**Las tres pantallas ISO no llamaban a la API.** Aspectos Ambientales, Riesgos y
+Oportunidades y Equipos Regulados leian `mocks/` **directamente**, sin una sola
+peticion, mientras la API tenia CRUD completo de las tres desde hacia tiempo.
+Ahora hay un `iso-store` unico para las tres, porque la cadena de 14001 es una
+sola —aspecto significativo → riesgo → plan— y "que aspecto quedo sin tratar"
+no se puede contestar mirando solo los aspectos.
+
+**El vocabulario de esas pantallas estaba en el idioma equivocado.**
+`packages/shared` define `riesgo`, `identificado`, `aspecto_ambiental`; la base
+guarda `risk`, `identified`, `environmental_aspect`. Manda la base
+(`lib/iso-vocabulario.ts`), y lo que no reconoce **se muestra crudo** en vez de
+esconderse tras un guion: un valor feo se arregla, uno escondido no.
+
+**`environmental_aspects.significance` guardaba estados de cumplimiento.** Su
+CHECK admitia `compliant / partial / non_compliant / pending` —copiados de
+`article_compliance`— cuando la significancia (ISO 14001 §6.1.2) contesta otra
+pregunta: si el aspecto importa lo suficiente como para gestionarlo. La columna
+"Significativo" y el filtro "significativo sin tratar" **no podian funcionar**,
+porque `significant` no era un valor que la base admitiera. Lo corrige `db/21`;
+las filas existentes pasan a `pending` y **no se traducen**, porque traducirlas
+seria inventar una evaluacion que nadie hizo.
+
+**El selector de planta ofrecia identificadores de ejemplo.** `useTenants()`
+pide `/tenants/` sin declarar empresa, y esa ruta responde **401** cuando la
+sesion viaja por `X-Tenant-Id`. El `Promise.all` entero se cae y el store se
+queda con `mockTenants`, cuyas plantas son `planta-rancagua` mientras la API usa
+UUID. Sintoma al crear un equipo: **422, `facility_id` no es un UUID valido**. Y
+el filtro por planta comparaba un slug contra un UUID, asi que elegir una planta
+dejaba la tabla vacia sin explicacion. Las pantallas ISO piden `/facilities/`
+por su cuenta; **el resto sigue dependiendo de ese store**.
+
+**Las normas desactualizadas ya se pueden actualizar** (`db/19` del PR de
+notificaciones no, esto es aparte). El aviso solo avisaba, y ademas la matriz
+**ya mostraba los articulos del texto vigente** —la pantalla los pide por
+`/catalog/norms/{id}/articles`, que devuelve los de `is_current`—, asi que
+`selected_version_id` era un dato que solo miraba el aviso y las evaluaciones
+viejas eran invisibles. Medido: la Ley 19.300 apuntaba a una version con **2
+articulos** mientras la vigente tenia **151**, y de sus 4 evaluaciones
+**ninguna** estaba en la vigente.
+
+Actualizar apunta la norma al texto de hoy y siembra sus articulos por evaluar.
+**No migra las evaluaciones anteriores y no las borra**: migrarlas seria
+inventar —entre versiones los articulos se renumeran, se parten y desaparecen—
+y borrarlas destruiria la respuesta ante una auditoria del periodo en que se
+hicieron. Verificado sobre la Ley 19.300: quedo en 155 filas = 151 nuevas
+pendientes + **las 4 conservadas**.
+
 **Y una trampa de las pruebas que cuesta media hora:** un `UPDATE` crudo con
 `db.execute(text(...))` **no actualiza el mapa de identidad de la sesion**. La
 fila cambia en la base y `db.get()` sigue devolviendo el objeto viejo, asi que
@@ -665,8 +720,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 659 pruebas, 41 archivos
-cd apps/web && npx vitest run           # 471 pruebas, 38 archivos
+cd apps/api && python -m pytest         # 671 pruebas, 41 archivos
+cd apps/web && npx vitest run           # 475 pruebas, 39 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 
