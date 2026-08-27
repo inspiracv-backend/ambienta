@@ -84,11 +84,24 @@ def main() -> int:
         print("     el contenido coincide")
 
         _paso(5, "borrando el archivo de prueba...")
-        cliente = alm._cliente()
+        # **Borrar la version, no solo ocultarla.** El bucket guarda todas las
+        # versiones a proposito (RF-106), asi que un `delete_object` sin
+        # `VersionId` deja el archivo guardado y le pone un marcador encima: la
+        # consola muestra "0 archivos" y se sigue pagando por los bytes. Cada
+        # corrida de esta comprobacion acumularia una copia invisible.
         from ..config import get_settings
 
-        cliente.delete_object(Bucket=get_settings().storage_bucket, Key=subida.clave)
-        print("     borrado")
+        cliente = alm._cliente()
+        bucket = get_settings().storage_bucket
+        respuesta = cliente.list_object_versions(Bucket=bucket, Prefix=subida.clave)
+        borradas = 0
+        for grupo in ("Versions", "DeleteMarkers"):
+            for objeto in respuesta.get(grupo, []):
+                cliente.delete_object(
+                    Bucket=bucket, Key=objeto["Key"], VersionId=objeto["VersionId"]
+                )
+                borradas += 1
+        print(f"     borrado ({borradas} version(es), sin dejar copias ocultas)")
 
         print("\n  El puente funciona. La subida de documentos ya se puede usar.\n")
         return 0

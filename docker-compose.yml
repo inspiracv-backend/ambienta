@@ -113,6 +113,15 @@ services:
       # Sin esto, el ingreso de invitados responde 503 en vez de firmar
       # con una llave por defecto, que no protegeria nada.
       TOKEN_INVITADO_SECRETO: ${TOKEN_INVITADO_SECRETO:-}
+      # Almacenamiento de documentos (RF-110). Vacias por defecto: sin ellas
+      # la subida responde 503 con un mensaje claro y el resto del sistema
+      # funciona igual. Nunca se guarda un archivo en el disco del contenedor:
+      # se perderia en el proximo redespliegue y la empresa lo creeria guardado.
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-005}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_KEY_ID: ${STORAGE_KEY_ID:-}
+      STORAGE_KEY: ${STORAGE_KEY:-}
     ports:
       - '8000:8000'
     volumes:
