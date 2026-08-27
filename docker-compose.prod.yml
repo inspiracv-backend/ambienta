@@ -71,6 +71,7 @@ services:
       - ./db/19_despacho_de_avisos.sql:/docker-entrypoint-initdb.d/19-despacho-de-avisos.sql:ro
       - ./db/21_significancia_del_aspecto.sql:/docker-entrypoint-initdb.d/21-significancia-del-aspecto.sql:ro
       - ./db/22_crm.sql:/docker-entrypoint-initdb.d/22-crm.sql:ro
+      - ./db/20_plantillas_de_correo.sql:/docker-entrypoint-initdb.d/20-plantillas-de-correo.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s
