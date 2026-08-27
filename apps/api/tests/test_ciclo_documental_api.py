@@ -213,6 +213,38 @@ class TestSeLlegaAlServicio:
             == "en_revision"
         ), "la respuesta decia que si y la base no se entero"
 
+    def test_devolver_a_borrador(self, cliente, db, limpiar) -> None:
+        """La salida que faltaba de `en_revision`.
+
+        `TRANSICIONES` la declaraba desde el principio y no habia funcion para
+        hacerla: quien revisaba algo incompleto tenia que aprobarlo igual o
+        marcarlo obsoleto, y ninguna de las dos corresponde.
+        """
+        doc = _documento(db, limpiar)
+        rev = _revision(db, limpiar, doc, estado="en_revision")
+
+        r = cliente.post(_ruta(doc, rev, "return-to-draft"), headers=CABECERAS)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["lifecycle_status"] == "borrador"
+        db.rollback()
+        assert (
+            db.execute(
+                text("SELECT lifecycle_status FROM document_versions WHERE id = :v"),
+                {"v": rev},
+            ).scalar_one()
+            == "borrador"
+        )
+
+    def test_no_se_puede_devolver_algo_ya_vigente(self, cliente, db, limpiar) -> None:
+        """Solo desde `en_revision`. Lo que rige no vuelve a borrador."""
+        doc = _documento(db, limpiar)
+        rev = _revision(db, limpiar, doc, estado="vigente")
+
+        r = cliente.post(_ruta(doc, rev, "return-to-draft"), headers=CABECERAS)
+
+        assert r.status_code == 409, r.text
+
     def test_poner_en_vigencia(self, cliente, db, limpiar) -> None:
         doc = _documento(db, limpiar)
         rev = _revision(db, limpiar, doc, estado="aprobado")

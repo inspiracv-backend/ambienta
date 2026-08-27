@@ -17,4 +17,19 @@ export type SemaforoStatus =
 export interface StatusBadgeProps {
   status: SemaforoStatus;
   className?: string;
+  /**
+   * Texto propio, manteniendo el ícono y el color del semáforo.
+   *
+   * Existe para el control documental: sus estados —borrador, en revisión,
+   * aprobada, vigente, obsoleta— **significan** lo mismo que el semáforo
+   * (neutro / atención / bien), pero se llaman distinto. Sin esto, una
+   * revisión en borrador saldría rotulada "Pendiente de evaluar", que habla de
+   * otra cosa.
+   *
+   * La alternativa era agregar cinco valores nuevos a `SemaforoStatus`, y eso
+   * está descartado a propósito: el semáforo es uno solo para toda la
+   * plataforma (H4), y cada valor nuevo lo diluye hasta que deja de leerse de
+   * un vistazo. Lo que cambia acá es la palabra, no el código de color.
+   */
+  label?: string;
 }

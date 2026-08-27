@@ -220,7 +220,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Dashboard ejecutivo | **Corregido el 26-ago (#125).** Dos de las tres plantas del seed no tienen una sola evaluacion y el tablero las mostraba **en rojo con 0 %** — cuarta vez que aparece el mismo error en esta serie. Ahora `null` es `Sin evaluar`, y esas plantas van al **final** de la tabla en vez de encabezarla como si fueran las peores |
 | Incumplimientos (#126) | **Nueva el 26-ago.** `/incumplimientos` lista articulos incumplidos y declaraciones vencidas, **con lo que no tiene evidencia primero**. Al construirla aparecio que `evidence_url` se perdia en silencio con respuesta 200: la columna no existia — ver abajo |
 | Avisos de vencimiento | **Rehechos el 26-ago (#119, #120, #123).** El generador anterior **duplicaba** —tres corridas, tres avisos—, **se saltaba en silencio las obligaciones sin responsable** (3 de 8 en el seed) y tenia las ventanas escritas a mano mientras `notification_rules` existia vacia. Ahora: clave unica en la base, escalamiento a los administradores, y ventanas por empresa con defecto 15/7/3/1. **Falta el cron que lo llame** (#119) — ver abajo |
-| Control documental (RF-102 a RF-106) | **Modelo, ciclo de vida y subida de archivos desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. La subida va por **enlace firmado** directo a B2, con la ruta del objeto llevando el `tenant_id` — ver abajo |
+| Control documental (RF-102 a RF-106) | **Modelo, ciclo de vida y subida de archivos desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. La subida va por **enlace firmado** directo a B2, con la ruta del objeto llevando el `tenant_id`. **La pantalla `/documentos` existe desde el 27-ago** y con ella el ciclo de vida salio por la API: `control_documental.py` estaba escrito, probado y **sin ningun llamador** — ver abajo |
 | worker · ai-service | Sin implementar |
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
@@ -607,6 +607,51 @@ versiones a proposito (RF-106), asi que un borrado normal deja el objeto
 guardado con un marcador encima. La consola muestra "0 archivos" y se sigue
 pagando por los bytes.
 
+**La pantalla de documentos existe desde el 27-ago, y al construirla aparecio
+lo de siempre: el codigo estaba y nadie lo llamaba.**
+`services/control_documental.py` tenia las transiciones, la aprobacion firmada y
+la obsolescencia desde el 27-ago, con pruebas en verde, y **ningun router lo
+invocaba**. Ademas las siete columnas del ciclo de vida y el `code` del
+documento **no salian en ninguna respuesta**, asi que ni siquiera se podia
+distinguir un borrador de lo que rige. Mismo patron que `bcn.sincronizar()`.
+
+**Aprobar exige una sesion identificada y responde 409 si no la hay.** No se
+toma al primer administrador de la empresa: eso dejaria escrito que esa persona
+aprobo algo que no aprobo, y es exactamente lo que lee un auditor. Con
+`X-Tenant-Id` —el modo sin Clerk— no hay usuario, asi que la aprobacion no se
+puede probar en ese modo. Es a proposito.
+
+**Faltaba una transicion que el propio modelo declaraba.** `TRANSICIONES` decia
+`en_revision -> borrador` desde el principio y **no habia funcion para
+hacerla**: quien revisaba algo incompleto tenia que aprobarlo igual o marcarlo
+obsoleto. Ahora existe `return-to-draft`.
+
+**Dos defectos que solo aparecieron manejando la pantalla en el navegador**, y
+que ninguna prueba de unidad habria visto:
+
+1. **Una fecha sin hora retrocedia un dia.** `new Date('2026-08-27')` es
+   medianoche **UTC**; en Chile —UTC−4— eso es el 26. La base guardaba
+   `valid_from = 2026-08-27` y la pantalla decia *"Rige desde 26 ago 2026"*. En
+   un sistema de cumplimiento esa fecha es legal. `lib/fechas.ts` decide por la
+   **forma** del dato: una fecha de calendario se formatea sin pasar por `Date`,
+   una marca de tiempo si se convierte a hora local. Afecta a **todo huso al
+   oeste de Greenwich**; al este pasa lo contrario y no se nota, que es peor.
+2. **Dos botones con el mismo nombre en la misma fila.** El que abre el
+   formulario de retiro y el que lo confirma se llamaban los dos "Marcar
+   obsoleta": identicos para un lector de pantalla, e indistinguibles para
+   `getByRole`.
+
+**El store de documentos no cae a `mocks/`.** Cero documentos se ve como cero
+documentos. En este modulo el dano de un respaldo falso es mayor que en
+cualquier otro: quien ve "Procedimiento · Vigente" asume que existe y que puede
+mostrarlo en una fiscalizacion.
+
+**Y `CORS_ORIGINS` del compose de desarrollo ya es configurable.** Estaba fijo
+en `http://localhost:3000`; levantar el frontend fuera del contenedor —en otro
+puerto, para probar algo— hacia que la API rechazara el origen y la pantalla
+dijera *"no se pudo contactar al servidor"*, que se lee como que la API esta
+caida. Mismo valor por defecto de antes.
+
 **Y una trampa de las pruebas que cuesta media hora:** un `UPDATE` crudo con
 `db.execute(text(...))` **no actualiza el mapa de identidad de la sesion**. La
 fila cambia en la base y `db.get()` sigue devolviendo el objeto viejo, asi que
@@ -620,8 +665,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 642 pruebas, 40 archivos
-cd apps/web && npx vitest run           # 421 pruebas, 34 archivos
+cd apps/api && python -m pytest         # 659 pruebas, 41 archivos
+cd apps/web && npx vitest run           # 471 pruebas, 38 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 

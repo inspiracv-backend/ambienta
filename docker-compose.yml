@@ -101,7 +101,12 @@ services:
       # —un `user.deleted` llega sin metadatos, hay que poder buscar en todas
       # las empresas— y el health del esquema. Ver `get_admin_db`.
       DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@postgres:5432/ambienta
-      CORS_ORIGINS: http://localhost:3000
+      # Configurable, con el mismo valor por defecto de antes. Hace falta en
+      # cuanto alguien levanta el frontend fuera del contenedor —otro puerto—
+      # para probar algo: sin esto la API rechaza el origen y la pantalla dice
+      # "no se pudo contactar al servidor", que se lee como que la API esta
+      # caida y no lo esta. Acepta varios separados por coma.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       # Clerk (ADR-006). Vacias por defecto: sin CLERK_JWKS_URL la API acepta
       # el header X-Tenant-Id y se puede desarrollar sin cuenta del proveedor.
       # Se toman del .env de la raiz si estan definidas.

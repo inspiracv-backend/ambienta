@@ -32,7 +32,7 @@ SUFIJOS_DE_ACCION = (
     "/upload-url", "/confirm-upload", "/download-url",
     # El ciclo de vida de una revision documental. Son transiciones de
     # estado, no CRUD: "aprobar una revision" no es "leer una revision".
-    "/submit-review", "/publish", "/obsolete",
+    "/submit-review", "/return-to-draft", "/publish", "/obsolete",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )

@@ -455,6 +455,31 @@ def enviar_a_revision(
 
 
 @router.post(
+    "/{document_id}/versions/{version_id}/return-to-draft",
+    response_model=DocumentVersionRead,
+    summary="Devolver la revision a borrador",
+    description=(
+        "Quien revisa encontro algo que corregir. **Es la unica salida sana de "
+        "`en_revision` que no aprueba ni retira**: sin ella, revisar algo "
+        "incompleto obliga a aprobarlo igual o a marcarlo obsoleto, y ninguna "
+        "de las dos es lo que corresponde."
+    ),
+)
+def devolver_a_borrador(
+    document_id: UUID,
+    version_id: UUID,
+    db: Session = Depends(get_tenant_db),
+):
+    _revision_de(db, document_id, version_id)
+    try:
+        revision = cd.devolver_a_borrador(db, version_id=version_id)
+    except cd.ErrorDocumental as exc:
+        raise _traducir(exc) from None
+    db.commit()
+    return revision
+
+
+@router.post(
     "/{document_id}/versions/{version_id}/approve",
     response_model=DocumentVersionRead,
     summary="Aprobar la revision, dejando quien y cuando",

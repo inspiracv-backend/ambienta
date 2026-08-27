@@ -10,6 +10,7 @@ import {
   ClipboardList,
   FileBarChart,
   FileWarning,
+  FolderOpen,
   FlaskConical,
   History,
   LayoutDashboard,
@@ -90,6 +91,10 @@ export const TENANT_NAV_ITEMS: readonly NavItem[] = [
         { label: 'Equipos Regulados', href: '/equipos-regulados', icon: Wrench, roles: TENANT_ROLES, enabled: true },
       ] satisfies NavItem[])
     : []),
+  // Va antes del catalogo y despues de las auditorias: es donde se guarda lo
+  // que respalda todo lo de arriba. La evidencia de una auditoria y el
+  // procedimiento que se cita en una no conformidad viven aca.
+  { label: 'Documentos', href: '/documentos', icon: FolderOpen, roles: TENANT_ROLES, enabled: true },
   { label: 'Catálogo Normativo', href: '/catalogo-normativo', icon: BookMarked, roles: TENANT_ROLES, enabled: true },
   { label: 'Gestores', href: '/gestores', icon: Building2, roles: ['gestor'], enabled: true },
   { label: 'Reportes', href: '/reportes', icon: FileBarChart, roles: TENANT_ROLES, enabled: true },
@@ -137,6 +142,7 @@ const TENANT_SCOPED_PREFIXES = [
   '/incumplimientos',
   '/auditorias',
   '/no-conformidades',
+  '/documentos',
   '/aspectos-ambientales',
   '/riesgos-oportunidades',
   '/equipos-regulados',

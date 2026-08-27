@@ -15,6 +15,15 @@ export const buttonVariants = cva(
         danger: 'bg-red-600 text-white hover:bg-red-700',
       },
       size: {
+        // Para acciones dentro de una fila de lista. Se agrego con la pantalla
+        // de documentos: una revision ofrece hasta cuatro acciones —descargar,
+        // aprobar, publicar, retirar— y con `md` la fila mide mas que su propio
+        // contenido. No cambia nada existente: el defecto sigue siendo `md`.
+        //
+        // `h-9` es el minimo que deja el area tactil por sobre los 36 px, que
+        // es el piso razonable para tocar con el pulgar. Por debajo de eso hay
+        // que empezar a fallar clics, y ahorrar cuatro pixeles no lo vale.
+        sm: 'h-9 px-3 text-xs',
         md: 'h-11 px-4 text-sm',
         lg: 'h-12 px-6 text-base',
       },
