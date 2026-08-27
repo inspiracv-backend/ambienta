@@ -721,7 +721,7 @@ funcionan en la terminal. Un comando por linea.
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
 cd apps/api && python -m pytest         # 671 pruebas, 41 archivos
-cd apps/web && npx vitest run           # 475 pruebas, 39 archivos
+cd apps/web && npx vitest run           # 484 pruebas, 40 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema
 ```
 
