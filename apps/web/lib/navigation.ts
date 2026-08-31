@@ -12,6 +12,7 @@ import {
   FileWarning,
   FolderOpen,
   FlaskConical,
+  Handshake,
   History,
   LayoutDashboard,
   Leaf,
@@ -97,6 +98,11 @@ export const TENANT_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Documentos', href: '/documentos', icon: FolderOpen, roles: TENANT_ROLES, enabled: true },
   { label: 'Catálogo Normativo', href: '/catalogo-normativo', icon: BookMarked, roles: TENANT_ROLES, enabled: true },
   { label: 'Gestores', href: '/gestores', icon: Building2, roles: ['gestor'], enabled: true },
+  // Junto a Gestores porque son el mismo trabajo en dos momentos: el CRM
+  // sigue al prospecto, y un trato ganado se promueve a contrato (#82).
+  // Solo ADMIN_ROLES: el pipeline comercial no es asunto de quien opera el
+  // cumplimiento, y la guarda de la API pide `manager` para /crm.
+  { label: 'CRM', href: '/crm', icon: Handshake, roles: ADMIN_ROLES, enabled: true },
   { label: 'Reportes', href: '/reportes', icon: FileBarChart, roles: TENANT_ROLES, enabled: true },
   { label: 'Notificaciones', href: '/notificaciones', icon: Bell, roles: TENANT_ROLES, enabled: true },
   { label: 'Usuarios y Roles', href: '/usuarios', icon: Users, roles: ADMIN_ROLES, enabled: true },
@@ -148,6 +154,7 @@ const TENANT_SCOPED_PREFIXES = [
   '/equipos-regulados',
   '/catalogo-normativo',
   '/gestores',
+  '/crm',
   '/planes-accion',
   '/reportes',
   '/notificaciones',

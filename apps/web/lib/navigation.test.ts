@@ -194,6 +194,30 @@ describe('consistencia del menú', () => {
   });
 });
 
+describe('el CRM es del tenant y solo de quien administra', () => {
+  it('lo ven el Admin Empresa y el Gestor, no el Usuario Interno', () => {
+    // El pipeline comercial no es asunto de quien opera el cumplimiento, y la
+    // guarda de la API pide la familia `manager` para /crm: ofrecerlo al
+    // Usuario Interno sería un ítem de menú que lleva a un 403.
+    expect(hrefs('admin_empresa')).toContain('/crm');
+    expect(hrefs('gestor')).toContain('/crm');
+    expect(hrefs('usuario_interno')).not.toContain('/crm');
+  });
+
+  it('el Superadmin NO lo ve', () => {
+    // `crm_companies` lleva `tenant_id`: el CRM de una consultora son sus
+    // prospectos, no los clientes de Ambienta. Y el Superadmin tiene
+    // `tenantId: null`, así que la pantalla le saldría vacía de todos modos.
+    expect(hrefs('superadmin')).not.toContain('/crm');
+  });
+
+  it('/crm está clasificada como ruta de tenant', () => {
+    // Sin esto, `TenantScopeGate` no la protege del acceso por URL.
+    expect(esRutaDeTenant('/crm')).toBe(true);
+    expect(esRutaDePlataforma('/crm')).toBe(false);
+  });
+});
+
 describe('la clasificación normativa es ámbito plataforma', () => {
   it('el Superadmin la ve y ningún rol de empresa la tiene', () => {
     // `norm_sectors` no lleva `tenant_id`: una clasificación errada se propaga

@@ -20,6 +20,7 @@ export * from './ObligationDetailView';
 export * from './CalendarMonthView';
 export * from './GanttView';
 export * from './KanbanBoard';
+export * from './PipelineKanban';
 export * from './PlanAccionDetailView';
 export * from './AuditsListTable';
 export * from './AuditDetailView';
