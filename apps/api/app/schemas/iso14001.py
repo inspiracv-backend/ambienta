@@ -187,3 +187,39 @@ class EquipmentOperatorCreateAnidado(BaseModel):
     certification_number: str | None = None
     certification_expires_at: date | None = None
     is_primary: bool = False
+
+
+# ── Significancia (#44, ISO 14001 §6.1.2) ─────────────────────────────────
+
+
+class EvaluarSignificancia(BaseModel):
+    """Los tres criterios, cada uno de 1 a 10.
+
+    Los tres son obligatorios **a proposito**: con uno suelto no hay juicio que
+    hacer, y aceptar la evaluacion a medias dejaria el aspecto marcado como no
+    significativo por los que faltan. Un aspecto sin evaluar se queda en
+    `pending`, que dice la verdad.
+    """
+
+    frequency_score: int = Field(ge=1, le=10)
+    severity_score: int = Field(ge=1, le=10)
+    legal_score: int = Field(ge=1, le=10)
+
+
+class ResultadoDeSignificancia(BaseModel):
+    aspect: EnvironmentalAspectRead
+    #: Por que quedo asi. En una auditoria la pregunta no es si el aspecto es
+    #: significativo sino **por que**, y sin esto la respuesta seria un numero
+    #: sin explicacion. Ademas hace legible el caso correcto pero raro de un
+    #: aspecto de magnitud baja que se gestiona por obligacion legal.
+    motivos: list[str] = Field(default_factory=list)
+
+
+class AspectoSinTratar(BaseModel):
+    """Un aspecto significativo que nadie enlazo a un riesgo u oportunidad."""
+
+    id: UUID
+    activity: str
+    aspect: str
+    total_score: int | None
+    facility_id: UUID

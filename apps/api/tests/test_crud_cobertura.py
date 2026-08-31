@@ -37,6 +37,10 @@ SUFIJOS_DE_ACCION = (
     # sobre las que ya estan, no un recurso: no hay una "actualizacion"
     # que listar, leer ni borrar.
     "/actualizar-versiones",
+    # Una vista derivada, no un recurso: son los aspectos ya significativos a
+    # los que **nadie enlazo un riesgo** (ISO 14001 §6.1.4). No se crea ni se
+    # borra un "aspecto sin tratar" — se trata, y entonces sale solo.
+    "/significant-untreated",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )
