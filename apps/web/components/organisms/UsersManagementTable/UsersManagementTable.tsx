@@ -14,6 +14,7 @@ import { eventoCambioDeEstado } from '@/lib/user-audit';
 import { PermisosUsuarioModal } from '@/components/organisms/PermisosUsuarioModal/PermisosUsuarioModal';
 import { permisosEfectivos, type Permiso } from '@ambienta/shared';
 import { ROLE_LABEL } from '@/lib/roles';
+import type { UserEstado } from '@ambienta/shared';
 import { userSemaforo, USER_ESTADO_LABEL } from '@/lib/user-status';
 import type { UsersManagementTableProps } from './UsersManagementTable.types';
 
@@ -37,17 +38,40 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
    * está por encima de `SessionProvider` y no puede firmar eventos con el
    * actor (ver `lib/users-store.tsx`).
    */
-  function cambiarEstado(user: (typeof users)[number], estadoNuevo: 'activo' | 'desactivado') {
+  async function cambiarEstado(
+    user: (typeof users)[number],
+    // `UserEstado` entero y no solo activo/desactivado: deshacer devuelve a la
+    // persona a su estado anterior, que puede ser `invitado` — alguien a quien
+    // se invito y todavia no acepta. Acotar el tipo obligaba a un `as` que
+    // mentia justo en ese caso.
+    estadoNuevo: UserEstado,
+  ) {
     const estadoAnterior = user.estado;
-    setEstado(user.id, estadoNuevo);
+    const r = await setEstado(user.id, estadoNuevo);
+
+    // **Se espera al servidor antes de decir que paso.** Antes se anunciaba
+    // "fue desactivado" y "el cambio quedó registrado en el historial" sin
+    // mirar la respuesta — y como el estado que se mandaba ni siquiera existía
+    // en la base, ese mensaje era falso en el 100 % de los casos.
+    if (!r.ok) {
+      mostrarToast({
+        tipo: 'error',
+        mensaje: `No se pudo ${estadoNuevo === 'desactivado' ? 'desactivar' : 'reactivar'} a ${user.nombre}`,
+        // El motivo del servidor va tal cual: cuando la API rechaza porque
+        // sería la última persona que puede administrar usuarios, ahí está lo
+        // que hay que hacer para poder seguir.
+        descripcion: r.error,
+      });
+      return;
+    }
+
     registrar(eventoCambioDeEstado(user, estadoAnterior, estadoNuevo));
     mostrarToast({
       tipo: estadoNuevo === 'desactivado' ? 'info' : 'exito',
       mensaje: estadoNuevo === 'desactivado' ? `${user.nombre} fue desactivado` : `${user.nombre} fue reactivado`,
       descripcion: 'El cambio quedó registrado en el historial.',
       onUndo: () => {
-        setEstado(user.id, estadoAnterior);
-        registrar(eventoCambioDeEstado(user, estadoNuevo, estadoAnterior));
+        void cambiarEstado(user, estadoAnterior);
       },
     });
   }
@@ -185,7 +209,7 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
                             variant={u.estado === 'desactivado' ? 'secondary' : 'danger'}
                             size="md"
                             onClick={() =>
-                              u.estado === 'desactivado' ? cambiarEstado(u, 'activo') : setPendingDeactivate(u)
+                              u.estado === 'desactivado' ? void cambiarEstado(u, 'activo') : setPendingDeactivate(u)
                             }
                           >
                             {u.estado === 'desactivado' ? 'Activar' : 'Desactivar'}
@@ -251,7 +275,7 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
               <Button
                 variant="danger"
                 onClick={() => {
-                  if (pendingDeactivate) cambiarEstado(pendingDeactivate, 'desactivado');
+                  if (pendingDeactivate) void cambiarEstado(pendingDeactivate, 'desactivado');
                   setPendingDeactivate(null);
                 }}
               >
