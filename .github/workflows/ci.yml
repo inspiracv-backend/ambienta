@@ -129,6 +129,31 @@ jobs:
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"
           done
 
+      # ── Smoke test del esquema (#55) ─────────────────────────────────
+      #
+      # Va **antes** de pytest: comprueba las garantias que sostienen todo lo
+      # demas —que RLS aisle de verdad, que el audit log sea inmutable, que los
+      # CHECK de negocio rechacen lo invalido—, asi que si esto falla no vale la
+      # pena mirar el resto.
+      #
+      # `ON_ERROR_STOP=1` es lo que hace que el job falle: el archivo comunica
+      # sus resultados con `RAISE EXCEPTION`, y sin esa bandera psql los imprime
+      # y sale con 0.
+      #
+      # Deja la base como la encontro (termina en `ROLLBACK`), asi que pytest
+      # corre despues sobre el mismo estado.
+      #
+      # **Estaba roto y nadie lo sabia.** La migracion 13 agrego
+      # `ck_users_interno_con_departamento` y este archivo crea usuarios; desde
+      # entonces reventaba en su tercer INSERT. Como no lo corria nada, el
+      # README y CLAUDE.md siguieron diciendo "9 smoke tests en verde" durante
+      # semanas. Correrlo en CI es justamente lo que impide que vuelva a pasar.
+      - name: Smoke test del esquema
+        env:
+          PGPASSWORD: ambienta_dev
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U ambienta -d ambienta             -f ../../db/02_smoke_test.sql
+
       # El guard permite que este workflow entre antes que la suite de tests:
       # sin el, pytest sale con codigo 5 ("no tests collected") y tumba el job.
       - name: Test (pytest)

@@ -95,7 +95,9 @@ bash db/run.sh
 | `22_crm.sql` | CRM simplificado (epica #32): `crm_stages`, `crm_companies`, `crm_contacts`, `crm_deals`, `crm_activities`. **Que hueco llena:** `contracts` une dos tenants, asi que solo se podia registrar a quien **ya es cliente**; una empresa a la que se le esta vendiendo no cabia en ninguna tabla y el seguimiento comercial vivia fuera del sistema. `crm_companies.client_tenant_id` es el puente: nulo mientras es prospecto, y cuando entra a la plataforma permite promover el trato ganado a `contracts` (#82). **Las etapas son tabla y no enum** porque #78 las pide configurables por empresa, y `kind` (open/won/lost) separa como la llama la empresa de que significa para el sistema. **Las actividades usan tres claves foraneas con un CHECK de 'exactamente una'** y no el par `(entity_type, entity_id)` de `entity_documents`: los padres son tres y conocidos, asi que se gana integridad real — con el par polimorfico, borrar una empresa deja actividades apuntando al vacio. Declara su propia RLS y sus GRANT, y siembra 6 etapas por defecto en **todas** las empresas. **Salta del 18 al 22** para no chocar con las 19, 20 y 21 de los PR en paralelo. Idempotente |
 | `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
-`02_smoke_test.sql` no es parte del despliegue — es la verificación. Corrélo después de cualquier cambio al esquema.
+`02_smoke_test.sql` no es parte del despliegue — es la verificación. **CI lo corre en cada PR** (job de API, antes de pytest), así que ya no depende de que alguien se acuerde.
+
+Eso importa porque **dejó de pasar durante semanas sin que nadie lo notara**: la migración 13 agregó `ck_users_interno_con_departamento` y este archivo crea usuarios, así que reventaba en su tercer `INSERT`. El README y CLAUDE.md siguieron diciendo «9 verificaciones en verde». Una prueba que nadie corre no protege nada; solo lo parece.
 
 ## Multi-tenancy: cómo lo usa la API
 
