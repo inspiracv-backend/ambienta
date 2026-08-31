@@ -170,10 +170,18 @@ def validar_padre_de_actividad(datos: dict) -> None:
 def pipeline(db: Session, tenant_id: UUID) -> dict:
     """El kanban entero: columnas, tarjetas y totales.
 
-    Los totales se calculan **sobre todo lo que hay**, no sobre lo que se
+    Dos cosas que este calculo hace a proposito y conviene no "simplificar":
+
+    **1. Los totales se calculan sobre todo lo que hay**, no sobre lo que se
     devuelve. Sumar solo las tarjetas visibles daria un monto menor que el real
     en cuanto una columna pase del tope, y ese numero se cita despues en una
     reunion como si fuera el pipeline completo.
+
+    **2. Se suma por moneda, no todo junto.** `currency` es un campo por trato
+    y ningun CHECK lo fija en una sola: una columna con un trato de 1.000 CLP y
+    otro de 1.000 USD sumados a secas da `2000`, que no es plata de ninguna
+    clase. Un total mal sumado es peor que ninguno — el numero se ve razonable
+    y nadie lo vuelve a mirar.
     """
     etapas = etapas_de(db, tenant_id)
     columnas = []
@@ -181,18 +189,25 @@ def pipeline(db: Session, tenant_id: UUID) -> dict:
 
     # Conteos y sumas de una vez, no por columna: con seis etapas serian doce
     # consultas mas para un dato que cabe en una.
-    agregados = {
-        fila[0]: (fila[1], fila[2] or Decimal("0"))
-        for fila in db.execute(
-            select(
-                CrmDeal.stage_id,
-                func.count(CrmDeal.id),
-                func.sum(CrmDeal.amount),
-            )
-            .where(CrmDeal.tenant_id == tenant_id, CrmDeal.deleted_at.is_(None))
-            .group_by(CrmDeal.stage_id)
-        ).all()
-    }
+    cuantos: dict[UUID, int] = {}
+    montos: dict[UUID, list[tuple[str, Decimal]]] = {}
+    for stage_id, moneda, total, suma in db.execute(
+        select(
+            CrmDeal.stage_id,
+            CrmDeal.currency,
+            func.count(CrmDeal.id),
+            func.sum(CrmDeal.amount),
+        )
+        .where(CrmDeal.tenant_id == tenant_id, CrmDeal.deleted_at.is_(None))
+        .group_by(CrmDeal.stage_id, CrmDeal.currency)
+        .order_by(CrmDeal.currency)
+    ).all():
+        cuantos[stage_id] = cuantos.get(stage_id, 0) + total
+        # Una moneda sin un solo monto declarado no aparece: la columna diria
+        # "USD 0" por un trato al que todavia no le pusieron cifra, y eso se lee
+        # como un trato de cero pesos y no como uno sin valorar.
+        if suma is not None:
+            montos.setdefault(stage_id, []).append((moneda, suma))
 
     for etapa in etapas:
         tarjetas = list(
@@ -210,7 +225,7 @@ def pipeline(db: Session, tenant_id: UUID) -> dict:
                 .limit(TOPE_POR_COLUMNA)
             ).all()
         )
-        total, monto = agregados.get(etapa.id, (0, Decimal("0")))
+        total = cuantos.get(etapa.id, 0)
         if total > len(tarjetas):
             truncado = True
         columnas.append(
@@ -218,7 +233,7 @@ def pipeline(db: Session, tenant_id: UUID) -> dict:
                 "stage": etapa,
                 "deals": tarjetas,
                 "total_deals": total,
-                "monto_total": monto,
+                "montos": montos.get(etapa.id, []),
             }
         )
 

@@ -82,7 +82,9 @@ def _etapa(db: Session, kind: str) -> CrmStage:
     return fila
 
 
-def _trato(db: Session, empresa: CrmCompany, monto: str | None = None) -> CrmDeal:
+def _trato(
+    db: Session, empresa: CrmCompany, monto: str | None = None, moneda: str = "CLP"
+) -> CrmDeal:
     return svc.crear_deal(
         db,
         EMPRESA_A,
@@ -90,9 +92,18 @@ def _trato(db: Session, empresa: CrmCompany, monto: str | None = None) -> CrmDea
             "crm_company_id": empresa.id,
             "title": "Implantacion Ambienta",
             "amount": Decimal(monto) if monto else None,
-            "currency": "CLP",
+            "currency": moneda,
         },
     )
+
+
+def _monto(columna: dict, moneda: str = "CLP") -> Decimal:
+    """Lo que suma una columna en una moneda. Cero si esa moneda no aparece."""
+    return next((t for m, t in columna["montos"] if m == moneda), Decimal("0"))
+
+
+def _monedas(columna: dict) -> list[str]:
+    return [m for m, _ in columna["montos"]]
 
 
 class TestLasEtapasPorDefecto:
@@ -214,17 +225,100 @@ class TestElPipeline:
         columna = next(c for c in datos["columnas"] if c["stage"].id == primera.id)
 
         assert columna["total_deals"] >= 2
-        assert columna["monto_total"] >= Decimal("1500000")
+        assert _monto(columna) >= Decimal("1500000")
 
-    def test_un_trato_sin_monto_no_rompe_la_suma(self, db: Session) -> None:
-        """`amount` es opcional: hay tratos que arrancan sin cifra."""
+    def test_un_trato_sin_monto_no_INVENTA_un_cero(self, db: Session) -> None:
+        """`amount` es opcional: hay tratos que arrancan sin cifra.
+
+        Y esa columna **no** declara "CLP 0". Un trato al que todavia no le
+        pusieron valor no es un trato de cero pesos, y la columna diciendo cero
+        se lee como que ya se valoro y no vale nada.
+        """
         empresa = _empresa(db)
         _trato(db, empresa, None)
         db.flush()
 
         datos = svc.pipeline(db, EMPRESA_A)
-        for columna in datos["columnas"]:
-            assert columna["monto_total"] is not None
+        primera = svc.primera_etapa(db, EMPRESA_A)
+        columna = next(c for c in datos["columnas"] if c["stage"].id == primera.id)
+
+        assert columna["total_deals"] >= 1, "el trato sin monto no se conto"
+        # Exacto y no `all(... is not None)`: esa version pasaba igual con una
+        # entrada `("CLP", 0)`, que es justo lo que no debe existir.
+        assert columna["montos"] == [], (
+            "la columna declaro un total para un trato que nadie ha valorado"
+        )
+
+    def test_DOS_MONEDAS_no_se_suman_entre_si(self, db: Session) -> None:
+        """La prueba que faltaba, y el numero que se cita en una reunion.
+
+        `currency` es un campo por trato y **ningun CHECK lo fija en una sola**.
+        Sumando a secas, una columna con 1.000 CLP y 1.000 USD informaba
+        `2000` — que no es plata de ninguna clase. Lo peor no es el error de
+        cambio: es que `2000` se ve razonable, asi que nadie lo vuelve a mirar.
+        """
+        empresa = _empresa(db)
+        _trato(db, empresa, "1000", "CLP")
+        _trato(db, empresa, "7", "USD")
+        db.flush()
+
+        datos = svc.pipeline(db, EMPRESA_A)
+        primera = svc.primera_etapa(db, EMPRESA_A)
+        columna = next(c for c in datos["columnas"] if c["stage"].id == primera.id)
+
+        # Los montos van distintos a proposito: con 1.000 y 1.000 la prueba
+        # pasaria igual sumandolos mal en una de las dos entradas.
+        assert "USD" in _monedas(columna), "la moneda extranjera desaparecio"
+        assert "CLP" in _monedas(columna)
+        assert _monto(columna, "USD") == Decimal("7"), (
+            "el total en USD arrastro pesos"
+        )
+        # Y ninguna entrada trae la suma cruda de las dos, que es el 1007 que
+        # informaba la version anterior.
+        assert all(
+            total != Decimal("1007") for _, total in columna["montos"]
+        ), "alguna entrada sumo las dos monedas entre si"
+
+    def test_cada_moneda_aparece_UNA_sola_vez(self, db: Session) -> None:
+        """Dos entradas 'CLP' en la misma columna serian dos totales parciales.
+
+        La pantalla mostraria "CLP 1.000" y debajo "CLP 500" para la misma
+        columna, y quien lo lea tiene que sumar a mano — que es exactamente el
+        trabajo que este endpoint existe para evitar.
+        """
+        empresa = _empresa(db)
+        _trato(db, empresa, "1000", "CLP")
+        _trato(db, empresa, "500", "CLP")
+        db.flush()
+
+        for columna in svc.pipeline(db, EMPRESA_A)["columnas"]:
+            monedas = _monedas(columna)
+            assert len(monedas) == len(set(monedas)), f"moneda repetida: {monedas}"
+
+    def test_el_CONTEO_si_junta_las_monedas(self, db: Session) -> None:
+        """Contar tratos no depende de la moneda; sumar plata si.
+
+        Es la mitad que se rompe sola al agrupar por moneda: si `total_deals`
+        se tomara de una de las filas agrupadas en vez de sumarlas, una columna
+        con un trato en CLP y otro en USD informaria **un** trato.
+        """
+        empresa = _empresa(db)
+        primera = svc.primera_etapa(db, EMPRESA_A)
+        antes = next(
+            c["total_deals"]
+            for c in svc.pipeline(db, EMPRESA_A)["columnas"]
+            if c["stage"].id == primera.id
+        )
+        _trato(db, empresa, "1000", "CLP")
+        _trato(db, empresa, "1000", "USD")
+        db.flush()
+
+        despues = next(
+            c["total_deals"]
+            for c in svc.pipeline(db, EMPRESA_A)["columnas"]
+            if c["stage"].id == primera.id
+        )
+        assert despues == antes + 2, "las dos monedas se contaron como un trato"
 
     def test_los_borrados_no_cuentan(self, db: Session) -> None:
         empresa = _empresa(db)
@@ -282,7 +376,7 @@ class TestCuandoLaColumnaPasaDelTope:
 
         assert len(columna["deals"]) == 2, "el tope no se aplico"
         assert columna["total_deals"] >= 3
-        assert columna["monto_total"] >= Decimal("3000000"), (
+        assert _monto(columna) >= Decimal("3000000"), (
             "el monto se calculo sobre las tarjetas devueltas, no sobre todo"
         )
 

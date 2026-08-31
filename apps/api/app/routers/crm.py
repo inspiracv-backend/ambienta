@@ -15,6 +15,7 @@ from ..deps import get_tenant_db, get_tenant_id
 from ..models.crm import CrmStage
 from ..schemas.crm import (
     ColumnaDelPipeline,
+    MontoPorMoneda,
     CrmActivityCreate,
     CrmActivityRead,
     CrmActivityUpdate,
@@ -556,7 +557,10 @@ def delete_activity(activity_id: UUID, db: Session = Depends(get_tenant_db)):
         "devuelve.** Cada columna trae hasta 50 tarjetas; sumar solo las "
         "visibles daria un monto menor que el real en cuanto una columna pase "
         "del tope, y ese numero se cita despues en una reunion como si fuera el "
-        "pipeline completo. `truncado` dice si algo se corto."
+        "pipeline completo. `truncado` dice si algo se corto.\n\n"
+        "**Y se suma por moneda, no todo junto:** `montos` trae una entrada por "
+        "moneda. Un trato de 1.000 CLP y otro de 1.000 USD sumados a secas dan "
+        "`2000`, que no es plata de ninguna clase."
     ),
 )
 def ver_pipeline(
@@ -569,7 +573,9 @@ def ver_pipeline(
                 stage=CrmStageRead.model_validate(c["stage"]),
                 deals=[CrmDealRead.model_validate(d) for d in c["deals"]],
                 total_deals=c["total_deals"],
-                monto_total=c["monto_total"],
+                montos=[
+                    MontoPorMoneda(moneda=m, total=t) for m, t in c["montos"]
+                ],
             )
             for c in datos["columnas"]
         ],

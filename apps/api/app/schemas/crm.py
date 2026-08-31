@@ -228,6 +228,19 @@ class CrmActivityRead(OrmBase):
 # ── Vista del pipeline ────────────────────────────────────────────────────
 
 
+class MontoPorMoneda(BaseModel):
+    """Lo que suma una columna **en una moneda**.
+
+    Existe como lista y no como un unico `monto_total` porque `currency` es un
+    campo por trato y ningun CHECK lo fija en una sola. Sumar 1.000 CLP con
+    1.000 USD da `2000`, que no es plata de ninguna clase; y un total mal sumado
+    es peor que ninguno, porque se ve razonable y nadie lo vuelve a mirar.
+    """
+
+    moneda: str
+    total: Decimal
+
+
 class ColumnaDelPipeline(BaseModel):
     """Una columna del kanban, con lo que hace falta para dibujarla."""
 
@@ -237,7 +250,9 @@ class ColumnaDelPipeline(BaseModel):
     #: lista puede venir cortada por el tope, y sumar lo que se ve daria un
     #: total menor que el real **sin que nada lo diga**.
     total_deals: int
-    monto_total: Decimal
+    #: Una entrada por moneda con al menos un monto declarado. Vacia si ningun
+    #: trato de la columna tiene cifra: eso es "sin valorar", no "cero".
+    montos: list[MontoPorMoneda] = Field(default_factory=list)
 
 
 class PipelineRead(BaseModel):
