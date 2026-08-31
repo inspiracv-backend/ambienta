@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.audit import (
@@ -12,6 +12,7 @@ from ..crud.audit import (
 from ..deps import get_tenant_db, get_tenant_id
 from ..crud.organization import crud_user
 from ..models.audit import AuditItem, AuditParticipant
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import (
     CRUDAsociacion,
     borrar_o_404,
@@ -43,8 +44,8 @@ router = APIRouter(prefix="/audits", tags=["audits"])
 
 
 @router.get("/", response_model=list[AuditRead])
-def list_audits(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_audit.get_multi(db, skip=skip, limit=limit)
+def list_audits(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_audit.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/{audit_id}", response_model=AuditRead)
@@ -79,8 +80,8 @@ def update_audit(audit_id: UUID, data: AuditUpdate, db: Session = Depends(get_te
 # ── Nonconformities ──────────────────────────────────────────────────────
 
 @router.get("/nonconformities/", response_model=list[NonconformityRead], tags=["nonconformities"])
-def list_nonconformities(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_nonconformity.get_multi(db, skip=skip, limit=limit)
+def list_nonconformities(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_nonconformity.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.post("/nonconformities/", response_model=NonconformityRead, status_code=status.HTTP_201_CREATED, tags=["nonconformities"])
@@ -107,8 +108,8 @@ def update_nonconformity(nc_id: UUID, data: NonconformityUpdate, db: Session = D
 # ── Action Plans ─────────────────────────────────────────────────────────
 
 @router.get("/action-plans/", response_model=list[ActionPlanRead], tags=["action-plans"])
-def list_action_plans(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_action_plan.get_multi(db, skip=skip, limit=limit)
+def list_action_plans(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_action_plan.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.post("/action-plans/", response_model=ActionPlanRead, status_code=status.HTTP_201_CREATED, tags=["action-plans"])

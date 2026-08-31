@@ -1,11 +1,12 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.obligations import crud_obligation, crud_task
 from ..deps import get_tenant_db, get_tenant_id
 from ..crud.compliance import crud_article_compliance, crud_matrix_norm
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404, validar_visible
 from ..schemas.obligations import (
     AprobarDeclaracion,
@@ -59,8 +60,8 @@ def _con_urgencia(obligaciones: list) -> list[dict]:
         "fecha — que no es lo mismo que ir bien, y por eso no se pinta de verde."
     ),
 )
-def list_obligations(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return _con_urgencia(crud_obligation.get_multi(db, skip=skip, limit=limit))
+def list_obligations(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return _con_urgencia(recortar(respuesta, crud_obligation.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina))
 
 
 @router.get("/{obligation_id}", response_model=ObligationRead)

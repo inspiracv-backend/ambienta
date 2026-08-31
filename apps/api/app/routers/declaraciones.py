@@ -10,7 +10,7 @@ puede quedar nulo en envios que no responden a una obligacion registrada.
 """
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.obligations import crud_declaration_submission
@@ -20,14 +20,15 @@ from ..schemas.obligations import (
     DeclarationSubmissionRead,
     DeclarationSubmissionUpdate,
 )
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404
 
 router = APIRouter(prefix="/declarations", tags=["declarations"])
 
 
 @router.get("/", response_model=list[DeclarationSubmissionRead])
-def list_declarations(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_declaration_submission.get_multi(db, skip=skip, limit=limit)
+def list_declarations(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_declaration_submission.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/{declaration_id}", response_model=DeclarationSubmissionRead)

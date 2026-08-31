@@ -186,6 +186,14 @@ interface IsoContextValue {
   equipos: EquipoApi[];
   cargando: boolean;
   error: string | null;
+  /**
+   * Que listados vinieron **cortados** por el tope del servidor (#167).
+   *
+   * Vacío = se ve todo. Se expone en vez de esconderlo porque una lista
+   * cortada se ve igual que una completa, y en una matriz de aspectos eso
+   * significa creer que se revisó todo cuando falta un pedazo.
+   */
+  truncado: string[];
   recargar: () => void;
 
   crearAspecto: (datos: Record<string, unknown>) => Promise<boolean>;
@@ -213,6 +221,7 @@ export function IsoProvider({ children }: { children: ReactNode }) {
   const [riesgos, setRiesgos] = useState<RiesgoApi[]>([]);
   const [equipos, setEquipos] = useState<EquipoApi[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [truncado, setTruncado] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reintento, setReintento] = useState(0);
 
@@ -226,14 +235,28 @@ export function IsoProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     const opts = { tenantId };
+    // `getPagina` en vez de `get` para conservar `X-Has-More` (#167). La API
+    // acota cada listado; sin leer esa cabecera, una empresa con 640 aspectos
+    // veria 500 y **nada se lo diría** — el caso que #167 llama "más engañoso
+    // que no paginar", porque una lista cortada se ve perfectamente normal.
     Promise.all([
-      api.get<Record<string, unknown>[]>('/iso14001/aspects?limit=500', opts),
-      api.get<Record<string, unknown>[]>('/iso14001/risks?limit=500', opts),
-      api.get<Record<string, unknown>[]>('/iso14001/equipment?limit=500', opts),
+      api.getPagina<Record<string, unknown>>('/iso14001/aspects?limit=500', opts),
+      api.getPagina<Record<string, unknown>>('/iso14001/risks?limit=500', opts),
+      api.getPagina<Record<string, unknown>>('/iso14001/equipment?limit=500', opts),
       api.get<Record<string, unknown>[]>('/facilities/', opts),
     ])
-      .then(([a, r, e, p]) => {
+      .then(([pa, pr, pe, p]) => {
         if (!vigente) return;
+        const a = pa.datos;
+        const r = pr.datos;
+        const e = pe.datos;
+        setTruncado(
+          [
+            pa.hayMas && 'aspectos ambientales',
+            pr.hayMas && 'riesgos y oportunidades',
+            pe.hayMas && 'equipos regulados',
+          ].filter(Boolean) as string[],
+        );
         // **Se escribe siempre, incluso vacío.** Cero aspectos se ve como cero
         // aspectos: mostrar los de ejemplo haría creer que la empresa ya
         // levantó su matriz de aspectos cuando no la levantó, y eso es
@@ -298,6 +321,7 @@ export function IsoProvider({ children }: { children: ReactNode }) {
       equipos,
       plantas,
       cargando,
+      truncado,
       error,
       recargar,
 
@@ -322,7 +346,7 @@ export function IsoProvider({ children }: { children: ReactNode }) {
       borrarEquipo: (id) =>
         escribir(() => api.delete(`/iso14001/equipment/${id}`, opts), 'Equipo eliminado.'),
     }),
-    [aspectos, riesgos, equipos, plantas, cargando, error, recargar, escribir, opts],
+    [aspectos, riesgos, equipos, plantas, cargando, truncado, error, recargar, escribir, opts],
   );
 
   return <IsoContext.Provider value={value}>{children}</IsoContext.Provider>;

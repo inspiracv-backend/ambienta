@@ -1,10 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.notifications import crud_notification, crud_notification_rule, crud_notification_template
 from ..deps import get_tenant_db, get_tenant_id
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.notifications import (
     NotificationCreate,
@@ -22,8 +23,8 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
 @router.get("/", response_model=list[NotificationRead])
-def list_notifications(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_notification.get_multi(db, skip=skip, limit=limit)
+def list_notifications(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_notification.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.post("/", response_model=NotificationRead, status_code=status.HTTP_201_CREATED)

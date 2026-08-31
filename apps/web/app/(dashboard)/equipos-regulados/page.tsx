@@ -13,7 +13,7 @@ function Contenido() {
   const router = useRouter();
   const { user, cargando } = useSession();
   const { tenants } = useTenants();
-  const { equipos, plantas, cargando: cargandoIso, error } = useIso();
+  const { equipos, plantas, cargando: cargandoIso, error, truncado } = useIso();
 
   useEffect(() => {
     if (!FEATURE_FLAGS.matricesIso) router.replace('/dashboard');
@@ -39,6 +39,16 @@ function Contenido() {
       {error && (
         <p role="alert" className="rounded-card bg-semaforo-no-cumple-bg px-4 py-3 text-sm text-semaforo-no-cumple">
           No se pudieron cargar los datos: {error}
+        </p>
+      )}
+      {truncado.length > 0 && (
+        <p
+          role="status"
+          className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          La lista viene <strong>cortada</strong> por el tope del servidor
+          ({truncado.join(', ')}): hay más registros de los que se ven. Filtra para
+          acotar la búsqueda.
         </p>
       )}
       <EquiposReguladosTable equipos={equipos} plants={plantas} />

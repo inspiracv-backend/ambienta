@@ -10,12 +10,13 @@ reorganizar el organigrama. Se abren, con las mismas validaciones.
 """
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.organization import crud_department, crud_process, crud_user
 from ..deps import get_tenant_db, get_tenant_id
 from ..schemas.organization import ProcessCreate, ProcessRead, ProcessUpdate
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404, validar_sin_ciclo, validar_visible
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -43,9 +44,11 @@ def _validar_referencias(
 
 @router.get("/", response_model=list[ProcessRead])
 def list_processes(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    db: Session = Depends(get_tenant_db),
 ):
-    return crud_process.get_multi(db, skip=skip, limit=limit)
+    return recortar(respuesta, crud_process.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/{process_id}", response_model=ProcessRead)

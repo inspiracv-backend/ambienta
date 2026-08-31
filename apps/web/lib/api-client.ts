@@ -109,6 +109,35 @@ async function request<T>(
   body?: unknown,
   opts: RequestOptions = {},
 ): Promise<T> {
+  const res = await requestConRespuesta(method, path, body, opts);
+
+  // **Un 204 no trae cuerpo, y `res.json()` sobre un cuerpo vacio lanza
+  // `SyntaxError`.** Todos los `DELETE` de la API responden 204, asi que hasta
+  // el 27-ago *cada borrado de la aplicacion* se leia como fallido: la fila
+  // desaparecia de la base, la pantalla mostraba un error y no recargaba, y
+  // quien lo hizo veia el registro seguir ahi. Reintentar daba 404.
+  //
+  // Se comprueba el estado y no `content-length`: un 204 puede venir sin esa
+  // cabecera, y algunos proxys la ponen en 0 para respuestas que si traen algo.
+  if (res.status === 204 || res.status === 205) {
+    return null as T;
+  }
+
+  return res.json() as Promise<T>;
+}
+
+/**
+ * El viaje completo, devolviendo la `Response` **sin leer el cuerpo**.
+ *
+ * Existe porque las cabeceras se pierden en cuanto `request` devuelve datos
+ * parseados, y `X-Has-More` viaja ahi.
+ */
+async function requestConRespuesta(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts: RequestOptions = {},
+): Promise<Response> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -140,27 +169,40 @@ async function request<T>(
     throw new ApiError(res.status, res.statusText, detail);
   }
 
-  // **Un 204 no trae cuerpo, y `res.json()` sobre un cuerpo vacio lanza
-  // `SyntaxError`.** Todos los `DELETE` de la API responden 204, asi que hasta
-  // ahora *cada borrado de la aplicacion* se leia como fallido: la fila
-  // desaparecia de la base, la pantalla mostraba un error y no recargaba, y
-  // quien lo hizo veia el registro seguir ahi. Reintentar daba 404.
-  //
-  // Se detecto borrando un equipo desde la pantalla y comparando con la API:
-  // `DELETE -> 204`, la lista devolvia 2 elementos y la tabla seguia mostrando 3.
-  //
-  // Se comprueba el estado y no `content-length`: un 204 puede venir sin esa
-  // cabecera, y algunos proxys la ponen en 0 para respuestas que si traen algo.
-  if (res.status === 204 || res.status === 205) {
-    return null as T;
-  }
+  // El cuerpo **no se lee aca**: quien llama decide si lo parsea o si mira las
+  // cabeceras. Leerlo dos veces lanzaria "body stream already read".
+  return res;
+}
 
-  return res.json() as Promise<T>;
+/**
+ * Una pagina de resultados, **con la respuesta a "¿esto es todo?"**.
+ *
+ * La API acota cada listado (#167) y avisa por cabecera cuando corto. Sin leer
+ * esa cabecera el corte sigue siendo invisible para quien mira la pantalla, que
+ * es el defecto que #167 describe como "mas enganoso que no paginar": una lista
+ * de 500 de 640 se ve perfectamente normal.
+ */
+export interface Pagina<T> {
+  datos: T[];
+  /** `true` = la API dejo filas fuera. Hay que decirlo en la pantalla. */
+  hayMas: boolean;
 }
 
 export const api = {
   get<T>(path: string, opts?: RequestOptions) {
     return request<T>('GET', path, undefined, opts);
+  },
+  /**
+   * Como `get`, pero conserva si la lista vino cortada.
+   *
+   * Va aparte y no reemplaza a `get` porque los 25 listados devuelven un
+   * arreglo pelado y cambiarlos a un envoltorio rompe todos los stores a la
+   * vez. Quien necesite saberlo lo pide; el resto sigue igual.
+   */
+  async getPagina<T>(path: string, opts?: RequestOptions): Promise<Pagina<T>> {
+    const res = await requestConRespuesta('GET', path, undefined, opts);
+    const datos = (res.status === 204 ? [] : await res.json()) as T[];
+    return { datos, hayMas: res.headers.get('X-Has-More') === 'true' };
   },
   post<T>(path: string, body: unknown, opts?: RequestOptions) {
     return request<T>('POST', path, body, opts);

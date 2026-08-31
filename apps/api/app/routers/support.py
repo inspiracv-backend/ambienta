@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from ..crud.support import (
     crud_ticket_message,
 )
 from ..deps import get_current_user, get_tenant_db, get_tenant_id
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404, verificar_padre
 from ..schemas.support import (
     ChatbotConversationCreate,
@@ -33,8 +34,8 @@ router = APIRouter(prefix="/support", tags=["support"])
 
 
 @router.get("/tickets", response_model=list[SupportTicketRead])
-def list_tickets(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_support_ticket.get_multi(db, skip=skip, limit=limit)
+def list_tickets(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_support_ticket.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/tickets/{ticket_id}", response_model=SupportTicketRead)
@@ -130,8 +131,8 @@ def create_ticket_message(
 
 
 @router.get("/chatbot", response_model=list[ChatbotConversationRead])
-def list_conversations(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_chatbot_conversation.get_multi(db, skip=skip, limit=limit)
+def list_conversations(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_chatbot_conversation.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.post("/chatbot", response_model=ChatbotConversationRead, status_code=status.HTTP_201_CREATED)
