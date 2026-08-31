@@ -53,6 +53,9 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
     "support": "chatbot.use",
     "tenants": "company_profile",
     "users": "user",
+    # El catalogo de roles se lee para poder ofrecer un selector, y se
+    # administra con el mismo permiso que los permisos.
+    "roles": "role.manage",
 }
 
 #: Rutas que **no** pasan por esta guarda, con el motivo.
@@ -122,6 +125,11 @@ FAMILIA_POR_SUBRUTA: dict[tuple[str, str], str] = {
     ("iso14001", "risks"): "risk_opportunity",
     ("iso14001", "equipment"): "equipment",
     ("users", "permissions"): "role.manage",
+    # Asignar un rol **es** decidir que puede hacer alguien, asi que exige el
+    # mismo permiso que administrar permisos individuales y no `user.write`:
+    # quien puede editar el nombre de una persona no deberia poder hacerla
+    # administradora.
+    ("users", "roles"): "role.manage",
 }
 
 _ESCRITURAS = frozenset({"POST", "PATCH", "PUT", "DELETE"})

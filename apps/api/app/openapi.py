@@ -107,6 +107,20 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "roles",
+        "description": (
+            "Los roles de la empresa y a quien se le asignan. **`user_roles` es "
+            "lo unico que decide que puede hacer cada persona:** es lo que la "
+            "guarda de cada ruta consulta.\n\n"
+            "No confundir con `users.user_type`. Ese dice **que clase de cuenta** "
+            "es alguien —si pertenece a un departamento, si es un invitado, si "
+            "administra la plataforma—; el rol dice **que puede hacer**. La "
+            "migracion `09_roles_por_codigo.sql` derivo el segundo del primero "
+            "una vez, para que nadie quedara sin permisos; despues son "
+            "independientes."
+        ),
+    },
+    {
         "name": "departments",
         "description": (
             "Departamentos de la empresa. `facility_id` es opcional: hay "

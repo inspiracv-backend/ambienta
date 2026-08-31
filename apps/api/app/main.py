@@ -33,7 +33,7 @@ from .routers import (
     facilities,
     identidad,
     integraciones, iso14001, notifications, obligations, processes, support, system,
-    plantillas, tenants,
+    plantillas, roles, tenants,
     users, webhooks,
 )
 
@@ -124,6 +124,7 @@ app.include_router(tenants.router, prefix=api_v1_prefix, dependencies=[Depends(e
 app.include_router(facilities.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(contratos.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(users.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(roles.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(departments.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(processes.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(integraciones.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
