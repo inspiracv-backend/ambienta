@@ -39,6 +39,7 @@ from ..models.catalog import LegalArticle, LegalNorm
 from ..models.compliance import ArticleCompliance, MatrixNorm, TenantLegalMatrix
 from ..models.organization import Facility
 from ..models.obligations import Obligation
+from .iso14001 import equipos_sin_operador_habilitado
 
 #: Cuantas filas devuelve como maximo cada coleccion.
 #:
@@ -169,14 +170,21 @@ def listar(db: Session, tenant_id: UUID, ahora: datetime | None = None) -> dict:
 
     articulos = _articulos(db, tenant_id)
     declaraciones = _declaraciones(db, tenant_id, ahora)
+    equipos = equipos_sin_operador_habilitado(db, tenant_id, ahora.date())
 
     return {
         "generated_at": ahora,
         "articles": articulos[:TOPE],
         "declarations": declaraciones[:TOPE],
+        # Tercera naturaleza (#48): un equipo regulado **en operacion** que hoy
+        # nadie puede operar legalmente. No se resuelve con un plan de accion
+        # ni presentando un tramite: se resuelve asignando a alguien o
+        # renovandole la certificacion. Por eso va en su propia coleccion.
+        "equipment": equipos[:TOPE],
         # **Se dice cuando se corto.** Ver `TOPE`.
         "articles_truncated": len(articulos) > TOPE,
         "declarations_truncated": len(declaraciones) > TOPE,
+        "equipment_truncated": len(equipos) > TOPE,
         "articles_without_evidence": sum(
             1 for a in articulos[:TOPE] if not a["evidence_url"]
         ),

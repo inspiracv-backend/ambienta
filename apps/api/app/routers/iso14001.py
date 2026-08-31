@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..crud.iso14001 import crud_environmental_aspect, crud_regulated_equipment, crud_risk_opportunity
@@ -13,6 +13,7 @@ from ._comun import CRUDAsociacion, borrar_o_404, obtener_o_404, validar_visible
 from ..services import iso14001 as svc
 from ..schemas.iso14001 import (
     AspectoSinTratar,
+    Vencimientos,
     EvaluarSignificancia,
     ResultadoDeSignificancia,
     EquipmentOperatorUpdate,
@@ -155,6 +156,33 @@ def update_risk(risk_id: UUID, data: RiskOpportunityUpdate, db: Session = Depend
 @router.get("/equipment", response_model=list[RegulatedEquipmentRead])
 def list_equipment(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
     return crud_regulated_equipment.get_multi(db, skip=skip, limit=limit)
+
+
+# Antes que `/equipment/{equipment_id}`, por lo mismo que
+# `significant-untreated`: FastAPI resuelve por orden de declaracion y al reves
+# esta ruta responderia 422 intentando leer "expiring" como UUID.
+@router.get(
+    "/equipment/expiring",
+    response_model=Vencimientos,
+    tags=["business-logic"],
+    summary="Inscripciones y certificaciones por vencer",
+    description=(
+        "Lo que hay que renovar antes de que caduque: la inscripcion del equipo "
+        "ante la autoridad y la certificacion de quienes lo operan (#47).\n\n"
+        "**Lo ya vencido viene incluido, no aparte.** Una lista de por vencer "
+        "que deja fuera lo vencido es la unica que alguien mira, y esconde "
+        "justamente lo urgente: `dias_restantes` sale negativo.\n\n"
+        "Solo equipos en operacion. Uno detenido o dado de baja no necesita "
+        "inscripcion vigente, y contarlo llenaria la lista de maquinas que "
+        "nadie esta usando."
+    ),
+)
+def equipos_por_vencer(
+    dias: int = Query(default=svc.DIAS_DE_AVISO, ge=0, le=365),
+    db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    return svc.vencimientos_proximos(db, tenant_id, dias=dias)
 
 
 @router.post("/equipment", response_model=RegulatedEquipmentRead, status_code=status.HTTP_201_CREATED)

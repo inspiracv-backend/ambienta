@@ -36,12 +36,17 @@ Sin los tres puntajes, la significancia queda en `pending` y se dice.
 """
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from ..models.iso14001 import EnvironmentalAspect
+from ..models.iso14001 import (
+    EnvironmentalAspect,
+    EquipmentOperator,
+    RegulatedEquipment,
+)
 
 #: Los tres criterios, cada uno de 1 a 10 (lo que admite el CHECK de la tabla).
 PUNTAJE_MINIMO = 1
@@ -194,3 +199,169 @@ def significativos_sin_riesgo(
             .order_by(EnvironmentalAspect.total_score.desc().nullslast())
         ).all()
     )
+
+
+# ── Vencimientos de equipos regulados (#47) y operadores (#48) ────────────
+
+#: Con cuanta anticipacion se avisa. 30 dias alcanza para tramitar una
+#: renovacion; menos deja a la empresa reaccionando cuando ya no se puede.
+DIAS_DE_AVISO = 30
+
+#: Solo los equipos en operacion. Uno detenido o dado de baja **no necesita**
+#: un operador habilitado de turno, y contarlo llenaria la lista de
+#: incumplimientos con maquinas que nadie esta usando — que es la forma mas
+#: rapida de que se deje de mirar.
+EN_OPERACION = "operational"
+
+
+def _hoy(hoy: date | None = None) -> date:
+    return hoy or datetime.now(timezone.utc).date()
+
+
+def _habilitado(operador: EquipmentOperator, hoy: date) -> bool:
+    """Si esa persona puede operar el equipo hoy.
+
+    **Una certificacion sin fecha de vencimiento cuenta como vigente.** No es
+    lo mismo "vencio" que "nadie anoto cuando vence": acusar a la empresa de
+    operar con una certificacion vencida por un campo que falta seria una
+    afirmacion falsa, y el arreglo de las dos cosas es distinto —una se renueva,
+    la otra se completa.
+
+    **No mira `deleted_at`**: la consulta que trae los operadores ya excluye los
+    borrados, asi que aca esa comprobacion nunca se cumpliria. Una guarda
+    inalcanzable se lee como proteccion y no protege nada.
+    """
+    return (
+        operador.certification_expires_at is None
+        or operador.certification_expires_at >= hoy
+    )
+
+
+def equipos_sin_operador_habilitado(
+    db: Session, tenant_id: UUID, hoy: date | None = None
+) -> list[dict]:
+    """Equipos en operacion que hoy nadie puede operar legalmente (#48).
+
+    Devuelve **dos situaciones distintas** con su motivo, porque se arreglan
+    distinto y mezclarlas obligaria a abrir cada equipo para saber cual es:
+
+    - `sin_operador`: no hay nadie asignado. Se asigna a alguien.
+    - `certificacion_vencida`: hay gente asignada y a toda se le vencio. Se
+      renueva, o se asigna a alguien mas.
+
+    Ordenados por planta y nombre para que la lista sea estable entre
+    llamadas: una lista que se reordena sola es imposible de revisar de a poco.
+    """
+    hoy = _hoy(hoy)
+    equipos = list(
+        db.scalars(
+            select(RegulatedEquipment)
+            .where(
+                RegulatedEquipment.tenant_id == tenant_id,
+                RegulatedEquipment.status == EN_OPERACION,
+                RegulatedEquipment.deleted_at.is_(None),
+            )
+            .order_by(RegulatedEquipment.facility_id, RegulatedEquipment.name)
+        ).all()
+    )
+    if not equipos:
+        return []
+
+    operadores: dict[UUID, list[EquipmentOperator]] = {}
+    for fila in db.scalars(
+        select(EquipmentOperator).where(
+            EquipmentOperator.tenant_id == tenant_id,
+            EquipmentOperator.equipment_id.in_([e.id for e in equipos]),
+            EquipmentOperator.deleted_at.is_(None),
+        )
+    ).all():
+        operadores.setdefault(fila.equipment_id, []).append(fila)
+
+    hallazgos: list[dict] = []
+    for equipo in equipos:
+        suyos = operadores.get(equipo.id, [])
+        if any(_habilitado(o, hoy) for o in suyos):
+            continue
+        hallazgos.append(
+            {
+                "equipment_id": equipo.id,
+                "facility_id": equipo.facility_id,
+                "name": equipo.name,
+                "equipment_type": equipo.equipment_type,
+                "motivo": "sin_operador" if not suyos else "certificacion_vencida",
+                "operadores_asignados": len(suyos),
+                "ultima_certificacion": max(
+                    (
+                        o.certification_expires_at
+                        for o in suyos
+                        if o.certification_expires_at is not None
+                    ),
+                    default=None,
+                ),
+            }
+        )
+    return hallazgos
+
+
+def vencimientos_proximos(
+    db: Session,
+    tenant_id: UUID,
+    *,
+    dias: int = DIAS_DE_AVISO,
+    hoy: date | None = None,
+) -> dict:
+    """Inscripciones y certificaciones que vencen pronto — o que ya vencieron (#47).
+
+    **Lo vencido va incluido, no aparte.** Una lista de "por vencer" que deja
+    fuera lo que ya vencio es la unica lista que alguien mira, y esconde
+    justamente lo urgente. `dias_restantes` sale negativo en ese caso, y la
+    pantalla decide como mostrarlo.
+    """
+    hoy = _hoy(hoy)
+    limite = hoy + timedelta(days=dias)
+
+    equipos = [
+        {
+            "equipment_id": e.id,
+            "facility_id": e.facility_id,
+            "name": e.name,
+            "registration_authority": e.registration_authority,
+            "registration_number": e.registration_number,
+            "expires_at": e.registration_expires_at,
+            "dias_restantes": (e.registration_expires_at - hoy).days,
+        }
+        for e in db.scalars(
+            select(RegulatedEquipment)
+            .where(
+                RegulatedEquipment.tenant_id == tenant_id,
+                RegulatedEquipment.status == EN_OPERACION,
+                RegulatedEquipment.deleted_at.is_(None),
+                RegulatedEquipment.registration_expires_at.is_not(None),
+                RegulatedEquipment.registration_expires_at <= limite,
+            )
+            .order_by(RegulatedEquipment.registration_expires_at)
+        ).all()
+    ]
+
+    operadores = [
+        {
+            "equipment_id": o.equipment_id,
+            "user_id": o.user_id,
+            "certification_class": o.certification_class,
+            "certification_number": o.certification_number,
+            "expires_at": o.certification_expires_at,
+            "dias_restantes": (o.certification_expires_at - hoy).days,
+        }
+        for o in db.scalars(
+            select(EquipmentOperator)
+            .where(
+                EquipmentOperator.tenant_id == tenant_id,
+                EquipmentOperator.deleted_at.is_(None),
+                EquipmentOperator.certification_expires_at.is_not(None),
+                EquipmentOperator.certification_expires_at <= limite,
+            )
+            .order_by(EquipmentOperator.certification_expires_at)
+        ).all()
+    ]
+
+    return {"equipos": equipos, "operadores": operadores, "dias": dias, "hoy": hoy}

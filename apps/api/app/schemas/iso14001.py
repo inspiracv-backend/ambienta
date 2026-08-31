@@ -223,3 +223,36 @@ class AspectoSinTratar(BaseModel):
     aspect: str
     total_score: int | None
     facility_id: UUID
+
+
+# ── Vencimientos (#47) ────────────────────────────────────────────────────
+
+
+class InscripcionPorVencer(BaseModel):
+    equipment_id: UUID
+    facility_id: UUID
+    name: str
+    registration_authority: str | None
+    registration_number: str | None
+    expires_at: date
+    #: Negativo si ya vencio. **Lo vencido va en la misma lista**: una de "por
+    #: vencer" que deja fuera lo que ya vencio esconde justo lo urgente.
+    dias_restantes: int
+
+
+class CertificacionPorVencer(BaseModel):
+    equipment_id: UUID
+    user_id: UUID
+    certification_class: str | None
+    certification_number: str | None
+    expires_at: date
+    dias_restantes: int
+
+
+class Vencimientos(BaseModel):
+    equipos: list[InscripcionPorVencer]
+    operadores: list[CertificacionPorVencer]
+    #: La ventana consultada y el dia con que se calculo, para que la pantalla
+    #: no tenga que suponer ninguno de los dos.
+    dias: int
+    hoy: date
