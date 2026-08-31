@@ -272,15 +272,85 @@ def linea_de_tiempo(db: Session, tenant_id: UUID, *, deal_id: UUID | None = None
     )
 
 
-def promover_a_contrato(db: Session, deal: CrmDeal, contract_id: UUID) -> None:
+class TratoNoGanado(ErrorDeCrm):
+    """Solo un trato ganado se promueve a contrato."""
+
+
+class YaPromovido(ErrorDeCrm):
+    """El trato ya apunta a otro contrato."""
+
+
+class ClienteDistinto(ErrorDeCrm):
+    """El contrato es de otro cliente que el de la ficha."""
+
+
+def promover_a_contrato(
+    db: Session, deal: CrmDeal, contrato, etapa: CrmStage | None = None
+) -> list[str]:
     """Enlaza el trato ganado con el contrato que lo materializo (#82).
 
-    No crea el contrato: lo enlaza. Crearlo exige que el cliente **ya sea un
-    tenant de la plataforma**, que es un alta con su propio flujo — y hacerlo
-    aca de paso produciria empresas a medias creadas por arrastrar una tarjeta.
+    **No crea el contrato: lo enlaza.** Crearlo exige que el cliente ya sea un
+    tenant de la plataforma, que es un alta con su propio flujo — y hacerlo aca
+    de paso produciria empresas a medias creadas por arrastrar una tarjeta.
+
+    Tres cosas que se niega a hacer, y por que cada una:
+
+    **1. Promover un trato que no se gano.** Un contrato firmado colgando de un
+    trato que sigue en negociacion —o que se perdio— no es un dato raro: es la
+    lista de clientes contando a alguien que no lo es. `etapa` se pide para
+    poder mirarlo; sin ella no se puede saber si el trato esta ganado, porque
+    `closed_at` tambien lo pone una perdida.
+
+    **2. Repuntar a otro contrato.** Si el trato ya apunta a uno, mover el
+    enlace en silencio deja el contrato anterior huerfano y la trazabilidad de
+    la venta rota. Repetir la promocion **con el mismo contrato** si se acepta:
+    es la misma operacion otra vez, no una distinta.
+
+    **3. Enlazar con el contrato de otro cliente.** `crm_companies.client_
+    tenant_id` es el puente entre el prospecto y el tenant que ya existe. Si la
+    ficha ya nombra a un tenant y el contrato nombra a otro, alguien se
+    equivoco de contrato — y aceptarlo dejaria la ficha de una empresa apuntando
+    a la relacion comercial de otra.
     """
-    deal.contract_id = contract_id
+    efectos: list[str] = []
+
+    if etapa is not None and etapa.kind != "won":
+        raise TratoNoGanado(
+            "Solo un trato ganado se promueve a contrato. Este esta en "
+            f"«{etapa.name}»: moverlo a una etapa de ganado primero."
+        )
+
+    if deal.contract_id is not None and deal.contract_id != contrato.id:
+        raise YaPromovido(
+            "Este trato ya esta enlazado a otro contrato. Mover el enlace "
+            "dejaria el contrato anterior sin la venta que lo origino."
+        )
+
     empresa = db.get(CrmCompany, deal.crm_company_id)
-    if empresa is not None and empresa.status != "client":
-        empresa.status = "client"
+    if (
+        empresa is not None
+        and empresa.client_tenant_id is not None
+        and empresa.client_tenant_id != contrato.client_tenant_id
+    ):
+        raise ClienteDistinto(
+            "El contrato corresponde a otro cliente que el de esta ficha. "
+            "Revisa cual es el contrato correcto."
+        )
+
+    ya_estaba = deal.contract_id == contrato.id
+    deal.contract_id = contrato.id
+    if not ya_estaba:
+        efectos.append("El trato quedo enlazado al contrato")
+
+    if empresa is not None:
+        # El puente: la ficha comercial deja de ser un prospecto suelto y pasa
+        # a nombrar al tenant que ya existe en la plataforma.
+        if empresa.client_tenant_id is None:
+            empresa.client_tenant_id = contrato.client_tenant_id
+            efectos.append("La ficha quedo ligada al cliente en la plataforma")
+        if empresa.status != "client":
+            empresa.status = "client"
+            efectos.append(f"{empresa.name} pasa de prospecto a cliente")
+
     db.flush()
+    return efectos

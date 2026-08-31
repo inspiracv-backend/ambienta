@@ -11,11 +11,12 @@ from ..crud.crm import (
     crud_crm_deal,
     crud_crm_stage,
 )
+from ..crud.organization import crud_contract
 from ..deps import get_tenant_db, get_tenant_id
 from ..models.crm import CrmStage
+from ..models.organization import Contract
 from ..schemas.crm import (
     ColumnaDelPipeline,
-    MontoPorMoneda,
     CrmActivityCreate,
     CrmActivityRead,
     CrmActivityUpdate,
@@ -33,7 +34,10 @@ from ..schemas.crm import (
     CrmStageUpdate,
     MoverDeEtapa,
     PipelineRead,
+    MontoPorMoneda,
+    PromoverAContrato,
     ResultadoMover,
+    ResultadoPromocion,
 )
 from ..services import crm as svc
 from ._comun import borrar_o_404, obtener_o_404, validar_visible
@@ -48,7 +52,10 @@ def _traducir(exc: svc.ErrorDeCrm) -> HTTPException:
     legitima; lo que falta es configuracion de la empresa. Un 422 diria
     "corrige lo que mandaste", y no hay nada que corregir en el cuerpo.
     """
-    if isinstance(exc, svc.SinEtapas):
+    if isinstance(exc, (svc.SinEtapas, svc.TratoNoGanado, svc.YaPromovido)):
+        # 409 y no 422 por el mismo motivo que `SinEtapas`: el cuerpo esta
+        # bien. Lo que no corresponde es el **estado** del trato, y eso no se
+        # arregla corrigiendo lo que se mando.
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -436,6 +443,51 @@ def mover_de_etapa(
         raise _traducir(exc) from None
     db.commit()
     return ResultadoMover(deal=CrmDealRead.model_validate(deal), efectos=efectos)
+
+
+@router.post(
+    "/deals/{deal_id}/promover",
+    response_model=ResultadoPromocion,
+    summary="Promover el trato ganado a contrato",
+    description=(
+        "Cierra el circulo entre vender y prestar el servicio (RF-66): el trato "
+        "ganado queda enlazado al contrato que lo materializo, y la ficha "
+        "comercial deja de ser un prospecto.\n\n"
+        "**No crea el contrato.** Crearlo exige que el cliente ya sea un tenant "
+        "de la plataforma, que es un alta con su propio flujo; hacerlo aca de "
+        "paso produciria empresas a medias creadas por arrastrar una tarjeta.\n\n"
+        "Se niega en tres casos, todos con **409**: si el trato no esta en una "
+        "etapa de ganado, si ya apunta a otro contrato, y si el contrato "
+        "corresponde a un cliente distinto del que nombra la ficha."
+    ),
+)
+def promover_a_contrato(
+    deal_id: UUID,
+    datos: PromoverAContrato,
+    db: Session = Depends(get_tenant_db),
+):
+    deal = obtener_o_404(crud_crm_deal, db, deal_id, "Oportunidad")
+    # `contract_id` viene del cuerpo, asi que pasa por la misma comprobacion
+    # que cualquier otra clave foranea: las FK **no pasan por RLS**, y sin esto
+    # una empresa podria enlazar su trato con el contrato de otra.
+    validar_visible(crud_contract, db, datos.contract_id, campo="contract_id")
+    contrato = db.get(Contract, datos.contract_id)
+    if contrato is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="contract_id no corresponde a un registro de esta empresa.",
+        )
+
+    etapa = db.get(CrmStage, deal.stage_id)
+    try:
+        efectos = svc.promover_a_contrato(db, deal, contrato, etapa)
+    except svc.ErrorDeCrm as exc:
+        raise _traducir(exc) from None
+    db.commit()
+    db.refresh(deal)
+    return ResultadoPromocion(
+        deal=CrmDealRead.model_validate(deal), efectos=efectos
+    )
 
 
 # ── Actividades ───────────────────────────────────────────────────────────

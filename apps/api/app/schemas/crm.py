@@ -185,6 +185,26 @@ class ResultadoMover(BaseModel):
     efectos: list[str] = Field(default_factory=list)
 
 
+class PromoverAContrato(BaseModel):
+    """Enlazar el trato ganado con el contrato firmado (#82, RF-66).
+
+    Solo el contrato. `client_tenant_id` de la ficha **no se acepta del
+    cuerpo**: sale del contrato, que ya nombra a las dos partes y esta acotado
+    por RLS. Aceptarlo dejaria a una empresa ligar su ficha con el tenant de
+    otra, que es la fuga que ya se midio en `POST /obligations/`.
+    """
+
+    contract_id: UUID
+
+
+class ResultadoPromocion(BaseModel):
+    deal: CrmDealRead
+    #: Que hizo la promocion ademas de guardar el enlace: ligar la ficha al
+    #: cliente, y pasarla de prospecto a cliente. Se devuelve para que la
+    #: pantalla lo diga en vez de que se descubra recargando.
+    efectos: list[str] = Field(default_factory=list)
+
+
 # ── Actividades ───────────────────────────────────────────────────────────
 
 

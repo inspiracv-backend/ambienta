@@ -233,16 +233,39 @@ class TestElPipeline:
         Y esa columna **no** declara "CLP 0". Un trato al que todavia no le
         pusieron valor no es un trato de cero pesos, y la columna diciendo cero
         se lee como que ya se valoro y no vale nada.
+
+        **La etapa se crea aca a proposito.** La primera version usaba la
+        primera etapa del pipeline y afirmaba `montos == []`, lo que solo era
+        cierto mientras la base no tuviera ningun otro trato; en cuanto se
+        sembraron datos de demostracion, la prueba empezo a fallar por una razon
+        que no tenia que ver con lo que mide. Peor todavia: con otro trato
+        valorado en la misma columna, la afirmacion tampoco distinguiria el
+        cero inventado, porque la suma del grupo ya no seria nula. Una columna
+        propia es lo unico que deja la afirmacion exacta.
         """
+        etapa = CrmStage(
+            tenant_id=EMPRESA_A,
+            code="solo-sin-valorar",
+            name="Solo sin valorar",
+            position=99,
+            kind="open",
+        )
+        db.add(etapa)
+        db.flush()
+
         empresa = _empresa(db)
-        _trato(db, empresa, None)
+        svc.crear_deal(
+            db,
+            EMPRESA_A,
+            {"crm_company_id": empresa.id, "title": "Sin cifra", "currency": "CLP"},
+            stage_id=etapa.id,
+        )
         db.flush()
 
         datos = svc.pipeline(db, EMPRESA_A)
-        primera = svc.primera_etapa(db, EMPRESA_A)
-        columna = next(c for c in datos["columnas"] if c["stage"].id == primera.id)
+        columna = next(c for c in datos["columnas"] if c["stage"].id == etapa.id)
 
-        assert columna["total_deals"] >= 1, "el trato sin monto no se conto"
+        assert columna["total_deals"] == 1, "el trato sin monto no se conto"
         # Exacto y no `all(... is not None)`: esa version pasaba igual con una
         # entrada `("CLP", 0)`, que es justo lo que no debe existir.
         assert columna["montos"] == [], (
@@ -389,18 +412,20 @@ class TestCuandoLaColumnaPasaDelTope:
 
         assert svc.pipeline(db, EMPRESA_A)["truncado"] is True
 
-    def test_sin_pasar_el_tope_NO_se_marca_cortado(self, db: Session) -> None:
+    def test_sin_pasar_el_tope_NO_se_marca_cortado(self, db: Session, monkeypatch) -> None:
         """Y esto es lo que impide que `truncado` sea siempre `True`.
 
         Una bandera que nunca baja no informa nada: la pantalla mostraria el
         aviso de lista incompleta con dos tratos.
-        """
-        # Se parte de cero: el seed y las otras pruebas no dejan tratos, pero
-        # comprobarlo hace que esta afirmacion no dependa de eso.
-        existentes = db.execute(text("SELECT count(*) FROM crm_deals")).scalar_one()
-        if existentes:
-            pytest.skip("Ya hay tratos de otra prueba; el conteo no seria limpio")
 
+        **Antes esta prueba se saltaba sola** si la base ya tenia tratos, con la
+        nota de que "el seed no deja tratos". En cuanto se sembraron datos de
+        demostracion la condicion dejo de cumplirse y la prueba paso a saltarse
+        **siempre**: la unica que evita que `truncado` sea constante quedo sin
+        correr, y en verde. Ahora sube el tope en vez de exigir una base vacia,
+        asi que la afirmacion no depende de lo que haya alrededor.
+        """
+        monkeypatch.setattr(svc, "TOPE_POR_COLUMNA", 1000)
         _trato(db, _empresa(db), "1")
         db.flush()
 
