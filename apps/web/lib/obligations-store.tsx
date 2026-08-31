@@ -2,10 +2,9 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Obligation, ObligationStatus, ObligationTask, SistemaDeclaracion } from '@ambienta/shared';
-import { mockObligations } from '@/mocks/obligations';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
-import { api } from '@/lib/api-client';
+import { api, mensajeDeError } from '@/lib/api-client';
 
 const ESTADO_OBLIGACION_LABEL: Record<ObligationStatus, string> = {
   vigente: 'Vigente',
@@ -17,6 +16,14 @@ const ESTADO_OBLIGACION_LABEL: Record<ObligationStatus, string> = {
 interface ObligationsContextValue {
   obligations: Obligation[];
   loading: boolean;
+  /**
+   * Por que la lista esta vacia, si es que fallo (#208).
+   *
+   * `null` = se pregunto y esto es lo que hay. Un texto = **no se pudo
+   * preguntar**, y la pantalla tiene que decirlo: sin esto un fallo de red se
+   * ve igual que "esta empresa no tiene ninguno".
+   */
+  errorDeCarga: string | null;
   updateTask: (obligationId: string, taskId: string, updates: Partial<ObligationTask>) => void;
   addTask: (obligationId: string, input: { titulo: string; vencimiento: string; responsableId: string }) => void;
   /**
@@ -204,8 +211,9 @@ function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
 }
 
 export function ObligationsProvider({ children }: { children: ReactNode }) {
-  const [obligations, setObligations] = useState<Obligation[]>(mockObligations);
+  const [obligations, setObligations] = useState<Obligation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
 
@@ -230,7 +238,12 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
         // devuelve vacio.
         setObligations(mapped);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
+        // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
+        // preguntar' — que es la misma mentira de #208 en su otra forma.
+        setErrorDeCarga(mensajeDeError(e));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [user?.tenantId]);
@@ -405,7 +418,7 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ObligationsContext.Provider value={{ obligations, loading, updateTask, addTask, addObligation, moverDeclaracion }}>
+    <ObligationsContext.Provider value={{ obligations, loading, errorDeCarga, updateTask, addTask, addObligation, moverDeclaracion }}>
       {children}
     </ObligationsContext.Provider>
   );

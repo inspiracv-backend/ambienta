@@ -13,7 +13,7 @@ import { useNotifications } from '@/lib/notifications-store';
 export default function NotificacionesPage() {
   const router = useRouter();
   const { user, cargando } = useSession();
-  const { notifications, markAllAsRead } = useNotifications();
+  const { notifications, markAllAsRead, errorDeCarga } = useNotifications();
 
   useEffect(() => {
     if (!cargando && user === null) router.replace('/login');
@@ -50,6 +50,15 @@ export default function NotificacionesPage() {
           </Link>
         </div>
       </div>
+      {errorDeCarga && (
+        <p
+          role="alert"
+          className="rounded-card border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
+          No se pudieron cargar las notificaciones: {errorDeCarga}. Lo que se ve está
+          vacío porque no se pudo preguntar, no porque no haya nada.
+        </p>
+      )}
 
       <NotificationCenter notifications={visibleNotifications} onMarkAllAsRead={() => markAllAsRead(user.id)} />
     </div>

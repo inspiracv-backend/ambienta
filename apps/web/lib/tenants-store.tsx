@@ -55,6 +55,8 @@ export interface NuevoTenantInput {
 interface TenantsContextValue {
   tenants: Tenant[];
   loading: boolean;
+  /** Por que la lista esta vacia, si es que fallo (#208). `null` = se pregunto. */
+  errorDeCarga: string | null;
   createTenant: (input: NuevoTenantInput) => Tenant;
   setEstado: (tenantId: string, estado: Tenant['estado']) => void;
   setLimiteUsuarios: (tenantId: string, limite: number) => void;
@@ -143,8 +145,9 @@ function mapApiPlant(raw: Record<string, unknown>): Plant | null {
 }
 
 export function TenantsProvider({ children }: { children: ReactNode }) {
-  const [tenants, setTenants] = useState<Tenant[]>(mockTenants);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { mostrarToast } = useToast();
 
@@ -178,8 +181,11 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
           mapped.map((t) => ({ ...t, plants: plantasPorTenant.get(t.id) ?? [] })),
         );
       })
-      .catch(() => {
-        // Fallback a mocks si la API no responde
+      .catch((e: unknown) => {
+        // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
+        // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
+        // preguntar' — la misma mentira de #208 en su otra forma.
+        setErrorDeCarga(mensajeDeError(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -620,6 +626,7 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
       value={{
         tenants,
         loading,
+        errorDeCarga,
         createTenant,
         setEstado,
         setLimiteUsuarios,

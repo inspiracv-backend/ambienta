@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { AccionAuditable, AuditLogEntry, CambioCampo, EntidadAuditable } from '@ambienta/shared';
 import { useSession } from '@/lib/session';
-import { mockAuditLog } from '@/mocks/audit-log';
 import { api } from '@/lib/api-client';
 
 export interface EventoAuditable {
@@ -35,11 +34,24 @@ interface AuditLogContextValue {
 const AuditLogContext = createContext<AuditLogContextValue | null>(null);
 
 export function AuditLogProvider({ children }: { children: ReactNode }) {
-  const [entries, setEntries] = useState<AuditLogEntry[]>(mockAuditLog);
+  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Audit log is loaded globally — no tenant needed for initial fetch
+    // **Este store no le pregunta nada a la API, y conviene decirlo.**
+    //
+    // `entries` solo se llena con `agregarEntrada`, o sea con lo que ocurre en
+    // **esta** sesion del navegador: al recargar, el historial queda vacio.
+    // `GET /audit-log/` existe desde hace tiempo y nadie lo llama — el mismo
+    // patron de `bcn.sincronizar()` y `control_documental.py`.
+    //
+    // Hasta #208 eso se tapaba arrancando con `mockAuditLog`, o sea mostrando
+    // un **registro de auditoria inventado**. En cualquier modulo eso es malo;
+    // en este es lo peor posible, porque el valor entero del audit log es que
+    // se pueda confiar en el ante una fiscalizacion.
+    //
+    // Vacio dice la verdad. Conectarlo es trabajo aparte: hay que mapear la
+    // forma de la API a `AuditLogEntry`.
     setLoading(false);
   }, []);
 

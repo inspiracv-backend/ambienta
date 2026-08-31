@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Audit, NonConformity, EtapasMejora, TipoRegistroMejora } from '@ambienta/shared';
-import { mockAudits, mockNonConformities } from '@/mocks/audits';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useUsers } from '@/lib/users-store';
 import { useSession } from '@/lib/session';
@@ -14,6 +13,14 @@ interface AuditsContextValue {
   audits: Audit[];
   nonConformities: NonConformity[];
   loading: boolean;
+  /**
+   * Por que la lista esta vacia, si es que fallo (#208).
+   *
+   * `null` = se pregunto y esto es lo que hay. Un texto = **no se pudo
+   * preguntar**, y la pantalla tiene que decirlo: sin esto un fallo de red se
+   * ve igual que "esta empresa no tiene ninguno".
+   */
+  errorDeCarga: string | null;
   addNonConformity: (input: {
     tenantId: string;
     plantId: string;
@@ -147,9 +154,10 @@ function mapApiAudit(raw: Record<string, unknown>): Audit | null {
 }
 
 export function AuditsProvider({ children }: { children: ReactNode }) {
-  const [audits, setAudits] = useState<Audit[]>(mockAudits);
-  const [nonConformities, setNonConformities] = useState<NonConformity[]>(mockNonConformities);
+  const [audits, setAudits] = useState<Audit[]>([]);
+  const [nonConformities, setNonConformities] = useState<NonConformity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { users } = useUsers();
   const { user } = useSession();
@@ -180,7 +188,12 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
           .filter((n): n is NonConformity => n !== null);
         setNonConformities(mappedNc);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
+        // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
+        // preguntar' — que es la misma mentira de #208 en su otra forma.
+        setErrorDeCarga(mensajeDeError(e));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [user?.tenantId]);
@@ -417,7 +430,7 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuditsContext.Provider value={{ audits, nonConformities, loading, addNonConformity, updatePorques, updateEtapas, closeNonConformity }}>
+    <AuditsContext.Provider value={{ audits, nonConformities, loading, errorDeCarga, addNonConformity, updatePorques, updateEtapas, closeNonConformity }}>
       {children}
     </AuditsContext.Provider>
   );

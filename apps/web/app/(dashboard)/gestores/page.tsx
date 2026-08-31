@@ -13,7 +13,7 @@ export default function GestoresPage() {
   const router = useRouter();
   const { user, cargando } = useSession();
   const { tenants } = useTenants();
-  const { subTenants } = useGestores();
+  const { subTenants, errorDeCarga } = useGestores();
 
   useEffect(() => {
     if (!cargando && user === null) router.replace('/login');
@@ -36,6 +36,15 @@ export default function GestoresPage() {
         <h1 className="text-2xl font-semibold text-slate-900">Gestores — Clientes</h1>
         <p className="text-sm text-slate-500">{tenant?.nombre}</p>
       </div>
+      {errorDeCarga && (
+        <p
+          role="alert"
+          className="rounded-card border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
+          No se pudieron cargar los contratos: {errorDeCarga}. Lo que se ve está
+          vacío porque no se pudo preguntar, no porque no haya nada.
+        </p>
+      )}
       <SubTenantsListTable subTenants={visibleSubTenants} />
     </div>
   );

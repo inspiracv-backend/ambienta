@@ -3,7 +3,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Articulo, LegalNorm, TipoDocumento } from '@ambienta/shared';
 import { cuentaParaElCalculo, fusionarAttributes } from '@ambienta/shared';
-import { mockLegalNorms } from '@/mocks/catalog';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
 import { useToast } from '@/lib/toast-store';
@@ -12,6 +11,8 @@ import { api, mensajeDeError } from '@/lib/api-client';
 interface LegalMatrixContextValue {
   norms: LegalNorm[];
   loading: boolean;
+  /** Por que la lista esta vacia, si es que fallo (#208). `null` = se pregunto. */
+  errorDeCarga: string | null;
   updateArticulo: (normId: string, articuloId: string, updates: Partial<Articulo>) => void;
   setIncluidoEnCalculo: (normId: string, articuloId: string, incluido: boolean) => void;
   generarObligacion: (
@@ -97,8 +98,9 @@ const FUENTE_POR_CODIGO: Record<string, LegalNorm['fuente']> = {
 };
 
 export function LegalMatrixProvider({ children }: { children: ReactNode }) {
-  const [norms, setNorms] = useState<LegalNorm[]>(mockLegalNorms);
+  const [norms, setNorms] = useState<LegalNorm[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
   const { mostrarToast } = useToast();
@@ -347,7 +349,12 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         // devuelve vacio.
         setNorms(mapped);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
+        // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
+        // preguntar' — la misma mentira de #208 en su otra forma.
+        setErrorDeCarga(mensajeDeError(e));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   // `user` completo y no solo su tenantId: el efecto lo usa adentro para las
@@ -774,7 +781,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <LegalMatrixContext.Provider value={{ norms, loading, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
+    <LegalMatrixContext.Provider value={{ norms, loading, errorDeCarga, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
       {children}
     </LegalMatrixContext.Provider>
   );

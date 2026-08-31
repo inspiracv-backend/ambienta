@@ -2,14 +2,21 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { OrigenPlanAccion, PlanAccion } from '@ambienta/shared';
-import { mockActionPlans } from '@/mocks/action-plans';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
-import { api } from '@/lib/api-client';
+import { api, mensajeDeError } from '@/lib/api-client';
 
 interface PlanAccionContextValue {
   plans: PlanAccion[];
   loading: boolean;
+  /**
+   * Por que la lista esta vacia, si es que fallo (#208).
+   *
+   * `null` = se pregunto y esto es lo que hay. Un texto = **no se pudo
+   * preguntar**, y la pantalla tiene que decirlo: sin esto un fallo de red se
+   * ve igual que "esta empresa no tiene ninguno".
+   */
+  errorDeCarga: string | null;
   createPlan: (input: {
     tenantId: string;
     origenTipo: OrigenPlanAccion;
@@ -26,8 +33,9 @@ interface PlanAccionContextValue {
 const PlanAccionContext = createContext<PlanAccionContextValue | null>(null);
 
 export function PlanAccionProvider({ children }: { children: ReactNode }) {
-  const [plans, setPlans] = useState<PlanAccion[]>(mockActionPlans);
+  const [plans, setPlans] = useState<PlanAccion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
 
@@ -61,7 +69,12 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
         // devuelve vacio.
         setPlans(mapped);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
+        // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
+        // preguntar' — que es la misma mentira de #208 en su otra forma.
+        setErrorDeCarga(mensajeDeError(e));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [user?.tenantId]);
@@ -165,7 +178,7 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <PlanAccionContext.Provider value={{ plans, loading, createPlan, toggleTarea, findByOrigen }}>
+    <PlanAccionContext.Provider value={{ plans, loading, errorDeCarga, createPlan, toggleTarea, findByOrigen }}>
       {children}
     </PlanAccionContext.Provider>
   );

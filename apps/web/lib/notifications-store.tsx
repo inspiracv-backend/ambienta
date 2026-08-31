@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Notification, NotificationPreferences } from '@ambienta/shared';
-import { mockNotifications, mockNotificationPreferences } from '@/mocks/notifications';
 import { useSession } from '@/lib/session';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
@@ -11,6 +10,14 @@ interface NotificationsContextValue {
   notifications: Notification[];
   preferences: NotificationPreferences[];
   loading: boolean;
+  /**
+   * Por que la lista esta vacia, si es que fallo (#208).
+   *
+   * `null` = se pregunto y esto es lo que hay. Un texto = **no se pudo
+   * preguntar**, y la pantalla tiene que decirlo: sin esto un fallo de red se
+   * ve igual que "esta empresa no tiene ninguno".
+   */
+  errorDeCarga: string | null;
   markAllAsRead: (userId: string) => void;
   updatePreferences: (userId: string, updates: Partial<Omit<NotificationPreferences, 'userId'>>) => void;
 }
@@ -18,9 +25,10 @@ interface NotificationsContextValue {
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
-  const [preferences, setPreferences] = useState<NotificationPreferences[]>(mockNotificationPreferences);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [preferences, setPreferences] = useState<NotificationPreferences[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const { user } = useSession();
   const { mostrarToast } = useToast();
 
@@ -61,7 +69,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       })
       // El fallo NO borra lo que ya estaba: sin red, seguir viendo lo ultimo
       // conocido es mejor que una pantalla vacia que parece un sistema roto.
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
+        // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
+        // preguntar' — que es la misma mentira de #208 en su otra forma.
+        setErrorDeCarga(mensajeDeError(e));
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [user?.tenantId]);
@@ -128,7 +141,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <NotificationsContext.Provider value={{ notifications, preferences, loading, markAllAsRead, updatePreferences }}>
+    <NotificationsContext.Provider value={{ notifications, preferences, loading, errorDeCarga, markAllAsRead, updatePreferences }}>
       {children}
     </NotificationsContext.Provider>
   );

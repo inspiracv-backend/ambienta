@@ -3,7 +3,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Departamento, TipoProceso } from '@ambienta/shared';
 import { nombreTipoProceso } from '@ambienta/shared';
-import { mockDepartamentos } from '@/mocks/departamentos';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
 import { useToast } from '@/lib/toast-store';
@@ -12,6 +11,14 @@ import { api, mensajeDeError } from '@/lib/api-client';
 interface DepartamentosContextValue {
   departamentos: Departamento[];
   loading: boolean;
+  /**
+   * Por que la lista esta vacia, si es que fallo (#208).
+   *
+   * `null` = se pregunto y esto es lo que hay. Un texto = **no se pudo
+   * preguntar**, y la pantalla tiene que decirlo: sin esto un fallo de red se
+   * ve igual que "esta empresa no tiene ninguno".
+   */
+  errorDeCarga: string | null;
   addDepartamento: (input: {
     tenantId: string;
     nombre: string;
@@ -86,8 +93,9 @@ function mapApiProceso(raw: Record<string, unknown>): Departamento | null {
 }
 
 export function DepartamentosProvider({ children }: { children: ReactNode }) {
-  const [departamentos, setDepartamentos] = useState<Departamento[]>(mockDepartamentos);
+  const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
   const { mostrarToast } = useToast();
@@ -118,7 +126,12 @@ export function DepartamentosProvider({ children }: { children: ReactNode }) {
         // dato, no una ausencia de datos.
         setDepartamentos(mapeados);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
+        // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
+        // preguntar' — que es la misma mentira de #208 en su otra forma.
+        setErrorDeCarga(mensajeDeError(e));
+      })
       .finally(() => {
         if (!cancelado) setLoading(false);
       });
@@ -236,7 +249,7 @@ export function DepartamentosProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <DepartamentosContext.Provider value={{ departamentos, loading, addDepartamento, updateTipo }}>
+    <DepartamentosContext.Provider value={{ departamentos, loading, errorDeCarga, addDepartamento, updateTipo }}>
       {children}
     </DepartamentosContext.Provider>
   );
