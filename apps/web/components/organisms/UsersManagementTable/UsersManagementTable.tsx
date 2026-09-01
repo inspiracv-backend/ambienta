@@ -160,7 +160,20 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
             </thead>
             <tbody>
               {filtered.map((u) => {
-                const nombresPlantas = plants.filter((p) => u.plantIds.includes(p.id)).map((p) => p.nombre);
+                // Tres casos, no dos. `undefined` es "no se sabe" —el listado
+                // de usuarios no trae el alcance de cada uno— y `[]` significa
+                // **sin acotar**, o sea que ve todas. Mostrar los dos como
+                // "—" decia que no tiene ninguna, que es lo contrario.
+                const plantasDe = u.plantIds;
+                const nombresPlantas =
+                  plantasDe === undefined
+                    ? null
+                    : plantasDe.length === 0
+                      ? 'Todas'
+                      : plants
+                          .filter((p) => plantasDe.includes(p.id))
+                          .map((p) => p.nombre)
+                          .join(', ');
                 const depto = departamentos.find((d) => d.id === u.departamentoId);
                 const esUnoMismo = u.id === currentUserId;
                 return (
@@ -187,7 +200,13 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
                         {ROLE_LABEL[u.role]}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-500">{nombresPlantas.join(', ') || '—'}</td>
+                    <td className="px-4 py-3 text-slate-500">
+                      {nombresPlantas ?? (
+                        <span title="El listado de usuarios no trae el alcance por planta de cada persona.">
+                          Sin consultar
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-slate-500">{depto?.nombre ?? '—'}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={userSemaforo(u.estado)} className="mr-1" />

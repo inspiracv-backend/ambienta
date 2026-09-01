@@ -41,3 +41,27 @@ if (!Element.prototype.hasPointerCapture) {
   Element.prototype.setPointerCapture = vi.fn() as unknown as Element['setPointerCapture'];
   Element.prototype.releasePointerCapture = vi.fn() as unknown as Element['releasePointerCapture'];
 }
+
+/**
+ * El alcance por planta de la sesión, por defecto **sin acotar**.
+ *
+ * `lib/session.tsx` pide `GET /me` para saber a qué instalaciones está acotada
+ * la persona, y hasta que lo sabe la sesión no se resuelve. Sin este stub cada
+ * test que inicia sesión tendría que simular esa llamada, o la sesión quedaría
+ * en `'fallo'` y `user` en `null` — que es lo que pasó al conectar el
+ * acotamiento: 23 pruebas se cayeron de golpe por el entorno, no por el código.
+ *
+ * El valor por defecto es `[]`, que en este dominio significa **«sin acotar»**
+ * y no «ninguna planta». Es lo que asumían todas estas pruebas antes de que el
+ * alcance existiera, así que ninguna cambia de significado.
+ *
+ * Un test que quiera probar el acotamiento lo redefine con
+ * `vi.mocked(cargarAlcance).mockResolvedValue(...)`.
+ */
+vi.mock('@/lib/alcance', () => ({
+  cargarAlcance: vi.fn(async () => ({
+    acotado: false,
+    instalaciones: [] as string[],
+    departamentos: [] as string[],
+  })),
+}));

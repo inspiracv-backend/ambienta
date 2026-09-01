@@ -53,12 +53,18 @@ export const UserSchema = z.object({
   /** Cargo y competencias en la empresa — distinto del `role` del sistema (ISO 9001 §7.2). */
   descriptorCargo: DescriptorCargoSchema.optional(),
   /**
-   * Permisos concedidos individualmente (RF-12). Si es `undefined`, aplican
-   * los del rol: así los usuarios existentes no quedan sin permisos al
-   * introducirse el modelo, y "no configurado" se distingue de "todo
-   * revocado", que son cosas distintas para quien audita.
+   * Instalaciones a las que está acotada esta persona.
+   *
+   * **Tres valores, no dos.** `undefined` es "no se sabe" —el listado de
+   * usuarios no trae el alcance de cada uno—, `[]` es **"sin acotar"**, o sea
+   * que ve todas las plantas, y una lista con elementos es el acotamiento
+   * real. Confundir `undefined` con `[]` haría que alguien acotado a una
+   * planta viera todas mientras se carga.
+   *
+   * Solo viene lleno para el usuario de la sesión, que lo toma de
+   * `GET /me`.`instalaciones`. Ver `lib/alcance.ts`.
    */
-  plantIds: z.array(z.string()),
+  plantIds: z.array(z.string()).optional(),
   /** RF-11 (v1.7): todo Usuario Interno pertenece obligatoriamente a un Departamento del Perfil Empresa. Null para los demás roles. */
   departamentoId: z.string().nullable(),
   estado: UserEstadoSchema,
