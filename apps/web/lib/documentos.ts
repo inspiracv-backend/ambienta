@@ -143,8 +143,29 @@ interface EnlaceDeSubida {
   headers: Record<string, string>;
 }
 
-/** Lo que la pantalla puede contar mientras sube. */
-export type PasoDeSubida = 'pidiendo-permiso' | 'subiendo' | 'confirmando';
+/**
+ * SHA-256 del archivo, en hexadecimal.
+ *
+ * Se calcula **en el navegador y antes de subir** para que el hash pueda
+ * viajar dentro de la firma: así el bucket comprueba el contenido y rechaza
+ * la subida si no corresponde. Un hash que mandáramos después sería una
+ * afirmación nuestra sobre un archivo que ya está guardado — sirve contra la
+ * corrupción en el trayecto y no sirve para nada si quien sube miente.
+ *
+ * `crypto.subtle` **solo existe en contextos seguros**: HTTPS o `localhost`.
+ * En un origen `http://` que no sea localhost no está definido, y por eso
+ * quien llama decide qué hacer si esto no se puede calcular en vez de que la
+ * subida entera falle.
+ */
+export async function sha256DelArchivo(archivo: File): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', await archivo.arrayBuffer());
+  return Array.from(new Uint8Array(bytes))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Lo que la pantalla puede contar mientras sube, incluido el hash. */
+export type PasoDeSubida = 'calculando-hash' | 'pidiendo-permiso' | 'subiendo' | 'confirmando';
 
 /**
  * Sube un archivo y devuelve la revisión creada.
@@ -159,6 +180,17 @@ export async function subirArchivo(
   tenantId: string,
   alAvanzar?: (paso: PasoDeSubida) => void,
 ): Promise<RevisionDocumental> {
+  // Si el navegador no puede calcularlo —origen sin contexto seguro— se sube
+  // igual y la revisión queda sin checksum. Es preferible a bloquear la carga
+  // de evidencia por una capacidad del entorno.
+  alAvanzar?.('calculando-hash');
+  let checksum: string | undefined;
+  try {
+    checksum = await sha256DelArchivo(archivo);
+  } catch {
+    checksum = undefined;
+  }
+
   alAvanzar?.('pidiendo-permiso');
   const enlace = await api.post<EnlaceDeSubida>(
     `/documents/${documentoId}/upload-url`,
@@ -170,6 +202,7 @@ export async function subirArchivo(
       // dato que el navegador no supo completar.
       mime_type: archivo.type || 'application/octet-stream',
       size_bytes: archivo.size,
+      ...(checksum ? { checksum_sha256: checksum } : {}),
     },
     { tenantId },
   );

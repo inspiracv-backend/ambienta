@@ -29,6 +29,7 @@ import { fecha } from '@/lib/fechas';
 import type { RevisionesPanelProps } from './DocumentosView.types';
 
 const TEXTO_DEL_PASO: Record<string, string> = {
+  'calculando-hash': 'Calculando la huella del archivo…',
   'pidiendo-permiso': 'Pidiendo permiso de subida…',
   subiendo: 'Subiendo el archivo…',
   confirmando: 'Confirmando con el servidor…',

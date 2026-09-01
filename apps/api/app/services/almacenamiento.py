@@ -40,6 +40,7 @@ disco. Un archivo que la empresa cree subido y no esta es peor que un error.
 """
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -214,22 +215,73 @@ def _cliente() -> Any:
     )
 
 
+def hex_a_b64(sha256_hex: str) -> str:
+    """El SHA-256 en el formato que espera S3: base64, no hexadecimal.
+
+    Los dos formatos estan en juego a proposito, y conviene saber cual es cual:
+    **la base guarda hexadecimal** —`checksum_sha256` es `char(64)`, que es lo
+    que mide un SHA-256 en hex— y **S3 habla base64**, que mide 44 y no entraria
+    en la columna. Convertir en un solo lugar evita que alguien guarde el base64
+    y lo trunque sin enterarse.
+    """
+    return base64.b64encode(bytes.fromhex(sha256_hex)).decode("ascii")
+
+
+def b64_a_hex(sha256_b64: str) -> str:
+    """El camino de vuelta: lo que devuelve el bucket, listo para guardar."""
+    return base64.b64decode(sha256_b64).hex()
+
+
 def url_para_subir(
-    *, tenant_id: UUID, document_id: UUID, version_no: int, nombre: str, mime: str
+    *,
+    tenant_id: UUID,
+    document_id: UUID,
+    version_no: int,
+    nombre: str,
+    mime: str,
+    sha256_hex: str | None = None,
 ) -> EnlaceFirmado:
     """Un enlace temporal para que el navegador suba el archivo directo a B2.
 
     **El `Content-Type` va firmado.** Si el navegador manda otro, B2 rechaza la
     subida: sin eso, el enlace firmado para un PDF serviria para subir
     cualquier cosa con ese nombre.
+
+    ## Y el hash tambien va firmado, cuando se declara
+
+    Con `sha256_hex`, el hash entra en la firma y **B2 comprueba el contenido**:
+    si no corresponde rechaza con 400 y no queda nada escrito. Comprobado contra
+    el bucket real, no leido en la documentacion.
+
+    Esa es la diferencia entre un hash **verificado** y uno **afirmado**. Si el
+    navegador nos mandara el hash para que lo guardemos, estariamos anotando lo
+    que el cliente dice que subio: sirve para detectar corrupcion en el trayecto
+    y no sirve para nada si quien sube miente. Yendo en la firma, lo que se
+    guarda despues es un hecho que comprobo el almacenamiento.
+
+    Es opcional porque el navegador tiene que leer el archivo entero para
+    calcularlo y en uno grande eso se nota. Sin hash la subida funciona igual y
+    la revision queda **sin checksum**, que es honesto: mejor vacio que un valor
+    que nadie verifico.
     """
     clave = clave_de(tenant_id, document_id, version_no, nombre)
     cliente = _cliente()
     s = get_settings()
 
+    params: dict[str, Any] = {
+        "Bucket": s.storage_bucket,
+        "Key": clave,
+        "ContentType": mime,
+    }
+    cabeceras = {"Content-Type": mime}
+    if sha256_hex:
+        b64 = hex_a_b64(sha256_hex)
+        params["ChecksumSHA256"] = b64
+        cabeceras["x-amz-checksum-sha256"] = b64
+
     url = cliente.generate_presigned_url(
         "put_object",
-        Params={"Bucket": s.storage_bucket, "Key": clave, "ContentType": mime},
+        Params=params,
         ExpiresIn=int(VIGENCIA_SUBIDA.total_seconds()),
         HttpMethod="PUT",
     )
@@ -237,7 +289,7 @@ def url_para_subir(
         url=url,
         clave=clave,
         expira_en=int(VIGENCIA_SUBIDA.total_seconds()),
-        cabeceras={"Content-Type": mime},
+        cabeceras=cabeceras,
     )
 
 
@@ -288,7 +340,12 @@ def confirmar_subida(*, clave: str) -> dict:
     s = get_settings()
 
     try:
-        cabecera = cliente.head_object(Bucket=s.storage_bucket, Key=clave)
+        # `ChecksumMode=ENABLED` es obligatorio: sin el, B2 **no devuelve** el
+        # checksum aunque lo tenga guardado, y la revision quedaria sin hash
+        # sin que nada avisara.
+        cabecera = cliente.head_object(
+            Bucket=s.storage_bucket, Key=clave, ChecksumMode="ENABLED"
+        )
     except Exception as exc:
         raise ErrorDeAlmacenamiento(
             f"El archivo no llego al almacenamiento. Volve a intentar la subida. ({exc})"
@@ -298,6 +355,14 @@ def confirmar_subida(*, clave: str) -> dict:
         "size_bytes": int(cabecera.get("ContentLength", 0)),
         "etag": str(cabecera.get("ETag", "")).strip('"'),
         "mime_type": cabecera.get("ContentType"),
+        # `None` si la subida no declaro hash. **No se rellena con el ETag**:
+        # el ETag es MD5 —comprobado— y meterlo en una columna que se llama
+        # `checksum_sha256` seria guardar una cosa diciendo que es otra.
+        "checksum_sha256": (
+            b64_a_hex(cabecera["ChecksumSHA256"])
+            if cabecera.get("ChecksumSHA256")
+            else None
+        ),
     }
 
 

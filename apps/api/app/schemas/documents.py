@@ -102,6 +102,22 @@ class PedirSubida(BaseModel):
     file_name: str
     mime_type: str
     size_bytes: int
+    #: SHA-256 del contenido, en hexadecimal. **Opcional a proposito.**
+    #:
+    #: Cuando viene, viaja **dentro de la firma** y el bucket comprueba el
+    #: contenido: si no corresponde rechaza la subida y no queda nada escrito.
+    #: Eso es un hash **verificado**; guardar el que declara el navegador seria
+    #: uno **afirmado**, que sirve contra la corrupcion en el trayecto y no
+    #: sirve para nada si quien sube miente.
+    #:
+    #: Sin el, la subida funciona igual y la revision queda sin checksum — que
+    #: es preferible a guardar un valor que nadie comprobo. Es opcional porque
+    #: calcularlo obliga al navegador a leer el archivo entero.
+    checksum_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="SHA-256 del contenido en hexadecimal (64 caracteres).",
+    )
 
 
 class EnlaceDeSubida(BaseModel):
