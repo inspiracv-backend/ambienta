@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.compliance import crud_article_compliance, crud_matrix, crud_matrix_norm
@@ -15,6 +15,7 @@ from ..services.sincronizar_matriz import (
     desactualizadas as normas_desactualizadas,
     sincronizar as sincronizar_matriz,
 )
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404
 from ..schemas.obligations import ObligacionDesdeArticulo, ObligationRead
 from ..schemas.compliance import (
@@ -43,8 +44,8 @@ router = APIRouter(prefix="/compliance", tags=["compliance"])
 
 
 @router.get("/matrices", response_model=list[TenantLegalMatrixRead])
-def list_matrices(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_matrix.get_multi(db, skip=skip, limit=limit)
+def list_matrices(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_matrix.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/matrices/{matrix_id}", response_model=TenantLegalMatrixRead)
@@ -77,8 +78,8 @@ def update_matrix(matrix_id: UUID, data: TenantLegalMatrixUpdate, db: Session = 
 
 
 @router.get("/matrix-norms", response_model=list[MatrixNormRead])
-def list_matrix_norms(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_matrix_norm.get_multi(db, skip=skip, limit=limit)
+def list_matrix_norms(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_matrix_norm.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.post("/matrix-norms", response_model=MatrixNormRead, status_code=status.HTTP_201_CREATED)
@@ -103,8 +104,8 @@ def update_matrix_norm(mn_id: UUID, data: MatrixNormUpdate, db: Session = Depend
 
 
 @router.get("/article-compliance", response_model=list[ArticleComplianceRead])
-def list_article_compliance(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_article_compliance.get_multi(db, skip=skip, limit=limit)
+def list_article_compliance(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_article_compliance.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.post("/article-compliance", response_model=ArticleComplianceRead, status_code=status.HTTP_201_CREATED)

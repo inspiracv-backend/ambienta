@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from ..models.catalog import (
     RetcSystem,
 )
 from ..models.organization import FacilityProcess
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import (
     CRUDAsociacion,
     borrar_o_404,
@@ -43,11 +44,11 @@ router = APIRouter(prefix="/facilities", tags=["facilities"])
 
 @router.get("/", response_model=list[FacilityRead])
 def list_facilities(
-    skip: int = 0,
-    limit: int = 100,
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
     db: Session = Depends(get_tenant_db),
 ):
-    return crud_facility.get_multi(db, skip=skip, limit=limit)
+    return recortar(respuesta, crud_facility.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/{facility_id}", response_model=FacilityRead)

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from ..crud.organization import crud_department, crud_user
 from ..deps import exigir_permiso, get_tenant_db, get_tenant_id
 from ..models.organization import Permission, UserPermission
 from ..services.permisos import excepciones_del_usuario, permisos_de_roles
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, validar_visible
 from ..schemas.organization import (
     PermisoEfectivo,
@@ -23,8 +24,8 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("/", response_model=list[UserRead])
-def list_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_user.get_multi(db, skip=skip, limit=limit)
+def list_users(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_user.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 def _validar_departamento(db: Session, department_id: UUID | None) -> None:

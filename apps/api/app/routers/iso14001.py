@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.iso14001 import crud_environmental_aspect, crud_regulated_equipment, crud_risk_opportunity
@@ -9,6 +9,7 @@ from ..crud.audit import crud_action_plan
 from ..crud.compliance import crud_article_compliance
 from ..crud.organization import crud_facility, crud_process, crud_user
 from ..models.iso14001 import EquipmentOperator
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import CRUDAsociacion, borrar_o_404, obtener_o_404, validar_visible
 from ..services import iso14001 as svc
 from ..schemas.iso14001 import (
@@ -65,8 +66,8 @@ def _validar_referencias(db: Session, data) -> None:
 
 
 @router.get("/aspects", response_model=list[EnvironmentalAspectRead])
-def list_aspects(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_environmental_aspect.get_multi(db, skip=skip, limit=limit)
+def list_aspects(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_environmental_aspect.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 # **Esta ruta va antes que `/aspects/{aspect_id}` y no es cosmetico.** FastAPI
@@ -126,8 +127,8 @@ def update_aspect(aspect_id: UUID, data: EnvironmentalAspectUpdate, db: Session 
 
 
 @router.get("/risks", response_model=list[RiskOpportunityRead])
-def list_risks(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_risk_opportunity.get_multi(db, skip=skip, limit=limit)
+def list_risks(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_risk_opportunity.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.post("/risks", response_model=RiskOpportunityRead, status_code=status.HTTP_201_CREATED)
@@ -154,8 +155,8 @@ def update_risk(risk_id: UUID, data: RiskOpportunityUpdate, db: Session = Depend
 
 
 @router.get("/equipment", response_model=list[RegulatedEquipmentRead])
-def list_equipment(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_regulated_equipment.get_multi(db, skip=skip, limit=limit)
+def list_equipment(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_regulated_equipment.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 # Antes que `/equipment/{equipment_id}`, por lo mismo que

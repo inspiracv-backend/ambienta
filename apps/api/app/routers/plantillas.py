@@ -16,7 +16,7 @@ puede escribir. Aca esta decidido.
 """
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from ..auth import CurrentUser
@@ -30,6 +30,7 @@ from ..schemas.obligations import (
     ObligationTemplateRead,
     ObligationTemplateUpdate,
 )
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404
 
 router = APIRouter(prefix="/templates", tags=["templates"])
@@ -39,12 +40,12 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 
 @router.get("/obligations", response_model=list[ObligationTemplateRead])
 def list_obligation_templates(
-    skip: int = 0,
-    limit: int = 100,
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
     _: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return crud_obligation_template.get_multi(db, skip=skip, limit=limit)
+    return recortar(respuesta, crud_obligation_template.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/obligations/{template_id}", response_model=ObligationTemplateRead)
@@ -99,12 +100,12 @@ def delete_obligation_template(
 
 @router.get("/declarations", response_model=list[DeclarationTemplateRead])
 def list_declaration_templates(
-    skip: int = 0,
-    limit: int = 100,
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
     _: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return crud_declaration_template.get_multi(db, skip=skip, limit=limit)
+    return recortar(respuesta, crud_declaration_template.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/declarations/{template_id}", response_model=DeclarationTemplateRead)

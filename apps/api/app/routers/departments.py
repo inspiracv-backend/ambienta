@@ -10,7 +10,7 @@ puede dejar un departamento apuntando a la planta de otra empresa.
 """
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from ..crud.organization import crud_department, crud_facility
 from ..models.organization import User
 from ..deps import get_tenant_db, get_tenant_id
 from ..schemas.organization import DepartmentCreate, DepartmentRead, DepartmentUpdate
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404, validar_sin_ciclo, validar_visible
 
 router = APIRouter(prefix="/departments", tags=["departments"])
@@ -51,9 +52,11 @@ def _validar_referencias(
 
 @router.get("/", response_model=list[DepartmentRead])
 def list_departments(
-    skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    db: Session = Depends(get_tenant_db),
 ):
-    return crud_department.get_multi(db, skip=skip, limit=limit)
+    return recortar(respuesta, crud_department.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/{department_id}", response_model=DepartmentRead)

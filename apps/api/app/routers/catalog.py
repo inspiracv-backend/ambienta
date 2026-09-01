@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,7 @@ from ..models.catalog import (
 )
 from ..models.organization import User
 from ..auth import CurrentUser
+from ._paginacion import Pagina, paginacion, recortar
 from ..deps import exigir_admin_global, get_db
 from ..schemas.catalog import (
     CoberturaDeSectorRead,
@@ -102,8 +103,8 @@ def list_sectors(db: Session = Depends(get_db)):
     ),
 )
 def list_norms(
-    skip: int = 0,
-    limit: int = 100,
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
     buscar: str | None = None,
     tipo: str | None = None,
     db: Session = Depends(get_db),
@@ -127,7 +128,11 @@ def list_norms(
     # justamente las que no lo son.
     stmt = stmt.order_by(LegalNorm.norm_type, LegalNorm.norm_number, LegalNorm.id)
 
-    return list(db.scalars(stmt.offset(skip).limit(limit)).all())
+    return recortar(
+        respuesta,
+        list(db.scalars(stmt.offset(pagina.skip).limit(pagina.pedir)).all()),
+        pagina,
+    )
 
 
 @router.get("/norms/{norm_id}", response_model=LegalNormRead)

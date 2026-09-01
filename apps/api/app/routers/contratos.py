@@ -17,20 +17,21 @@ base a un contrato** — ahi hace falta el flujo de aceptacion.
 """
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.organization import crud_contract
 from ..deps import get_tenant_db, get_tenant_id
 from ..schemas.organization import ContractCreate, ContractRead, ContractUpdate
+from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
 
 @router.get("/", response_model=list[ContractRead])
-def list_contracts(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_contract.get_multi(db, skip=skip, limit=limit)
+def list_contracts(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+    return recortar(respuesta, crud_contract.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
 
 
 @router.get("/{contract_id}", response_model=ContractRead)
