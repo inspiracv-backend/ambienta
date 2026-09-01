@@ -1,5 +1,4 @@
-import type { CambioCampo, Departamento, Permiso, Plant, Role, User, UserEstado } from '@ambienta/shared';
-import { nombrePermiso } from '@ambienta/shared';
+import type { CambioCampo, Departamento, Plant, Role, User, UserEstado } from '@ambienta/shared';
 import type { EventoAuditable } from '@/lib/audit-log-store';
 import { ROLE_LABEL } from '@/lib/roles';
 
@@ -109,46 +108,5 @@ export function eventoCambioDeNombre(user: User, antes: string, despues: string)
     accion: 'actualizado',
     resumen: 'Actualizó su nombre',
     cambios: [{ campo: 'Nombre', antes, despues }] satisfies CambioCampo[],
-  };
-}
-
-/**
- * Cambio de permisos de una persona.
- *
- * Se registran las claves concedidas y revocadas por separado, no el set
- * completo: quien audita necesita ver *qué cambió*, y un volcado de 13
- * permisos en cada edición hace ilegible el historial.
- *
- * Es de los eventos más sensibles del sistema — conceder "aprobar cierres"
- * altera el control cruzado que revisa un certificador — así que además se
- * exige un motivo.
- */
-export function eventoCambioDePermisos(
-  user: User,
-  antes: Permiso[],
-  despues: Permiso[],
-  motivo?: string,
-): EventoAuditable {
-  const setAntes = new Set(antes);
-  const setDespues = new Set(despues);
-  const concedidos = despues.filter((p) => !setAntes.has(p));
-  const revocados = antes.filter((p) => !setDespues.has(p));
-
-  return {
-    entidadTipo: 'usuario',
-    entidadId: user.id,
-    entidadLabel: `${user.nombre} (${user.email})`,
-    tenantId: user.tenantId,
-    accion: 'actualizado',
-    resumen: `Cambió los permisos de ${user.nombre}`,
-    cambios: [
-      ...(concedidos.length > 0
-        ? [{ campo: 'Permisos concedidos', antes: null, despues: concedidos.map(nombrePermiso).join(', ') }]
-        : []),
-      ...(revocados.length > 0
-        ? [{ campo: 'Permisos revocados', antes: revocados.map(nombrePermiso).join(', '), despues: null }]
-        : []),
-    ],
-    ...(motivo ? { motivo } : {}),
   };
 }

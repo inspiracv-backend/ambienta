@@ -12,7 +12,6 @@ export * from './schemas/chatbot';
 export * from './schemas/support-ticket';
 export * from './schemas/departamento';
 export * from './schemas/audit-log';
-export * from './schemas/permiso';
 
 // Cadena de matrices de ISO 14001 — propuesta `matrices-ambientales-iso-14001`,
 // gobernada por la flag `matricesIso`.

@@ -1,8 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { DescriptorCargo, Permiso, Role, User, UserEstado } from '@ambienta/shared';
-import { PERMISOS_POR_DEFECTO } from '@ambienta/shared';
+import type { DescriptorCargo, Role, User, UserEstado } from '@ambienta/shared';
 import { mockUsers } from '@/mocks/users';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
@@ -24,7 +23,6 @@ interface UsersContextValue {
   updateDepartamento: (userId: string, departamentoId: string | null) => void;
   updateNombre: (userId: string, nombre: string) => void;
   updateDescriptorCargo: (userId: string, descriptor: DescriptorCargo) => void;
-  updatePermisos: (userId: string, permisos: Permiso[]) => void;
   setEstado: (
     userId: string,
     estado: UserEstado,
@@ -84,8 +82,6 @@ function mapApiUser(raw: Record<string, unknown>): User | null {
       nombre: String(raw.full_name ?? raw.display_name ?? ''),
       email: String(raw.email ?? ''),
       role,
-      permisos: PERMISOS_POR_DEFECTO[role],
-      plantIds: [],
       departamentoId: raw.department_id ? String(raw.department_id) : null,
       estado: DE_ESTADO_DE_LA_API[String(raw.status)] ?? 'invitado',
       ultimaActividad: raw.last_login_at ? String(raw.last_login_at) : null,
@@ -183,7 +179,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
       nombre: input.nombre,
       email: input.email,
       role: input.role,
-      permisos: PERMISOS_POR_DEFECTO[input.role],
       plantIds: input.plantIds,
       departamentoId: input.departamentoId,
       estado: 'invitado',
@@ -259,20 +254,23 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * **No llega a la base, y el motivo es un desacuerdo de modelo.**
+   * **Todavía no llega a la base, pero ya no por un desacuerdo de modelo.**
    *
-   * No es que falte el endpoint. El único lugar donde la base vincula a una
-   * persona con una planta es `user_roles.facility_id`, y esa tabla tiene
-   * clave primaria `(user_id, role_id)`: **una fila por rol, con UNA planta**.
+   * La versión anterior de este comentario decía que los dos modelos no se
+   * podían conciliar. Medido el 1-sep-2026, era falso: con clave primaria
+   * `(user_id, role_id)` una persona con **varios roles** puede tener varias
+   * plantas, y `alcance_del_usuario` ya las junta en un conjunto. Lo único
+   * que la PK no admite es el **mismo** rol en dos plantas, y se decidió que
+   * no hace falta.
    *
-   * Acá el campo es `plantIds`, en plural. Los dos modelos no se pueden
-   * conciliar escribiendo código: o una persona pertenece a varias plantas —y
-   * entonces falta una tabla `user_facilities`, o la PK de `user_roles` está
-   * mal— o pertenece a una sola, y el plural de esta pantalla sobra.
+   * La **lectura** ya está conectada: el alcance de la sesión sale de
+   * `GET /me`.`instalaciones` (ver `lib/alcance.ts`), y con eso las siete
+   * pantallas que acotan por planta empezaron a acotar de verdad.
    *
-   * Es una decisión de negocio con consecuencia de esquema, no una tarea de
-   * frontend. Mientras no se tome, el mapper de lectura arma `plantIds: []`
-   * para todos y cualquier escritura se perdería al recargar.
+   * La **escritura** es asignar `user_roles.facility_id`, o sea parte de
+   * asignar roles (#140) — que vive en otra rama. Meterla acá serían dos
+   * caminos para escribir la misma fila. Hasta entonces esto solo toca el
+   * estado local y se pierde al recargar.
    */
   function updatePlants(userId: string, plantIds: string[]) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plantIds } : u)));
@@ -333,10 +331,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
    * (`user_permissions`) pero **ninguna API**: dependen de que se apruebe el
    * cambio de RBAC, hoy en 0 de 33 tareas.
    */
-  function updatePermisos(userId: string, permisos: Permiso[]) {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, permisos } : u)));
-  }
-
   /**
    * Activar o desactivar a alguien, **y decir la verdad sobre si funciono**.
    *
@@ -398,7 +392,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
         updateDepartamento,
         updateNombre,
         updateDescriptorCargo,
-        updatePermisos,
         setEstado,
       }}
     >

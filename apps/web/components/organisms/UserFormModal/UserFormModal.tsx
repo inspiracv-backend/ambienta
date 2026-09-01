@@ -77,9 +77,14 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
         updateRole(user.id, role);
         registrar(eventoCambioDeRol(user, user.role, role));
       }
-      if (JSON.stringify(user.plantIds) !== JSON.stringify(plantIds)) {
+      // `plantIds` del listado viene `undefined` —la API no trae el alcance de
+      // cada persona en la lista— y eso NO es lo mismo que `[]`. Se compara
+      // contra lo que el formulario mostro al abrirse, que es `?? []`: sin
+      // eso, abrir y cerrar sin tocar nada se anotaria como un cambio.
+      const plantasAlAbrir = user.plantIds ?? [];
+      if (JSON.stringify(plantasAlAbrir) !== JSON.stringify(plantIds)) {
         updatePlants(user.id, plantIds);
-        registrar(eventoCambioDePlantas(user, user.plantIds, plantIds, plants));
+        registrar(eventoCambioDePlantas(user, plantasAlAbrir, plantIds, plants));
       }
       if ((user.descriptorCargo?.cargo ?? '') !== cargo.trim()) {
         updateDescriptorCargo(user.id, {

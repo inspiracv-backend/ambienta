@@ -152,6 +152,17 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "permissions",
+        "description": (
+            "El catalogo de permisos que la guarda de la API verifica. **Es el "
+            "vocabulario unico**: la pantalla pinta estos codigos y devuelve "
+            "los mismos, sin traducir. Antes mantenia su propia lista de 13 "
+            "claves que no compartia ninguna con estos, y como no llegaba a "
+            "guardar, nadie lo noto (#217). El texto legible sale de la misma "
+            "fila, para que no haga falta escribirlo en otro lado."
+        ),
+    },
+    {
         "name": "catalog",
         "description": (
             "Catalogo normativo **compartido entre todas las empresas**: "

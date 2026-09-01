@@ -169,6 +169,36 @@ def olvidar(db: Session) -> None:
     db.execute(text("SELECT set_config('ambienta.tenant_id', '', false)"))
     db.execute(text("RESET ROLE"))
 
+def volver_a_declarar(db: Session) -> None:
+    """Re-declara el tenant despues de un `commit`, para poder seguir leyendo.
+
+    **`declarar` usa `SET LOCAL` y `set_config(..., true)`: los dos viven
+    dentro de la transaccion.** Cuando un endpoint hace `db.commit()` y despues
+    consulta algo mas, esa consulta corre en una transaccion nueva **sin tenant
+    declarado**, y RLS le devuelve cero filas.
+
+    Eso no falla de forma ruidosa, que es lo que lo hace peligroso: la
+    escritura ya se guardo y la respuesta sale como si el registro no
+    existiera. Medido en `PUT /users/{id}/permissions/{codigo}`: la fila de
+    `user_permissions` quedaba escrita y el endpoint respondia
+    **404 "User not found"**. Quien llama concluye que no paso nada, y paso.
+
+    El tenant se recupera de `db.info` en vez de pedirlo por parametro porque
+    ahi ya lo dejo `get_tenant_db`: asi arreglar un endpoint no obliga a
+    cambiarle la firma, que es justo la friccion que hace que no se arregle.
+
+    Es hermana de la regla de `db.refresh()` despues de `db.commit()`: las dos
+    salen de lo mismo, que el commit se lleva puesto el contexto de la sesion.
+    """
+    contexto = db.info.get(CONTEXTO_DE_AUDITORIA)
+    if not contexto or not contexto.get("tenant_id"):
+        raise RuntimeError(
+            "No se puede volver a declarar el tenant: la sesion no viene de "
+            "get_tenant_db. Sin esto, lo que se lea despues del commit sale "
+            "vacio por RLS en vez de fallar."
+        )
+    declarar(db, contexto["tenant_id"])
+
 
 def get_tenant_db(
     request: Request,
