@@ -53,6 +53,11 @@ SUFIJOS_DE_ACCION = (
     # ya existen y pasa la ficha de prospecto a cliente. No crea el contrato
     # —eso exige que el cliente ya sea un tenant— ni hay nada que listar.
     "/promover",
+    # Invitar no es crear un recurso "invitacion": la emite Clerk y vive en
+    # su lado. Nosotros no la guardamos —duplicarla seria un segundo
+    # registro de la misma cosa que se desincroniza— asi que no hay nada
+    # que listar, leer ni borrar de este lado.
+    "/invitacion",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )
@@ -129,6 +134,13 @@ SIN_CRUD_COMPLETO = {
         "son la misma operacion y no hay un id de asignacion suelto que leer ni "
         "borrar. Quitar un rol es mandar la lista sin el; la lista **es** el "
         "estado. Mismo criterio que `/users/permissions`"
+    ),
+    "/users/desde-invitado": (
+        "no es un recurso: es la accion de registrar de forma permanente a un "
+        "Cliente Invitado (RF-03). Lo que crea es un usuario, que ya tiene su "
+        "CRUD completo en `/users`; aca solo esta el camino desde una credencial "
+        "de invitado. No hay un 'registro desde invitado' que listar ni borrar — "
+        "deshacerlo es desactivar al usuario y emitir una credencial nueva"
     ),
     "/users/permissions": (
         "no se crea un permiso: existen en el catalogo global. Lo que se administra "

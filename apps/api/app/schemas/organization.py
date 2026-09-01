@@ -191,6 +191,56 @@ class UserUpdate(BaseModel):
     preferences: dict | None = None
 
 
+class RegistrarInvitadoPermanente(BaseModel):
+    """Convertir a un Cliente Invitado en usuario de la empresa (RF-03).
+
+    `guest_credential_id` identifica a la persona: es lo unico que el acceso de
+    invitado guarda de ella, junto con el RUT.
+
+    `full_name` y `email` son opcionales — salen de sus solicitudes si no
+    llegan. Se aceptan porque quien administra puede tener que corregir el dato:
+    la persona pudo escribir mal su correo al abrir la solicitud, y obligarla a
+    arrastrar ese error seria absurdo.
+
+    `department_id` **no** es opcional: la base exige departamento a los tipos
+    `internal` y `tenant_admin` (RF-11), asi que sin el la fila la rechaza
+    Postgres con un error que no se lee como lo que es.
+    """
+
+    guest_credential_id: UUID
+    department_id: UUID
+    full_name: str | None = None
+    email: str | None = None
+    #: `internal` por defecto. Registrar a alguien que venia de afuera como
+    #: administrador de la empresa deberia ser un acto deliberado, no el camino
+    #: mas corto.
+    user_type: str = "internal"
+
+
+class InvitacionEnviada(BaseModel):
+    """Lo que quedo hecho al invitar (#139, RF-03).
+
+    No incluye el enlace: Clerk lo manda al correo y **no lo devuelve**, a
+    proposito. Un enlace de un solo uso que pasa por nuestra respuesta queda en
+    los registros de la API y en el historial del navegador de quien invito.
+    """
+
+    user_id: UUID
+    email: str
+    #: El identificador de Clerk, para rastrear la invitacion en su consola sin
+    #: tener que buscarla por correo. `None` si Clerk no lo devolvio.
+    clerk_invitation_id: str | None = None
+
+
+class InvitadoRegistrado(BaseModel):
+    user: UserRead
+    #: Que paso ademas de crear la cuenta: sus solicitudes cambiaron de dueno y
+    #: su acceso de invitado quedo revocado. Se devuelve para que la pantalla lo
+    #: diga, en vez de que la persona lo descubra cuando el enlace deja de
+    #: funcionarle.
+    efectos: list[str] = Field(default_factory=list)
+
+
 # ── Role ──────────────────────────────────────────────────────────────────
 
 class RoleCreate(BaseModel):
