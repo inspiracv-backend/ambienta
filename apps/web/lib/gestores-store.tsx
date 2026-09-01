@@ -2,15 +2,22 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Contrato, SubTenant } from '@ambienta/shared';
-import { mockSubTenants, mockContratos } from '@/mocks/gestores';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
-import { api } from '@/lib/api-client';
+import { api, mensajeDeError } from '@/lib/api-client';
 
 interface GestoresContextValue {
   subTenants: SubTenant[];
   contratos: Contrato[];
   loading: boolean;
+  /**
+   * Por que la lista esta vacia, si es que fallo (#208).
+   *
+   * `null` = se pregunto y esto es lo que hay. Un texto = **no se pudo
+   * preguntar**, y la pantalla tiene que decirlo: sin esto un fallo de red se
+   * ve igual que "esta empresa no tiene ninguno".
+   */
+  errorDeCarga: string | null;
   addContrato: (input: {
     subTenantId: string;
     nombre: string;
@@ -50,9 +57,15 @@ function mapApiContrato(raw: Record<string, unknown>): Contrato | null {
 }
 
 export function GestoresProvider({ children }: { children: ReactNode }) {
-  const [subTenants] = useState<SubTenant[]>(mockSubTenants);
-  const [contratos, setContratos] = useState<Contrato[]>(mockContratos);
+  // **Vacio, y no datos de ejemplo** (#208). La sub-tenancy (RF-65) no esta
+  // implementada: no hay endpoint que liste sub-tenants. Mostrar los de
+  // ejemplo le ensenaria a un Gestor una cartera de clientes que no existe,
+  // con nombres y RUT de empresas inventadas — y esa pantalla es justo la
+  // que se usa para decidir a quien facturar.
+  const [subTenants] = useState<SubTenant[]>([]);
+  const [contratos, setContratos] = useState<Contrato[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
 
@@ -80,7 +93,12 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
         // devuelve vacio.
         setContratos(mapeados);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
+        // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
+        // preguntar' — que es la misma mentira de #208 en su otra forma.
+        setErrorDeCarga(mensajeDeError(e));
+      })
       .finally(() => {
         if (!cancelado) setLoading(false);
       });
@@ -92,11 +110,10 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
   /**
    * **Esto no llega a la base, y la causa está arriba de este store.**
    *
-   * `POST /contracts/` exige `client_tenant_id`, y el `subTenantId` que llega
-   * acá sale de `mockSubTenants` — este store **nunca pide los sub-tenants a la
-   * API**, porque la sub-tenancy (RF-65) no está implementada: no hay endpoint
-   * que los liste. Mandar un id de dato de ejemplo da 422, porque la referencia
-   * se valida contra lo visible bajo RLS.
+   * `POST /contracts/` exige `client_tenant_id`, y este store **nunca pide los
+   * sub-tenants a la API**, porque la sub-tenancy (RF-65) no está implementada:
+   * no hay endpoint que los liste. Desde #208 la lista está **vacía** en vez de
+   * traer los de ejemplo, así que no hay ningún id que mandar.
    *
    * O sea: el contrato no se puede guardar hasta que existan los sub-tenants
    * contra los cuales se firma. La lectura de contratos sí funciona y es real.
@@ -139,7 +156,7 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <GestoresContext.Provider value={{ subTenants, contratos, loading, addContrato }}>
+    <GestoresContext.Provider value={{ subTenants, contratos, loading, errorDeCarga, addContrato }}>
       {children}
     </GestoresContext.Provider>
   );

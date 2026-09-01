@@ -96,6 +96,20 @@ function mapApiUser(raw: Record<string, unknown>): User | null {
 }
 
 export function UsersProvider({ children }: { children: ReactNode }) {
+  // **Este store se queda con datos de ejemplo a proposito, y es el unico**
+  // (#208). No son registros inventados sobre la empresa: son la **fuente de
+  // identidad** del modo sin Clerk. `SessionProvider` resuelve quien eres
+  // buscando aca el id que el DevRoleSwitcher guardo en `localStorage`
+  // (`users.find((u) => u.id === userId)`), asi que con la lista vacia no hay
+  // sesion posible y el conmutador de rol deja de funcionar.
+  //
+  // Vaciarlo no arregla nada: quita el mecanismo de autenticacion de
+  // desarrollo que CLAUDE.md documenta como el camino soportado sin Clerk.
+  // Reemplazarlo exige decidir con que se identifica uno en desarrollo, y esa
+  // es una decision aparte.
+  //
+  // Con la API arriba se reemplazan por los usuarios reales, que es lo que
+  // pasa en cualquier entorno con backend.
   const [users, setUsers] = useState<User[]>(mockUsers);
   const { mostrarToast } = useToast();
   const [loading, setLoading] = useState(true);

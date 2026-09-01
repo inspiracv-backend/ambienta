@@ -13,7 +13,7 @@ export default function AuditoriasPage() {
   const router = useRouter();
   const { user, cargando } = useSession();
   const { tenants } = useTenants();
-  const { audits } = useAudits();
+  const { audits, errorDeCarga } = useAudits();
 
   useEffect(() => {
     if (!cargando && user === null) router.replace('/login');
@@ -44,6 +44,15 @@ export default function AuditoriasPage() {
         <h1 className="text-2xl font-semibold text-slate-900">Auditorías</h1>
         <p className="text-sm text-slate-500">{tenant?.nombre}</p>
       </div>
+      {errorDeCarga && (
+        <p
+          role="alert"
+          className="rounded-card border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
+          No se pudieron cargar las auditorías: {errorDeCarga}. Lo que se ve está
+          vacío porque no se pudo preguntar, no porque no haya nada.
+        </p>
+      )}
       <AuditsListTable audits={visibleAudits} plants={scopedPlants} />
     </div>
   );

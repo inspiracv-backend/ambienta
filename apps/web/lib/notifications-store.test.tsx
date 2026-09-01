@@ -145,9 +145,17 @@ describe('lo que muestra la campana', () => {
 });
 
 describe('cuando la API falla', () => {
-  it('NO borra lo que ya se veía', async () => {
-    // El otro lado del arreglo: distinguir "cero" de "falló" tiene que servir
-    // para las dos cosas. Sin red, una pantalla vacía parece un sistema roto.
+  it('en la PRIMERA carga no queda nada inventado', async () => {
+    // **Esta prueba afirmaba lo contrario, y pasaba por la razón equivocada.**
+    //
+    // Decía "NO borra lo que ya se veía" y comprobaba `length > 0` tras un
+    // fallo. Pero en la primera carga lo único que había era el estado inicial,
+    // que eran los avisos de ejemplo: la prueba fijaba el defecto de #208 —
+    // mostrar datos inventados— como si fuera una virtud.
+    //
+    // Sin red, en la primera carga no hay nada legítimo que conservar. Un
+    // aviso inventado es peor que una pantalla vacía: dice que alguien tiene
+    // algo que atender cuando no se sabe.
     iniciarSesionComo('admin_empresa');
     get.mockRejectedValue(new Error('sin red'));
 
@@ -155,8 +163,18 @@ describe('cuando la API falla', () => {
     await waitFor(() => expect(r.result.current.s.user?.tenantId).toBeTruthy());
     await waitFor(() => expect(r.result.current.n.loading).toBe(false));
 
-    expect(r.result.current.n.notifications.length).toBeGreaterThan(0);
+    expect(r.result.current.n.notifications).toEqual([]);
   });
+
+  // **La otra mitad no se puede afirmar aquí, y conviene decirlo.** "No borra
+  // lo que ya se había cargado bien" solo se puede ejercitar con una segunda
+  // carga, y este store no expone `recargar`: su efecto corre una vez por
+  // tenant. La primera versión de esta prueba llamaba a `store().recargar?.()`
+  // —que no existe— así que la llamada opcional no hacía nada y la afirmación
+  // pasaba vacía.
+  //
+  // La propiedad se sostiene por construcción: el `catch` no llama a
+  // `setNotifications`, así que no puede borrar nada.
 });
 
 describe('marcar como leídas', () => {
