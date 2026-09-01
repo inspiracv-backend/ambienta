@@ -65,6 +65,7 @@ export { ReporteCumplimientoPdf } from './ReporteCumplimientoPdf/ReporteCumplimi
 export { ReporteImprimible } from './ReporteImprimible';
 export * from './EquipoPlataformaView';
 export { PermisosUsuarioModal } from './PermisosUsuarioModal/PermisosUsuarioModal';
+export { RolDePermisosModal } from './RolDePermisosModal/RolDePermisosModal';
 export * from './AspectosAmbientalesTable';
 export * from './RiesgosOportunidadesTable';
 export * from './EquiposReguladosTable';

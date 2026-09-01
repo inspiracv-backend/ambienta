@@ -12,6 +12,7 @@ import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useToast } from '@/lib/toast-store';
 import { eventoCambioDeEstado } from '@/lib/user-audit';
 import { PermisosUsuarioModal } from '@/components/organisms/PermisosUsuarioModal/PermisosUsuarioModal';
+import { RolDePermisosModal } from '@/components/organisms/RolDePermisosModal/RolDePermisosModal';
 import { permisosEfectivos, type Permiso } from '@ambienta/shared';
 import { ROLE_LABEL } from '@/lib/roles';
 import type { UserEstado } from '@ambienta/shared';
@@ -76,6 +77,7 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
     });
   }
   const [permisosTarget, setPermisosTarget] = useState<(typeof users)[number] | null>(null);
+  const [rolTarget, setRolTarget] = useState<(typeof users)[number] | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [rolFiltro, setRolFiltro] = useState('todos');
   const [estadoFiltro, setEstadoFiltro] = useState('todos');
@@ -204,6 +206,13 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
                         <Button variant="secondary" size="md" onClick={() => setPermisosTarget(u)}>
                           Permisos
                         </Button>
+                        {/* Separado de "Permisos" a propósito: aquel administra
+                            excepciones individuales sobre un catálogo que hoy no
+                            coincide con el de la API (#217), y esto asigna el rol
+                            que la guarda de cada ruta sí consulta. */}
+                        <Button variant="secondary" size="md" onClick={() => setRolTarget(u)}>
+                          Rol
+                        </Button>
                         {!esUnoMismo && (
                           <Button
                             variant={u.estado === 'desactivado' ? 'secondary' : 'danger'}
@@ -224,6 +233,12 @@ export function UsersManagementTable({ users, plants, departamentos, tenantId, e
           </table>
         </div>
       )}
+
+      <RolDePermisosModal
+        open={!!rolTarget}
+        onOpenChange={(open) => !open && setRolTarget(null)}
+        user={rolTarget}
+      />
 
       <PermisosUsuarioModal
         open={!!permisosTarget}
