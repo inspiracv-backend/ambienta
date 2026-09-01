@@ -150,7 +150,7 @@ describe('la lista', () => {
     const { result } = await montar([]);
 
     expect(result.current.documentos).toEqual([]);
-    expect(result.current.error).toBeNull();
+    expect(result.current.errorDeCarga).toBeNull();
   });
 
   it('si la API falla deja la lista vacía y lo dice', async () => {
@@ -160,7 +160,7 @@ describe('la lista', () => {
         : Promise.resolve([]),
     );
     const vista = renderHook(() => useDocumentos(), { wrapper });
-    await waitFor(() => expect(vista.result.current.error).toBeTruthy());
+    await waitFor(() => expect(vista.result.current.errorDeCarga).toBeTruthy());
 
     expect(vista.result.current.documentos).toEqual([]);
   });

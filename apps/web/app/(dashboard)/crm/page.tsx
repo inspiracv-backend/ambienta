@@ -30,7 +30,7 @@ import { useCrmPipeline } from '@/lib/crm-store';
  * los clientes de Ambienta.
  */
 export default function CrmPage() {
-  const { pipeline, cargando, error, mover, recargar } = useCrmPipeline();
+  const { pipeline, cargando, errorDeCarga, mover, recargar } = useCrmPipeline();
 
   const sinEtapas = !cargando && pipeline.columnas.length === 0;
 
@@ -51,9 +51,9 @@ export default function CrmPage() {
         }
       />
 
-      {error && (
+      {errorDeCarga && (
         <p className="rounded-card border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-          {error}
+          {errorDeCarga}
         </p>
       )}
 
@@ -64,9 +64,9 @@ export default function CrmPage() {
       ) : sinEtapas ? (
         <EmptyState
           icono={Handshake}
-          titulo={error ? 'No se pudo cargar el pipeline' : 'Todavía no hay pipeline'}
+          titulo={errorDeCarga ? 'No se pudo cargar el pipeline' : 'Todavía no hay pipeline'}
           descripcion={
-            error
+            errorDeCarga
               ? 'El tablero se deja vacío a propósito: mostrar las tarjetas anteriores se leería como el estado actual del negocio.'
               : 'Toda empresa nace con seis etapas por defecto. Si no ves ninguna, es que se retiraron todas: crea al menos una para poder registrar oportunidades.'
           }

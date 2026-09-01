@@ -54,7 +54,7 @@ interface EstadoDeSubida {
 interface DocumentosContextValue {
   documentos: Documento[];
   cargando: boolean;
-  error: string | null;
+  errorDeCarga: string | null;
   recargar: () => void;
 
   revisionesDe: (documentoId: string) => RevisionDocumental[] | undefined;
@@ -82,7 +82,7 @@ export function DocumentosProvider({ children }: { children: ReactNode }) {
 
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const [reintento, setReintento] = useState(0);
   const [revisiones, setRevisiones] = useState<Record<string, RevisionDocumental[]>>({});
   const [cargandoRevisiones, setCargandoRevisiones] = useState<string | null>(null);
@@ -95,14 +95,14 @@ export function DocumentosProvider({ children }: { children: ReactNode }) {
     }
     let vigente = true;
     setCargando(true);
-    setError(null);
+    setErrorDeCarga(null);
 
     listarDocumentos(tenantId)
       .then((d) => {
         if (vigente) setDocumentos(d);
       })
       .catch((e: unknown) => {
-        if (vigente) setError(mensajeDeError(e));
+        if (vigente) setErrorDeCarga(mensajeDeError(e));
       })
       .finally(() => {
         if (vigente) setCargando(false);
@@ -233,7 +233,7 @@ export function DocumentosProvider({ children }: { children: ReactNode }) {
     () => ({
       documentos,
       cargando,
-      error,
+      errorDeCarga,
       recargar,
       revisionesDe,
       cargarRevisiones,
@@ -247,7 +247,7 @@ export function DocumentosProvider({ children }: { children: ReactNode }) {
     [
       documentos,
       cargando,
-      error,
+      errorDeCarga,
       recargar,
       revisionesDe,
       cargarRevisiones,

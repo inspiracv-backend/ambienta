@@ -13,7 +13,7 @@ function Contenido() {
   const router = useRouter();
   const { user, cargando } = useSession();
   const { tenants } = useTenants();
-  const { aspectos, plantas, cargando: cargandoIso, error, truncado } = useIso();
+  const { aspectos, plantas, cargando: cargandoIso, errorDeCarga, truncado } = useIso();
 
   useEffect(() => {
     if (!FEATURE_FLAGS.matricesIso) router.replace('/dashboard');
@@ -36,9 +36,9 @@ function Contenido() {
         <h1 className="text-2xl font-semibold text-slate-900">Aspectos Ambientales</h1>
         <p className="text-sm text-slate-500">{tenant?.nombre} · ISO 14001 §6.1.2</p>
       </div>
-      {error && (
+      {errorDeCarga && (
         <p role="alert" className="rounded-card bg-semaforo-no-cumple-bg px-4 py-3 text-sm text-semaforo-no-cumple">
-          No se pudieron cargar los aspectos: {error}
+          No se pudieron cargar los aspectos: {errorDeCarga}
         </p>
       )}
       {truncado.length > 0 && (

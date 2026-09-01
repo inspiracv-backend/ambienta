@@ -185,7 +185,7 @@ interface IsoContextValue {
   riesgos: RiesgoApi[];
   equipos: EquipoApi[];
   cargando: boolean;
-  error: string | null;
+  errorDeCarga: string | null;
   /**
    * Que listados vinieron **cortados** por el tope del servidor (#167).
    *
@@ -222,7 +222,7 @@ export function IsoProvider({ children }: { children: ReactNode }) {
   const [equipos, setEquipos] = useState<EquipoApi[]>([]);
   const [cargando, setCargando] = useState(true);
   const [truncado, setTruncado] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const [reintento, setReintento] = useState(0);
 
   useEffect(() => {
@@ -232,7 +232,7 @@ export function IsoProvider({ children }: { children: ReactNode }) {
     }
     let vigente = true;
     setCargando(true);
-    setError(null);
+    setErrorDeCarga(null);
 
     const opts = { tenantId };
     // `getPagina` en vez de `get` para conservar `X-Has-More` (#167). La API
@@ -271,7 +271,7 @@ export function IsoProvider({ children }: { children: ReactNode }) {
         );
       })
       .catch((e: unknown) => {
-        if (vigente) setError(mensajeDeError(e));
+        if (vigente) setErrorDeCarga(mensajeDeError(e));
       })
       .finally(() => {
         if (vigente) setCargando(false);
@@ -322,7 +322,7 @@ export function IsoProvider({ children }: { children: ReactNode }) {
       plantas,
       cargando,
       truncado,
-      error,
+      errorDeCarga,
       recargar,
 
       crearAspecto: (d) =>
@@ -346,7 +346,7 @@ export function IsoProvider({ children }: { children: ReactNode }) {
       borrarEquipo: (id) =>
         escribir(() => api.delete(`/iso14001/equipment/${id}`, opts), 'Equipo eliminado.'),
     }),
-    [aspectos, riesgos, equipos, plantas, cargando, truncado, error, recargar, escribir, opts],
+    [aspectos, riesgos, equipos, plantas, cargando, truncado, errorDeCarga, recargar, escribir, opts],
   );
 
   return <IsoContext.Provider value={value}>{children}</IsoContext.Provider>;

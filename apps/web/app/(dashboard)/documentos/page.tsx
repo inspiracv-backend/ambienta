@@ -29,7 +29,7 @@ import { DocumentosProvider, useDocumentos } from '@/lib/documentos-store';
  * en cada salto.
  */
 function Contenido() {
-  const { documentos, cargando, error, recargar, revisionesDe, cargarRevisiones, cargandoRevisiones } =
+  const { documentos, cargando, errorDeCarga, recargar, revisionesDe, cargarRevisiones, cargandoRevisiones } =
     useDocumentos();
   const [seleccionado, setSeleccionado] = useState<string | null>(null);
   const [creando, setCreando] = useState(false);
@@ -85,14 +85,14 @@ function Contenido() {
         </div>
       </div>
 
-      {error && (
+      {errorDeCarga && (
         <p
           role="alert"
           className="flex items-start gap-2 rounded-card bg-semaforo-no-cumple-bg px-4 py-3 text-sm text-semaforo-no-cumple"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>
-            No se pudieron cargar los documentos: {error}
+            No se pudieron cargar los documentos: {errorDeCarga}
             <br />
             <span className="text-slate-600">
               La lista se muestra vacía en vez de con datos de ejemplo: en un módulo
