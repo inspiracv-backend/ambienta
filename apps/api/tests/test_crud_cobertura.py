@@ -134,6 +134,7 @@ SIN_CRUD_COMPLETO = {
         "son la misma operacion y no hay un id de asignacion suelto que leer ni "
         "borrar. Quitar un rol es mandar la lista sin el; la lista **es** el "
         "estado. Mismo criterio que `/users/permissions`"
+    ),
     "/users/desde-invitado": (
         "no es un recurso: es la accion de registrar de forma permanente a un "
         "Cliente Invitado (RF-03). Lo que crea es un usuario, que ya tiene su "
