@@ -148,6 +148,38 @@ def permisos_efectivos(db: Session, user_id: UUID) -> set[str]:
     return (permisos_de_roles(db, user_id) | concedidas) - denegadas
 
 
+def permisos_si_tuviera_estos_roles(
+    db: Session, user_id: UUID, role_ids: list[UUID]
+) -> set[str]:
+    """Que podria hacer esta persona **si** sus roles fueran esos.
+
+    Existe para poder rechazar un cambio **antes** de escribirlo: sin esto, la
+    unica forma de saber si asignar otro rol deja a la empresa sin nadie que
+    administre usuarios seria guardarlo y volver a preguntar — y para entonces
+    el dano ya esta hecho y hay que deshacerlo.
+
+    Se reusan las mismas excepciones individuales y la misma precedencia que
+    `permisos_efectivos`, en vez de recalcularlas: dos definiciones de "que
+    puede hacer esta persona" se desincronizan sin que nada falle, y la
+    hipotetica diria que si mientras la real dice que no.
+
+    No mira `valid_from`/`valid_to`: los roles que se van a asignar empiezan a
+    regir ahora, que es lo que hace `fijar_roles`.
+    """
+    if not role_ids:
+        de_roles: set[str] = set()
+    else:
+        filas = db.execute(
+            select(Permission.code, RolePermission.granted)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id.in_(role_ids))
+        ).all()
+        de_roles = {codigo for codigo, concedido in filas if concedido}
+
+    concedidas, denegadas = excepciones_del_usuario(db, user_id)
+    return (de_roles | concedidas) - denegadas
+
+
 def tiene_permiso(db: Session, user_id: UUID, codigo: str) -> bool:
     """Si esta persona puede hacer esa accion.
 

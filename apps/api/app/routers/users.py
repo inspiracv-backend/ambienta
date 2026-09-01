@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 
 from ..auth import CurrentUser
 from ..crud.organization import crud_department, crud_user
-from ..deps import exigir_permiso, get_tenant_db, get_tenant_id
+from ..deps import exigir_permiso, get_current_user, get_tenant_db, get_tenant_id
 from ..models.organization import Permission, UserPermission
+from ..services import usuarios as svc_usuarios
 from ..services.permisos import excepciones_del_usuario, permisos_de_roles
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, validar_visible
@@ -21,6 +22,25 @@ from ..schemas.organization import (
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _rechazar_si_deja_sin_vuelta(
+    db: Session, obj, tenant_id: UUID, actual: CurrentUser
+) -> None:
+    """409 y no 422: el cuerpo esta bien, lo que no corresponde es el efecto.
+
+    Un 422 diria "corrige lo que mandaste", y no hay nada que corregir — la
+    peticion es legitima y el dato es valido. Lo que falta es otra persona con
+    permiso para administrar usuarios.
+    """
+    try:
+        svc_usuarios.validar_desactivacion(
+            db, obj, tenant_id, clerk_id=actual.user_id
+        )
+    except svc_usuarios.ErrorDeUsuarios as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from None
 
 
 @router.get("/", response_model=list[UserRead])
@@ -69,25 +89,48 @@ def create_user(
 
 
 @router.patch("/{user_id}", response_model=UserRead)
-def update_user(user_id: UUID, data: UserUpdate, db: Session = Depends(get_tenant_db)):
+def update_user(
+    user_id: UUID,
+    data: UserUpdate,
+    db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(get_tenant_id),
+    actual: CurrentUser = Depends(get_current_user),
+):
     obj = crud_user.get(db, user_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     _validar_departamento(db, data.department_id)
+    # Se comprueba **antes** de escribir, y solo si el cambio apaga a alguien
+    # que estaba encendido: guardar `disabled` sobre quien ya lo estaba no
+    # desactiva a nadie, y rechazarlo convertiria una edicion inocua en un 409.
+    if svc_usuarios.desactiva(obj.status, data.status):
+        _rechazar_si_deja_sin_vuelta(db, obj, tenant_id, actual)
     obj = crud_user.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: UUID, db: Session = Depends(get_tenant_db)):
+def delete_user(
+    user_id: UUID,
+    db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(get_tenant_id),
+    actual: CurrentUser = Depends(get_current_user),
+):
     """Saca a la persona de la empresa.
 
     Distinto de `status`: bloquear o deshabilitar es suspender —la persona
     sigue en la nomina y se puede revertir—, mientras que esto la retira. Su
     rastro en el registro de auditoria se conserva, que es lo que impide
     borrar la fila de verdad.
+
+    Rige la misma guarda que el `PATCH` que desactiva, y aca con mas razon:
+    retirar es lo mas dificil de deshacer de los dos.
     """
+    obj = crud_user.get(db, user_id)
+    if not obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    _rechazar_si_deja_sin_vuelta(db, obj, tenant_id, actual)
     borrar_o_404(crud_user, db, user_id, recurso="User")
 
 

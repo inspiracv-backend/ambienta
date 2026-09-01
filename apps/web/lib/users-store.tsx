@@ -25,7 +25,10 @@ interface UsersContextValue {
   updateNombre: (userId: string, nombre: string) => void;
   updateDescriptorCargo: (userId: string, descriptor: DescriptorCargo) => void;
   updatePermisos: (userId: string, permisos: Permiso[]) => void;
-  setEstado: (userId: string, estado: UserEstado) => void;
+  setEstado: (
+    userId: string,
+    estado: UserEstado,
+  ) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const UsersContext = createContext<UsersContextValue | null>(null);
@@ -36,6 +39,40 @@ const USER_TYPE_TO_ROLE: Record<string, Role> = {
   internal: 'usuario_interno',
   guest: 'cliente_invitado',
   manager: 'gestor',
+};
+
+/**
+ * Los cuatro estados de `users.status` a los tres de la pantalla.
+ *
+ * `blocked` y `disabled` se muestran igual —desactivado— porque para quien
+ * administra son lo mismo: la persona no entra. La distincion importa en la
+ * base (uno lo pone un administrador, el otro puede ponerlo el sistema), no en
+ * la tabla.
+ *
+ * **Lo que estaba mal:** cualquier estado distinto de `active` se mostraba como
+ * `invitado`. Una persona desactivada aparecia como alguien a quien se le
+ * mando una invitacion y no la acepto — dos situaciones opuestas, y la segunda
+ * invita a reenviarle la invitacion a quien acaba de ser dado de baja.
+ */
+const DE_ESTADO_DE_LA_API: Record<string, UserEstado> = {
+  active: 'activo',
+  invited: 'invitado',
+  blocked: 'desactivado',
+  disabled: 'desactivado',
+};
+
+/**
+ * Y la vuelta. `disabled` y no `inactive`: **`inactive` no existe** en el
+ * CHECK de `users`, asi que la version anterior hacia que Postgres rechazara
+ * cada desactivacion.
+ *
+ * Reactivar deja a la persona en `active` y no en `invited`: ya acepto en su
+ * momento, y devolverla a "invitada" le pediria aceptar de nuevo.
+ */
+const A_ESTADO_DE_LA_API: Record<UserEstado, string> = {
+  activo: 'active',
+  invitado: 'invited',
+  desactivado: 'disabled',
 };
 
 function mapApiUser(raw: Record<string, unknown>): User | null {
@@ -50,7 +87,7 @@ function mapApiUser(raw: Record<string, unknown>): User | null {
       permisos: PERMISOS_POR_DEFECTO[role],
       plantIds: [],
       departamentoId: raw.department_id ? String(raw.department_id) : null,
-      estado: raw.status === 'active' ? 'activo' : 'invitado',
+      estado: DE_ESTADO_DE_LA_API[String(raw.status)] ?? 'invitado',
       ultimaActividad: raw.last_login_at ? String(raw.last_login_at) : null,
     };
   } catch {
@@ -274,13 +311,53 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, permisos } : u)));
   }
 
-  function setEstado(userId: string, estado: UserEstado) {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, estado } : u)));
+  /**
+   * Activar o desactivar a alguien, **y decir la verdad sobre si funciono**.
+   *
+   * Esto estaba roto de tres maneras a la vez, y las tres se tapaban entre si:
+   *
+   * 1. **Mandaba `status: 'inactive'`, que no existe.** El CHECK de `users`
+   *    admite `invited`, `active`, `blocked` y `disabled`. Postgres rechazaba
+   *    la fila **siempre**: desactivar a una persona no llegaba nunca a la
+   *    base.
+   * 2. **`.catch(() => {})` se comia el rechazo.** La pantalla mostraba
+   *    "fue desactivado" y un aviso diciendo "el cambio quedo registrado en el
+   *    historial" mientras la base no tenia nada. Recargar lo devolvia todo.
+   * 3. Y con eso, tampoco se veria el **409** que la API responde cuando la
+   *    desactivacion dejaria a la empresa sin nadie que administre usuarios
+   *    (#141): la guarda existiria y seria invisible.
+   *
+   * Ahora devuelve una promesa con el resultado: la vista optimista se
+   * revierte si el servidor rechaza, y quien llama puede mostrar el motivo.
+   */
+  async function setEstado(
+    userId: string,
+    estado: UserEstado,
+  ): Promise<{ ok: boolean; error?: string }> {
     const user = users.find((u) => u.id === userId);
-    if (user?.tenantId) {
-      api.patch(`/users/${userId}`, {
-        status: estado === 'activo' ? 'active' : 'inactive',
-      }, { tenantId: user.tenantId }).catch(() => {});
+    const anterior = user?.estado;
+    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, estado } : u)));
+
+    if (!user?.tenantId) {
+      // Sin tenant no hay a donde escribir. Se dice, en vez de dejar la
+      // pantalla afirmando un cambio que no sale del navegador.
+      return { ok: false, error: 'La persona no pertenece a ninguna empresa.' };
+    }
+
+    try {
+      await api.patch(
+        `/users/${userId}`,
+        { status: A_ESTADO_DE_LA_API[estado] },
+        { tenantId: user.tenantId },
+      );
+      return { ok: true };
+    } catch (e) {
+      if (anterior) {
+        setUsers((prev) =>
+          prev.map((u) => (u.id === userId ? { ...u, estado: anterior } : u)),
+        );
+      }
+      return { ok: false, error: mensajeDeError(e) };
     }
   }
 

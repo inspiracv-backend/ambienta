@@ -61,6 +61,7 @@ SIN_CRUD_COMPLETO = {
     "/catalog/countries": "la lista de paises viene dada: se consulta, no se administra. Exponerla como editable invitaria a inventar paises y a que dos empresas apuntaran a filas distintas del mismo lugar",
     "/catalog/norms": "la ley no se borra ni se edita a mano: se sincroniza desde la BCN",
     "/catalog/norms/articles": "el articulado es el texto de la ley: se sincroniza desde la BCN y se lee, no se administra",
+    "/roles": "hoy es de solo lectura, y el motivo es que falta la otra mitad: `role_permissions` no tiene API. Un endpoint para crear roles produciria roles que **no conceden nada** —filas con nombre y sin permisos— y quien los asignara dejaria gente sin poder trabajar sin entender por que. Los tres roles del sistema los siembra `09_roles_por_codigo.sql`; crear roles propios (#78 pide lo mismo para las etapas del CRM) entra junto con poder darles permisos",
     "/catalog/sectors": "catalogo de referencia, compartido y de solo lectura",
     "/catalog/sources": "catalogo de referencia, compartido y de solo lectura",
     "/documents/versions": "es la evidencia que respalda el cumplimiento; borrarla dejaria sin sustento a las evaluaciones que la citan",
@@ -113,6 +114,13 @@ SIN_CRUD_COMPLETO = {
         "identifican, asi que el PUT idempotente cubre alta y edicion. Leer una "
         "suelta tampoco aplica: lo util es toda la clasificacion de esa norma, "
         "que sale del listado"
+    ),
+    "/users/roles": (
+        "no es el CRUD de un recurso 'rol de usuario': el PUT describe el "
+        "**estado final** de los roles de esa persona, asi que alta y edicion "
+        "son la misma operacion y no hay un id de asignacion suelto que leer ni "
+        "borrar. Quitar un rol es mandar la lista sin el; la lista **es** el "
+        "estado. Mismo criterio que `/users/permissions`"
     ),
     "/users/permissions": (
         "no se crea un permiso: existen en el catalogo global. Lo que se administra "
