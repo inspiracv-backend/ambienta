@@ -45,6 +45,14 @@ SUFIJOS_DE_ACCION = (
     # certificacion de su operador, y las dos se editan en su propia ficha.
     # Esto es la consulta que las junta.
     "/expiring",
+    # Mover un trato de columna no es editar un campo: cierra el trato, exige
+    # motivo al perder o lo reabre. Y el pipeline es una vista compuesta —el
+    # kanban entero— no un recurso que se cree ni se borre.
+    "/stage", "/pipeline",
+    # Promover un trato ganado a contrato tampoco es CRUD: enlaza dos cosas que
+    # ya existen y pasa la ficha de prospecto a cliente. No crea el contrato
+    # —eso exige que el cliente ya sea un tenant— ni hay nada que listar.
+    "/promover",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )

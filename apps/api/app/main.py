@@ -29,6 +29,7 @@ from .services.auditoria_automatica import instalar as instalar_auditoria
 from .routers import (
     acceso_invitado,
     audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
+    crm,
     documents,
     facilities,
     identidad,
@@ -157,6 +158,7 @@ app.include_router(
     ],
 )
 app.include_router(documents.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(crm.router, prefix=api_v1_prefix)
 app.include_router(iso14001.router, prefix=api_v1_prefix)
 app.include_router(notifications.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(support.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])

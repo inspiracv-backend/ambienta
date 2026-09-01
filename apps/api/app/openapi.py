@@ -222,6 +222,18 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "crm",
+        "description": (
+            "Seguimiento comercial: empresas, contactos, pipeline de "
+            "oportunidades y actividades.\n\n"
+            "**No confundir `crm_companies` con `tenants`.** `tenants` son las "
+            "empresas que usan la plataforma; estas son con las que la empresa "
+            "hace negocio, y la mayoria no tiene cuenta. Cuando una se convierte "
+            "en cliente, `client_tenant_id` las enlaza y el trato ganado se "
+            "promueve a `contracts`."
+        ),
+    },
+    {
         "name": "iso14001",
         "description": (
             "Aspectos e impactos ambientales, riesgos y oportunidades, y "

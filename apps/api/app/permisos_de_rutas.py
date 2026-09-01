@@ -41,6 +41,14 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
     "audits": "audit",
     "compliance": "legal_matrix",
     "contracts": "manager",
+    # El CRM es el lado comercial del modulo de Gestores, y la epica #32 lo dice:
+    # consolida `Tenant.contactoComercial` y lo que ya existia ahi. Reutiliza su
+    # familia en vez de inventar `crm.read` / `crm.write`, **que nadie tendria
+    # asignado**: un permiso nuevo sin rol que lo conceda es un 403 para todos,
+    # y el sintoma —"la pantalla no carga"— no se parece en nada a la causa.
+    # `manager.read` y `manager.write` los tienen hoy `admin_empresa` y
+    # `servicio_lectura`, que es justo quien usa un CRM.
+    "crm": "manager",
     "declarations": "obligation",
     "departments": "company_profile",
     "documents": "document",
