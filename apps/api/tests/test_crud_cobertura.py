@@ -30,6 +30,13 @@ SUFIJOS_DE_ACCION = (
     # revision, pero no es el CRUD de `/versions` — es el cierre de una
     # subida que empezo en otro endpoint.
     "/upload-url", "/confirm-upload", "/download-url",
+    # El ciclo de vida de una revision documental. Son transiciones de
+    # estado, no CRUD: "aprobar una revision" no es "leer una revision".
+    "/submit-review", "/return-to-draft", "/publish", "/obsolete",
+    # Mover normas de la matriz a su texto vigente. Es una operacion
+    # sobre las que ya estan, no un recurso: no hay una "actualizacion"
+    # que listar, leer ni borrar.
+    "/actualizar-versiones",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )

@@ -186,6 +186,30 @@ class SincronizacionRead(BaseModel):
     )
 
 
+class PedirActualizacionDeVersion(BaseModel):
+    """Que normas mover al texto vigente.
+
+    `matrix_norm_ids` vacio o ausente = **todas las desactualizadas**. Es lo que
+    hace que "actualizar todas" no tenga que enumerar nada del lado del
+    navegador, que ademas se desincronizaria: entre que se dibuja la pantalla y
+    se aprieta el boton, otra persona pudo actualizar una.
+    """
+
+    matrix_norm_ids: list[UUID] | None = None
+
+
+class ActualizacionDeVersionRead(BaseModel):
+    """Que paso al mover normas a su version vigente."""
+
+    actualizadas: int
+    articulos_nuevos: int
+    #: **Conservadas, no migradas.** Siguen colgando de los articulos de su
+    #: version, que es donde corresponde.
+    evaluaciones_conservadas: int
+    ya_estaban_al_dia: int
+    titulos: list[str]
+
+
 class NormaDesactualizadaRead(BaseModel):
     """Una norma de la matriz evaluada contra una version que ya no rige.
 

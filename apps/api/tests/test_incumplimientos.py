@@ -70,6 +70,8 @@ def _articulo(numero="4", evidencia=None, planta="Planta Calama"):
     """Una fila del SELECT de articulos, en el orden en que el servicio la lee."""
     return (
         uuid4(),              # article_compliance_id
+        uuid4(),              # norm_id
+        uuid4(),              # article_id
         "NORMA DE EMISION",   # norm_title
         numero,               # norm_number
         f"Articulo {numero}", # article_number
@@ -247,3 +249,34 @@ class TestElTopeSeDeclara:
         r = svc.listar(db, TENANT, AHORA)
 
         assert r["articles_without_evidence"] == svc.TOPE
+
+
+class TestSePuedeLlegarAlIncumplimiento:
+    """Los ids que hacen falta para ir DESDE aca hasta la Matriz Legal.
+
+    Sin ellos la pantalla lista incumplimientos y deja a la persona
+    buscandolos a mano, norma por norma — que es exactamente lo que la pantalla
+    existe para evitar. Las declaraciones ya enlazaban a su obligacion; los
+    articulos no tenian nada.
+    """
+
+    def test_cada_articulo_trae_su_norma_y_su_articulo(self) -> None:
+        db = SesionQueCompila(articulos=[_articulo()])
+
+        articulos = svc.listar(db, TENANT, AHORA)["articles"]
+
+        assert articulos[0]["norm_id"] is not None
+        assert articulos[0]["article_id"] is not None
+
+    def test_la_consulta_los_pide_de_verdad(self) -> None:
+        """Compilada, no ejecutada: caza que una columna deje de existir.
+
+        La fila falsa de arriba se puede rellenar con cualquier cosa; lo que no
+        se puede fingir es que el SELECT los traiga.
+        """
+        db = SesionQueCompila(articulos=[_articulo()])
+        svc.listar(db, TENANT, AHORA)
+
+        sql_articulos = next(q for q in db.sql if "article_compliance" in q)
+        assert "matrix_norms.norm_id" in sql_articulos
+        assert "legal_articles.id" in sql_articulos

@@ -25,3 +25,6 @@ export * from './schemas/configuracion-matrices';
 // Registro de Mejora — propuesta `hallazgos-auditoria-no-conformidades`,
 // gobernada por la flag `registroMejora`.
 export * from './schemas/registro-mejora';
+
+// Control de informacion documentada (RF-102 a RF-106, ISO 9001 §7.5).
+export * from './schemas/documento';

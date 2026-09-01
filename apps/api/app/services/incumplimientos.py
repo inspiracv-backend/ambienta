@@ -52,6 +52,12 @@ def _articulos(db: Session, tenant_id: UUID) -> list[dict]:
     filas = db.execute(
         select(
             ArticleCompliance.id,
+            # Para poder ir DESDE aca hasta el articulo en la Matriz Legal. Sin
+            # estos dos, la pantalla lista incumplimientos y deja a la persona
+            # buscandolos a mano norma por norma, que es justo lo que la
+            # pantalla existe para evitar.
+            MatrixNorm.norm_id.label("norm_id"),
+            LegalArticle.id.label("article_id"),
             LegalNorm.title,
             LegalNorm.norm_number,
             LegalArticle.article_number,
@@ -91,16 +97,18 @@ def _articulos(db: Session, tenant_id: UUID) -> list[dict]:
     return [
         {
             "article_compliance_id": f[0],
-            "norm_title": f[1],
-            "norm_number": f[2],
-            "article_number": f[3],
-            "article_heading": f[4],
-            "facility_name": f[5],
-            "evidence_url": f[6],
-            "compliance_method": f[7],
-            "responsible_user_id": f[8],
-            "assessed_at": f[9],
-            "risk_level": f[10],
+            "norm_id": f[1],
+            "article_id": f[2],
+            "norm_title": f[3],
+            "norm_number": f[4],
+            "article_number": f[5],
+            "article_heading": f[6],
+            "facility_name": f[7],
+            "evidence_url": f[8],
+            "compliance_method": f[9],
+            "responsible_user_id": f[10],
+            "assessed_at": f[11],
+            "risk_level": f[12],
         }
         for f in filas
     ]

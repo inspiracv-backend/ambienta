@@ -74,3 +74,9 @@ export * from './PerfilNormativoCard/PerfilNormativoCard';
 export * from './ClaveLocalCard';
 export * from './IngresoConRut';
 export * from './PestanasDeIngreso';
+
+// Control de informacion documentada (RF-102 a RF-106).
+export * from './DocumentosView';
+
+// Formularios compartidos de las tres pantallas ISO 14001.
+export * from './IsoForms';

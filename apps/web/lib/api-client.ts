@@ -140,6 +140,21 @@ async function request<T>(
     throw new ApiError(res.status, res.statusText, detail);
   }
 
+  // **Un 204 no trae cuerpo, y `res.json()` sobre un cuerpo vacio lanza
+  // `SyntaxError`.** Todos los `DELETE` de la API responden 204, asi que hasta
+  // ahora *cada borrado de la aplicacion* se leia como fallido: la fila
+  // desaparecia de la base, la pantalla mostraba un error y no recargaba, y
+  // quien lo hizo veia el registro seguir ahi. Reintentar daba 404.
+  //
+  // Se detecto borrando un equipo desde la pantalla y comparando con la API:
+  // `DELETE -> 204`, la lista devolvia 2 elementos y la tabla seguia mostrando 3.
+  //
+  // Se comprueba el estado y no `content-length`: un 204 puede venir sin esa
+  // cabecera, y algunos proxys la ponen en 0 para respuestas que si traen algo.
+  if (res.status === 204 || res.status === 205) {
+    return null as T;
+  }
+
   return res.json() as Promise<T>;
 }
 

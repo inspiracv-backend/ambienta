@@ -90,6 +90,14 @@ class ArticuloEnIncumplimiento(BaseModel):
     """Un requisito legal que la empresa reconoce que no cumple."""
 
     article_compliance_id: UUID
+    #: Para poder ir DESDE aca hasta el articulo en la Matriz Legal. Sin estos
+    #: dos, la pantalla lista incumplimientos y deja a la persona buscandolos a
+    #: mano norma por norma — que es justo lo que la pantalla existe para
+    #: evitar.
+    #: El de la NORMA, no el de su fila en la matriz: la pantalla de
+    #: detalle se direcciona por norma (`/matriz-legal/{normId}`).
+    norm_id: UUID
+    article_id: UUID
     norm_title: str
     norm_number: str
     article_number: str

@@ -67,6 +67,7 @@ services:
       - ./db/16_evidencia_del_articulo.sql:/docker-entrypoint-initdb.d/16-evidencia-articulo.sql:ro
       - ./db/17_avisos_sin_duplicados.sql:/docker-entrypoint-initdb.d/17-avisos-sin-duplicados.sql:ro
       - ./db/18_control_documental.sql:/docker-entrypoint-initdb.d/18-control-documental.sql:ro
+      - ./db/21_significancia_del_aspecto.sql:/docker-entrypoint-initdb.d/21-significancia-del-aspecto.sql:ro
       - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
       # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
       # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —
@@ -101,7 +102,12 @@ services:
       # —un `user.deleted` llega sin metadatos, hay que poder buscar en todas
       # las empresas— y el health del esquema. Ver `get_admin_db`.
       DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@postgres:5432/ambienta
-      CORS_ORIGINS: http://localhost:3000
+      # Configurable, con el mismo valor por defecto de antes. Hace falta en
+      # cuanto alguien levanta el frontend fuera del contenedor —otro puerto—
+      # para probar algo: sin esto la API rechaza el origen y la pantalla dice
+      # "no se pudo contactar al servidor", que se lee como que la API esta
+      # caida y no lo esta. Acepta varios separados por coma.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       # Clerk (ADR-006). Vacias por defecto: sin CLERK_JWKS_URL la API acepta
       # el header X-Tenant-Id y se puede desarrollar sin cuenta del proveedor.
       # Se toman del .env de la raiz si estan definidas.

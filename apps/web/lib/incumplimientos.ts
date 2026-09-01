@@ -17,6 +17,16 @@ import { api } from '@/lib/api-client';
 /** Un requisito legal que la empresa reconoce que no cumple. */
 export interface ArticuloEnIncumplimiento {
   articleComplianceId: string;
+  /**
+   * Con qué ir DESDE aquí hasta el artículo en la Matriz Legal.
+   *
+   * Sin estos dos, la pantalla lista incumplimientos y deja a la persona
+   * buscándolos a mano, norma por norma — que es exactamente lo que la
+   * pantalla existe para evitar. Las declaraciones ya enlazaban a su
+   * obligación; los artículos no tenían nada.
+   */
+  normId: string;
+  articuloId: string;
   normaTitulo: string;
   normaNumero: string;
   articuloNumero: string;
@@ -85,6 +95,8 @@ export async function cargarIncumplimientos(tenantId: string): Promise<Incumplim
   return {
     articulos: articulos.map((a) => ({
       articleComplianceId: String(a.article_compliance_id),
+      normId: String(a.norm_id ?? ''),
+      articuloId: String(a.article_id ?? ''),
       normaTitulo: String(a.norm_title ?? ''),
       normaNumero: String(a.norm_number ?? ''),
       articuloNumero: String(a.article_number ?? ''),

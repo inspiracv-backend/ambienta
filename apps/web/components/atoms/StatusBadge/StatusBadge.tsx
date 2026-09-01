@@ -17,8 +17,9 @@ const STATUS_CONFIG: Record<
   pendiente: { label: 'Pendiente de evaluar', icon: HelpCircle, classes: 'text-semaforo-na bg-semaforo-na-bg' },
 };
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const { label, icon: StatusIcon, classes } = STATUS_CONFIG[status];
+export function StatusBadge({ status, className, label }: StatusBadgeProps) {
+  const { label: porDefecto, icon: StatusIcon, classes } = STATUS_CONFIG[status];
+  const texto = label ?? porDefecto;
 
   return (
     <span
@@ -29,7 +30,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
       )}
     >
       <StatusIcon className="h-3.5 w-3.5" aria-hidden />
-      {label}
+      {texto}
     </span>
   );
 }

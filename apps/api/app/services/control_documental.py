@@ -124,6 +124,22 @@ def enviar_a_revision(db: Session, *, version_id: UUID) -> DocumentVersion:
     return revision
 
 
+def devolver_a_borrador(db: Session, *, version_id: UUID) -> DocumentVersion:
+    """La revision encontro algo que corregir (RF-104).
+
+    `TRANSICIONES` declaraba `en_revision -> borrador` desde el principio y
+    **no habia funcion para hacerlo**: la maquina de estados estaba escrita a
+    medias y el unico camino desde `en_revision` era aprobar o mandar a
+    obsoleto. Eso deja a quien revisa con dos salidas malas — aprobar algo que
+    no corresponde, o retirar un documento que solo necesitaba una correccion.
+    """
+    revision = _revision(db, version_id)
+    _exigir_controlado(revision.document)
+    _mover(db, revision, "borrador")
+    db.flush()
+    return revision
+
+
 def aprobar(
     db: Session, *, version_id: UUID, aprobador_id: UUID, ahora: datetime | None = None
 ) -> DocumentVersion:

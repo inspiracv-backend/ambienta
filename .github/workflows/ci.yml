@@ -122,7 +122,8 @@ jobs:
                    15_declaracion_ante_su_sistema \
                    16_evidencia_del_articulo \
                    17_avisos_sin_duplicados \
-                   18_control_documental; do
+                   18_control_documental \
+                   21_significancia_del_aspecto; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from ..models.compliance import TenantLegalMatrix
 from ..services.resumen_cumplimiento import resumir as resumir_cumplimiento
 from ..services.sincronizar_matriz import (
+    actualizar_a_version_vigente,
     desactualizadas as normas_desactualizadas,
     sincronizar as sincronizar_matriz,
 )
@@ -20,7 +21,9 @@ from ..schemas.compliance import (
     NormaAplicableRead,
     NormativaAplicableRead,
     ConteoRead,
+    ActualizacionDeVersionRead,
     NormaDesactualizadaRead,
+    PedirActualizacionDeVersion,
     ResumenDeMatrizRead,
     ResumenPorInstalacionRead,
     ResumenPorNormaRead,
@@ -353,6 +356,38 @@ def listar_desactualizadas(matrix_id: UUID, db: Session = Depends(get_tenant_db)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Matrix not found")
 
     return [NormaDesactualizadaRead(**vars(n)) for n in normas_desactualizadas(db, matrix_id)]
+
+
+@router.post(
+    "/matrices/{matrix_id}/actualizar-versiones",
+    response_model=ActualizacionDeVersionRead,
+    summary="Mover normas de la matriz al texto que rige hoy",
+    description=(
+        "Apunta la norma a su version vigente y siembra las evaluaciones "
+        "pendientes del articulado nuevo.\n\n"
+        "**Las evaluaciones anteriores se conservan y no se migran.** Migrarlas "
+        "seria inventar: entre dos versiones los articulos se renumeran, se "
+        "parten y desaparecen, y un sistema que lo adivine produce una "
+        "evaluacion firmada por alguien que nunca vio el articulo que ahora "
+        "dice respaldar. Borrarlas seria peor: son la respuesta ante una "
+        "auditoria del periodo en que se hicieron.\n\n"
+        "Sin cuerpo, o con `matrix_norm_ids` vacio, actualiza **todas** las "
+        "desactualizadas de la matriz."
+    ),
+)
+def actualizar_versiones(
+    matrix_id: UUID,
+    datos: PedirActualizacionDeVersion | None = None,
+    db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    if not crud_matrix.get(db, matrix_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Matrix not found")
+
+    ids = datos.matrix_norm_ids if datos else None
+    r = actualizar_a_version_vigente(db, matrix_id, tenant_id, ids or None)
+    db.commit()
+    return ActualizacionDeVersionRead(**vars(r))
 
 
 def _conteo(c) -> ConteoRead:

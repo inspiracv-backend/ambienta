@@ -155,6 +155,48 @@ export function mapearDesactualizada(raw: Record<string, unknown>): NormaDesactu
   };
 }
 
+/** Que paso al mover normas a su version vigente. */
+export interface ResultadoActualizacion {
+  actualizadas: number;
+  articulosNuevos: number;
+  /**
+   * Evaluaciones anteriores **conservadas**, no migradas.
+   *
+   * Es el número que se le muestra a la persona: sin él, "actualizado" se lee
+   * como "se perdió lo que había".
+   */
+  evaluacionesConservadas: number;
+  yaEstabanAlDia: number;
+  titulos: string[];
+}
+
+/**
+ * Mueve normas de la matriz al texto que rige hoy.
+ *
+ * Sin `matrixNormIds`, actualiza **todas** las desactualizadas. Se deja que lo
+ * decida el servidor en vez de enumerarlas desde acá: entre que se dibuja la
+ * pantalla y se aprieta el botón, otra persona pudo actualizar una.
+ */
+export function actualizarAVersionVigente(
+  matrixId: string,
+  tenantId: string,
+  matrixNormIds?: string[],
+): Promise<ResultadoActualizacion> {
+  return api
+    .post<Record<string, unknown>>(
+      `/compliance/matrices/${matrixId}/actualizar-versiones`,
+      { matrix_norm_ids: matrixNormIds ?? null },
+      { tenantId },
+    )
+    .then((r) => ({
+      actualizadas: Number(r.actualizadas ?? 0),
+      articulosNuevos: Number(r.articulos_nuevos ?? 0),
+      evaluacionesConservadas: Number(r.evaluaciones_conservadas ?? 0),
+      yaEstabanAlDia: Number(r.ya_estaban_al_dia ?? 0),
+      titulos: Array.isArray(r.titulos) ? r.titulos.map(String) : [],
+    }));
+}
+
 export function cargarDesactualizadas(
   matrixId: string,
   tenantId: string,
