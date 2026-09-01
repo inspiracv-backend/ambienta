@@ -68,6 +68,7 @@ SUFIJOS_DE_ACCION = (
 
 # Recurso -> por que no tiene el CRUD entero. El motivo es la parte importante.
 SIN_CRUD_COMPLETO = {
+    "/permissions": "es el catalogo de permisos que la API sabe verificar: la lista de capacidades que el sistema define, no datos de una empresa. Crearlos o borrarlos desde la API seria inventar permisos que ninguna guarda consulta — el codigo tiene que existir tambien en el codigo, no solo en la tabla. Crecen con una migracion, cuando se agrega una capacidad. Lo que si se administra es a quien se le conceden, y eso vive en `/users/{id}/permissions`",
     "/me/clave-local": "no es un recurso, es una accion sobre la propia cuenta: fijar la clave local. La clave la guarda Clerk, asi que aca no hay fila que leer ni editar; volver a fijarla es llamar de nuevo al mismo POST",
     "/catalog/retc-systems": "es el catalogo de portales del Estado: se consulta, no se administra desde la API. Crearlos o editarlos a mano invitaria a inventar sistemas, y el problema real es el contrario — la lista viene de una resolucion y hay que poder rastrear de donde salio cada fila (columna `fuente`). Se siembra con migracion, como el resto del catalogo normativo",
     "/facilities/reportabilidad": "no es un recurso con id propio: es el estado de un sistema PARA una instalacion, y la pareja (instalacion, sistema) ya lo identifica. Por eso se declara con PUT sobre esa pareja en vez de POST, y por eso no hay `GET` de uno solo: la lista de la instalacion es la vista util. Leer un sistema aislado sin su contexto no le sirve a ninguna pantalla",

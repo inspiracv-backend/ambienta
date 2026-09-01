@@ -1,8 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { DescriptorCargo, Permiso, Role, User, UserEstado } from '@ambienta/shared';
-import { PERMISOS_POR_DEFECTO } from '@ambienta/shared';
+import type { DescriptorCargo, Role, User, UserEstado } from '@ambienta/shared';
 import { mockUsers } from '@/mocks/users';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
@@ -24,7 +23,6 @@ interface UsersContextValue {
   updateDepartamento: (userId: string, departamentoId: string | null) => void;
   updateNombre: (userId: string, nombre: string) => void;
   updateDescriptorCargo: (userId: string, descriptor: DescriptorCargo) => void;
-  updatePermisos: (userId: string, permisos: Permiso[]) => void;
   setEstado: (
     userId: string,
     estado: UserEstado,
@@ -84,7 +82,6 @@ function mapApiUser(raw: Record<string, unknown>): User | null {
       nombre: String(raw.full_name ?? raw.display_name ?? ''),
       email: String(raw.email ?? ''),
       role,
-      permisos: PERMISOS_POR_DEFECTO[role],
       plantIds: [],
       departamentoId: raw.department_id ? String(raw.department_id) : null,
       estado: DE_ESTADO_DE_LA_API[String(raw.status)] ?? 'invitado',
@@ -183,7 +180,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
       nombre: input.nombre,
       email: input.email,
       role: input.role,
-      permisos: PERMISOS_POR_DEFECTO[input.role],
       plantIds: input.plantIds,
       departamentoId: input.departamentoId,
       estado: 'invitado',
@@ -333,10 +329,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
    * (`user_permissions`) pero **ninguna API**: dependen de que se apruebe el
    * cambio de RBAC, hoy en 0 de 33 tareas.
    */
-  function updatePermisos(userId: string, permisos: Permiso[]) {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, permisos } : u)));
-  }
-
   /**
    * Activar o desactivar a alguien, **y decir la verdad sobre si funciono**.
    *
@@ -398,7 +390,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
         updateDepartamento,
         updateNombre,
         updateDescriptorCargo,
-        updatePermisos,
         setEstado,
       }}
     >

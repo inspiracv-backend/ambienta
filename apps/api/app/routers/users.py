@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 
 from ..auth import CurrentUser
 from ..crud.organization import crud_department, crud_user
-from ..deps import exigir_permiso, get_current_user, get_tenant_db, get_tenant_id
+from ..deps import (
+    exigir_permiso,
+    get_current_user,
+    get_tenant_db,
+    get_tenant_id,
+    volver_a_declarar,
+)
 from ..models.organization import Permission, UserPermission
 from ..services import usuarios as svc_usuarios
 from ..services import invitacion_de_usuario as svc_invitacion
@@ -352,6 +358,12 @@ def set_user_permission(
 
     # Se relee despues del commit a proposito: devolver el conjunto entero
     # evita que la pantalla lo recalcule por su cuenta y se desincronice.
+    #
+    # **Y hay que volver a declarar el tenant antes de releer.** El commit
+    # cierra la transaccion, y con ella se va el `SET LOCAL` que declaraba la
+    # empresa: la relectura corria sin tenant y RLS devolvia cero filas, asi
+    # que este endpoint escribia la fila y respondia 404 "User not found".
+    volver_a_declarar(db)
     return get_user_permissions(user_id, db)
 
 
@@ -382,4 +394,7 @@ def clear_user_permission(
     if fila is not None:
         db.delete(fila)
         db.commit()
+        # Mismo motivo que en el PUT: sin esto la relectura sale vacia y
+        # borrar la excepcion respondia 404 con la fila ya borrada.
+        volver_a_declarar(db)
     return get_user_permissions(user_id, db)

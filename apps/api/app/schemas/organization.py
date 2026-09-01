@@ -475,3 +475,21 @@ class PermisoIndividual(BaseModel):
     # justificada. Un permiso suelto sin motivo es indistinguible de un error
     # de configuracion cuando alguien lo audita seis meses despues.
     reason: str = Field(min_length=3, max_length=500)
+
+
+class PermisoDelCatalogo(BaseModel):
+    """Un permiso tal como existe en la base, con su texto legible.
+
+    **Es el unico vocabulario.** La pantalla no traduce ni mantiene su propia
+    lista: pinta lo que devuelve este catalogo y manda de vuelta el mismo
+    `codigo`. Cualquier capa de traduccion en el medio es un tercer artefacto
+    que se desincroniza, que es la leccion que este repositorio ya aprendio
+    con Zod y Pydantic.
+
+    `descripcion` sale de `permissions.description`, que ya esta poblada: el
+    texto amable no hay que inventarlo en el frontend.
+    """
+
+    codigo: str
+    modulo: str
+    descripcion: str

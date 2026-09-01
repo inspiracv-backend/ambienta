@@ -13,7 +13,6 @@ import { useToast } from '@/lib/toast-store';
 import { eventoCambioDeEstado } from '@/lib/user-audit';
 import { PermisosUsuarioModal } from '@/components/organisms/PermisosUsuarioModal/PermisosUsuarioModal';
 import { RolDePermisosModal } from '@/components/organisms/RolDePermisosModal/RolDePermisosModal';
-import { permisosEfectivos, type Permiso } from '@ambienta/shared';
 import { ROLE_LABEL } from '@/lib/roles';
 import type { UserEstado } from '@ambienta/shared';
 import { userSemaforo, USER_ESTADO_LABEL } from '@/lib/user-status';

@@ -1,44 +1,65 @@
 'use client';
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { RotateCcw, ShieldAlert, X } from 'lucide-react';
-import type { Permiso, User } from '@ambienta/shared';
-import { CATALOGO_PERMISOS, PERMISOS_POR_DEFECTO, permisosEfectivos } from '@ambienta/shared';
+import { AlertTriangle, Loader2, RotateCcw, X } from 'lucide-react';
+import type { User } from '@ambienta/shared';
 import { Button, Textarea } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
-import { useUsers } from '@/lib/users-store';
 import { useToast } from '@/lib/toast-store';
-import { useRegistrarAuditoria } from '@/lib/audit-log-store';
-import { eventoCambioDePermisos } from '@/lib/user-audit';
 import { ROLE_LABEL } from '@/lib/roles';
+import {
+  cargarCatalogo,
+  cargarPermisosDe,
+  estadoDe,
+  fijarPermiso,
+  nombreDeRespaldo,
+  porModulo,
+  quitarExcepcion,
+  type EstadoDePermiso,
+  type PermisoDelCatalogo,
+  type PermisosDelUsuario,
+} from '@/lib/permisos';
 import { cn } from '@/lib/utils';
 
-/** Grupos en el orden del catálogo, sin repetir. */
-function gruposDelCatalogo(): string[] {
-  return CATALOGO_PERMISOS.reduce<string[]>((acc, p) => (acc.includes(p.grupo) ? acc : [...acc, p.grupo]), []);
-}
+const MOTIVO_MINIMO = 3;
+
+const ETIQUETA: Record<EstadoDePermiso, { texto: string; clase: string } | null> = {
+  'del-rol': { texto: 'Del rol', clase: 'bg-slate-100 text-slate-600' },
+  concedido: { texto: 'Concedido aparte', clase: 'bg-brand-50 text-brand-700' },
+  denegado: { texto: 'Denegado', clase: 'bg-semaforo-incumple-bg text-semaforo-incumple' },
+  'sin-permiso': null,
+};
 
 /**
- * Matriz de permisos de una persona (RF-12).
+ * Matriz de permisos de una persona (RF-12, #217).
  *
- * Hasta ahora el Admin Empresa solo podía asignar un rol: cinco cajas fijas
- * para toda la empresa. Pero dos personas con el mismo rol tienen
- * responsabilidades distintas según su departamento — el Análisis de Actores
- * lo dice explícitamente (§2.3): el Usuario Interno "no es una fila única
- * sino un espacio de configuración".
+ * ## Qué cambió, y por qué no es cosmético
  *
- * Decisiones de la interfaz:
+ * Esta pantalla listaba **13 permisos escritos a mano** en `packages/shared`
+ * que no tenían **ni una clave en común** con los 39 que la API verifica. Y no
+ * guardaba: `updatePermisos` solo tocaba el estado local, mientras el aviso
+ * decía *"el cambio quedó en su historial"*. Marcar casillas no restringía a
+ * nadie.
  *
- * - **Se muestra qué viene del rol y qué se cambió a mano.** Sin eso, quien
- *   revisa la configuración no puede distinguir una decisión deliberada de un
- *   valor que nadie tocó. El botón de restablecer vuelve al set del rol.
- * - **Los permisos sensibles van marcados.** Conceder "aprobar cierres" rompe
- *   el control cruzado que revisa un certificador (quien registra un hallazgo
- *   no debería poder aprobarlo solo), así que no puede pasar inadvertido al
- *   copiar la configuración de otra persona.
- * - **Se pide un motivo.** RF-32 exige el "por qué" en el audit log, y un
- *   cambio de permisos es de los eventos donde más falta hace.
+ * Ahora el catálogo viene de `GET /permissions` y cada cambio va a
+ * `PUT|DELETE /users/{id}/permissions/{codigo}`, con los mismos códigos que
+ * usa la guarda. Sin traducción en el medio.
+ *
+ * ## Tres estados, no dos
+ *
+ * Una casilla marcada/desmarcada no alcanza: *desmarcado* significa dos cosas
+ * distintas —"su rol no se lo da" y "su rol se lo da y se lo quitamos"— y la
+ * segunda es una fila explícita que hay que poder ver y revertir. Por eso cada
+ * permiso muestra de dónde viene y ofrece la acción que corresponde.
+ *
+ * ## Cada cambio se aplica solo, y no en lote
+ *
+ * La API escribe un permiso por petición y **exige un motivo**. Juntar N
+ * cambios en un botón "Guardar" obligaría a mandar N peticiones y decidir qué
+ * decir cuando la mitad falla — y el camino fácil ahí es avisar éxito igual,
+ * que es exactamente el defecto que esta pantalla tenía. Aplicando de a uno,
+ * lo que se ve marcado es lo que el servidor confirmó.
  */
 export function PermisosUsuarioModal({
   open,
@@ -50,60 +71,74 @@ export function PermisosUsuarioModal({
   user: User | null;
 }) {
   const formId = useId();
-  const { updatePermisos } = useUsers();
   const { mostrarToast } = useToast();
-  const registrar = useRegistrarAuditoria();
 
-  const actuales = useMemo(
-    () => (user ? permisosEfectivos(user.role, user.permisos as Permiso[] | undefined) : []),
-    [user],
-  );
-  const porDefecto = useMemo(() => (user ? PERMISOS_POR_DEFECTO[user.role] : []), [user]);
-
-  const [seleccion, setSeleccion] = useState<Permiso[]>(actuales);
+  const [catalogo, setCatalogo] = useState<PermisoDelCatalogo[] | null>(null);
+  const [permisos, setPermisos] = useState<PermisosDelUsuario | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
+  const [aplicando, setAplicando] = useState<string | null>(null);
   const [motivo, setMotivo] = useState('');
 
-  // Al abrir con otra persona hay que recargar: si no, se arrastra la
-  // selección del usuario anterior y se le aplicarían permisos ajenos.
-  useEffect(() => {
-    if (open) {
-      setSeleccion(actuales);
-      setMotivo('');
+  const tenantId = user?.tenantId ?? null;
+  const userId = user?.id ?? null;
+
+  const cargar = useCallback(async () => {
+    if (!userId || !tenantId) return;
+    setCargando(true);
+    setErrorDeCarga(null);
+    try {
+      const [cat, act] = await Promise.all([
+        cargarCatalogo(tenantId),
+        cargarPermisosDe(userId, tenantId),
+      ]);
+      setCatalogo(cat);
+      setPermisos(act);
+    } catch {
+      // No se deja el catálogo anterior a la vista: sería el de otra persona,
+      // o peor, una lista que ya no refleja lo que el servidor cree.
+      setCatalogo(null);
+      setPermisos(null);
+      setErrorDeCarga('No se pudieron cargar los permisos.');
+    } finally {
+      setCargando(false);
     }
-  }, [open, actuales]);
+  }, [userId, tenantId]);
+
+  // Al abrir con otra persona hay que recargar: si no, se arrastra lo de la
+  // anterior y se estarían mostrando permisos ajenos como si fueran suyos.
+  useEffect(() => {
+    if (!open) return;
+    setMotivo('');
+    setCatalogo(null);
+    setPermisos(null);
+    void cargar();
+  }, [open, cargar]);
 
   if (!user) return null;
 
-  const setActuales = new Set(actuales);
-  const setDefecto = new Set(porDefecto);
-  const hayCambios =
-    seleccion.length !== actuales.length || seleccion.some((p) => !setActuales.has(p));
-  const difiereDelRol =
-    seleccion.length !== porDefecto.length || seleccion.some((p) => !setDefecto.has(p));
+  const motivoValido = motivo.trim().length >= MOTIVO_MINIMO;
 
-  function toggle(permiso: Permiso) {
-    setSeleccion((prev) => (prev.includes(permiso) ? prev.filter((p) => p !== permiso) : [...prev, permiso]));
+  async function aplicar(codigo: string, accion: () => Promise<PermisosDelUsuario>) {
+    setAplicando(codigo);
+    try {
+      // La API devuelve el conjunto entero: se adopta tal cual en vez de
+      // recalcularlo acá, que es como las dos versiones se desincronizan.
+      setPermisos(await accion());
+      setMotivo('');
+    } catch {
+      mostrarToast({
+        tipo: 'error',
+        mensaje: 'El permiso no se pudo cambiar',
+        descripcion: 'Nada quedó guardado. Revisá tu conexión y volvé a intentar.',
+      });
+    } finally {
+      setAplicando(null);
+    }
   }
 
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !hayCambios) return;
-
-    updatePermisos(user.id, seleccion);
-    registrar(eventoCambioDePermisos(user, actuales, seleccion, motivo.trim() || undefined));
-
-    mostrarToast({
-      tipo: 'exito',
-      mensaje: `Permisos de ${user.nombre} actualizados`,
-      descripcion: 'El cambio quedó en su historial con quién lo hizo y por qué.',
-      onUndo: () => {
-        updatePermisos(user.id, actuales);
-        registrar(eventoCambioDePermisos(user, seleccion, actuales, 'Se deshizo el cambio anterior.'));
-      },
-    });
-
-    onOpenChange(false);
-  }
+  const total = catalogo?.length ?? 0;
+  const efectivos = permisos?.permisos.length ?? 0;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -117,8 +152,8 @@ export function PermisosUsuarioModal({
               </Dialog.Title>
               <Dialog.Description className="mt-0.5 text-xs text-slate-500">
                 Rol {ROLE_LABEL[user.role]}
-                {user.descriptorCargo?.cargo ? ` · ${user.descriptorCargo.cargo}` : ''} · Define qué puede hacer en
-                el sistema, más allá de su rol.
+                {user.descriptorCargo?.cargo ? ` · ${user.descriptorCargo.cargo}` : ''} · Cada cambio
+                se guarda al aplicarlo.
               </Dialog.Description>
             </div>
             <Dialog.Close aria-label="Cerrar" className="text-slate-400 hover:text-slate-700">
@@ -126,108 +161,218 @@ export function PermisosUsuarioModal({
             </Dialog.Close>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex-1 overflow-y-auto p-6">
-              {difiereDelRol && (
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-semaforo-parcial/30 bg-semaforo-parcial-bg px-3 py-2">
-                  <p className="text-xs text-slate-700">
-                    Esta configuración se apartó de lo que trae el rol {ROLE_LABEL[user.role]}.
+              {cargando && (
+                <p className="flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Cargando los permisos…
+                </p>
+              )}
+
+              {errorDeCarga && !cargando && (
+                <div className="rounded-lg border border-semaforo-incumple/30 bg-semaforo-incumple-bg p-4">
+                  <p className="flex items-center gap-2 text-sm font-medium text-semaforo-incumple">
+                    <AlertTriangle className="h-4 w-4" aria-hidden />
+                    {errorDeCarga}
+                  </p>
+                  {/* Se dice qué NO se sabe. Mostrar una matriz vacía sería
+                      afirmar que esta persona no tiene ningún permiso. */}
+                  <p className="mt-1 text-xs text-slate-600">
+                    No se muestra nada porque no sabemos qué permisos tiene. Puede seguir
+                    teniéndolos todos.
                   </p>
                   <button
                     type="button"
-                    onClick={() => setSeleccion(porDefecto)}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    onClick={() => void cargar()}
+                    className="mt-2 text-xs font-semibold text-brand-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                   >
-                    <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-                    Restablecer los del rol
+                    Reintentar
                   </button>
                 </div>
               )}
 
-              <div className="flex flex-col gap-5">
-                {gruposDelCatalogo().map((grupo) => (
-                  <fieldset key={grupo}>
-                    <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">{grupo}</legend>
-                    <div className="mt-2 flex flex-col gap-1.5">
-                      {CATALOGO_PERMISOS.filter((p) => p.grupo === grupo).map((p) => {
-                        const marcado = seleccion.includes(p.clave);
-                        const esDefectoDelRol = setDefecto.has(p.clave);
-                        return (
-                          <label
-                            key={p.clave}
-                            className={cn(
-                              'flex cursor-pointer items-start gap-2.5 rounded-lg border p-2.5 transition',
-                              marcado ? 'border-brand-300 bg-brand-50/50' : 'border-slate-200 hover:border-slate-300',
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 h-4 w-4"
-                              checked={marcado}
-                              onChange={() => toggle(p.clave)}
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-sm font-medium text-slate-800">{p.nombre}</span>
-                                {p.sensible && (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-semaforo-parcial-bg px-1.5 py-0.5 text-[10px] font-semibold text-semaforo-parcial">
-                                    <ShieldAlert className="h-3 w-3" aria-hidden />
-                                    Sensible
-                                  </span>
-                                )}
-                                {/* Distinguir el default del cambio manual es lo
-                                    que permite auditar la configuración. */}
-                                {marcado !== esDefectoDelRol && (
-                                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
-                                    {marcado ? 'Concedido aparte' : 'Revocado'}
-                                  </span>
-                                )}
-                              </span>
-                              <span className="mt-0.5 block text-xs text-slate-500">{p.descripcion}</span>
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
-                ))}
-              </div>
+              {catalogo && permisos && (
+                <>
+                  <div className="mb-4">
+                    <FormField
+                      label="Motivo del cambio"
+                      htmlFor={`${formId}-motivo`}
+                      hint={`Obligatorio, mínimo ${MOTIVO_MINIMO} caracteres. Queda en el historial y explica la decisión en una auditoría.`}
+                    >
+                      <Textarea
+                        id={`${formId}-motivo`}
+                        rows={2}
+                        value={motivo}
+                        onChange={(e) => setMotivo(e.target.value)}
+                        placeholder="Ej: asume la aprobación de cierres mientras el jefe de área está de vacaciones."
+                      />
+                    </FormField>
+                  </div>
 
-              <div className="mt-5 border-t border-slate-100 pt-4">
-                <FormField
-                  label="Motivo del cambio"
-                  htmlFor={`${formId}-motivo`}
-                  hint="Queda en el historial. Ayuda a explicar la decisión en una auditoría."
-                >
-                  <Textarea
-                    id={`${formId}-motivo`}
-                    rows={2}
-                    value={motivo}
-                    onChange={(e) => setMotivo(e.target.value)}
-                    placeholder="Ej: asume la aprobación de cierres mientras el jefe de área está de vacaciones."
-                  />
-                </FormField>
-              </div>
+                  <div className="flex flex-col gap-5">
+                    {porModulo(catalogo).map((grupo) => (
+                      <section key={grupo.modulo}>
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {grupo.modulo}
+                        </h3>
+                        <div className="mt-2 flex flex-col gap-1.5">
+                          {grupo.permisos.map((permiso) => (
+                            <FilaDePermiso
+                              key={permiso.codigo}
+                              permiso={permiso}
+                              estado={estadoDe(permiso.codigo, permisos)}
+                              ocupado={aplicando === permiso.codigo}
+                              motivoValido={motivoValido}
+                              onConceder={() =>
+                                userId && tenantId
+                                  ? aplicar(permiso.codigo, () =>
+                                      fijarPermiso(userId, permiso.codigo, true, motivo.trim(), tenantId),
+                                    )
+                                  : undefined
+                              }
+                              onDenegar={() =>
+                                userId && tenantId
+                                  ? aplicar(permiso.codigo, () =>
+                                      fijarPermiso(userId, permiso.codigo, false, motivo.trim(), tenantId),
+                                    )
+                                  : undefined
+                              }
+                              onRestablecer={() =>
+                                userId && tenantId
+                                  ? aplicar(permiso.codigo, () =>
+                                      quitarExcepcion(userId, permiso.codigo, tenantId),
+                                    )
+                                  : undefined
+                              }
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex items-center justify-between gap-2 border-t border-slate-200 p-4">
               <p className="text-xs text-slate-500">
-                {seleccion.length} de {CATALOGO_PERMISOS.length} permisos
+                {catalogo && permisos
+                  ? `${efectivos} de ${total} permisos`
+                  : 'Sin datos de permisos'}
               </p>
-              <div className="flex gap-2">
-                <Dialog.Close asChild>
-                  <Button type="button" variant="secondary">
-                    Cancelar
-                  </Button>
-                </Dialog.Close>
-                <Button type="submit" disabled={!hayCambios}>
-                  Guardar permisos
+              <Dialog.Close asChild>
+                <Button type="button" variant="secondary">
+                  Cerrar
                 </Button>
-              </div>
+              </Dialog.Close>
             </div>
-          </form>
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function FilaDePermiso({
+  permiso,
+  estado,
+  ocupado,
+  motivoValido,
+  onConceder,
+  onDenegar,
+  onRestablecer,
+}: {
+  permiso: PermisoDelCatalogo;
+  estado: EstadoDePermiso;
+  ocupado: boolean;
+  motivoValido: boolean;
+  onConceder: () => void;
+  onDenegar: () => void;
+  onRestablecer: () => void;
+}) {
+  const etiqueta = ETIQUETA[estado];
+  const esExcepcion = estado === 'concedido' || estado === 'denegado';
+
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-3 rounded-lg border p-2.5',
+        esExcepcion ? 'border-brand-300 bg-brand-50/40' : 'border-slate-200',
+      )}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="text-sm font-medium text-slate-800">
+            {permiso.descripcion.trim() || nombreDeRespaldo(permiso.codigo)}
+          </span>
+          {etiqueta && (
+            <span className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-semibold', etiqueta.clase)}>
+              {etiqueta.texto}
+            </span>
+          )}
+        </span>
+        {/* El código va a la vista a propósito: es lo que la API verifica y lo
+            que hay que citar cuando alguien pregunta por qué un 403. */}
+        <code className="mt-0.5 block font-mono text-[11px] text-slate-400">{permiso.codigo}</code>
+      </span>
+
+      <span className="flex shrink-0 items-center gap-1.5">
+        {ocupado ? (
+          <Loader2 className="h-4 w-4 animate-spin text-slate-400" aria-label="Aplicando" />
+        ) : (
+          <>
+            {esExcepcion && (
+              <AccionDeFila onClick={onRestablecer} titulo="Volver a lo que da el rol">
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                Restablecer
+              </AccionDeFila>
+            )}
+            {estado !== 'concedido' && (
+              <AccionDeFila
+                onClick={onConceder}
+                deshabilitado={!motivoValido}
+                titulo={motivoValido ? 'Conceder por encima del rol' : 'Escribí el motivo primero'}
+              >
+                Conceder
+              </AccionDeFila>
+            )}
+            {estado !== 'denegado' && (
+              <AccionDeFila
+                onClick={onDenegar}
+                deshabilitado={!motivoValido}
+                titulo={motivoValido ? 'Denegar aunque el rol lo dé' : 'Escribí el motivo primero'}
+              >
+                Denegar
+              </AccionDeFila>
+            )}
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function AccionDeFila({
+  onClick,
+  deshabilitado,
+  titulo,
+  children,
+}: {
+  onClick: () => void;
+  deshabilitado?: boolean;
+  titulo: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={deshabilitado}
+      title={titulo}
+      className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {children}
+    </button>
   );
 }

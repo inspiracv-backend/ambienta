@@ -80,6 +80,13 @@ SIN_GUARDA_DE_PERMISO: dict[str, str] = {
         "mismo caso que el catalogo: plantillas globales, escritura ya "
         "restringida a Admin Global"
     ),
+    "permissions": (
+        "el catalogo de permisos: una tabla global sin `tenant_id` que dice "
+        "**que permisos existen**, no quien los tiene. Solo se lee. Exigir un "
+        "permiso para leerlo seria ademas incomodo: la pantalla que administra "
+        "permisos lo necesita para poder pintarse, y lo que importa —escribir "
+        "una excepcion— ya exige `role.manage` en `/users/{id}/permissions`"
+    ),
     "webhooks": (
         "quien llama es Clerk, no un usuario. No hay sesion de la cual sacar "
         "permisos; la autenticidad se comprueba con la firma HMAC"

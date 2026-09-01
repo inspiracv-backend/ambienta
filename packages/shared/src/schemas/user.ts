@@ -58,7 +58,6 @@ export const UserSchema = z.object({
    * introducirse el modelo, y "no configurado" se distingue de "todo
    * revocado", que son cosas distintas para quien audita.
    */
-  permisos: z.array(z.string()).optional(),
   plantIds: z.array(z.string()),
   /** RF-11 (v1.7): todo Usuario Interno pertenece obligatoriamente a un Departamento del Perfil Empresa. Null para los demás roles. */
   departamentoId: z.string().nullable(),
