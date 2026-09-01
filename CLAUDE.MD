@@ -774,8 +774,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # PENDIENTE_API
-cd apps/web && npx vitest run           # PENDIENTE_WEB
+cd apps/api && python -m pytest         # 962 pruebas, 60 archivos (8 se saltan: las de B2, opt-in)
+cd apps/web && npx vitest run           # 576 pruebas, 49 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las corre solo)
 ```
 
