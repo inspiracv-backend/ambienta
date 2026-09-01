@@ -28,7 +28,7 @@ export function useCrmPipeline() {
   const { user } = useSession();
   const [pipeline, setPipeline] = useState<Pipeline>(PIPELINE_VACIO);
   const [cargando, setCargando] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const vigente = useRef(true);
 
   useEffect(() => {
@@ -50,14 +50,14 @@ export function useCrmPipeline() {
       });
       if (!vigente.current) return;
       setPipeline(mapPipeline(raw));
-      setError(null);
+      setErrorDeCarga(null);
     } catch (e) {
       if (!vigente.current) return;
       // El pipeline se deja **vacío**, no con lo último conocido: un tablero
       // que sigue mostrando tarjetas cuando la petición falló se lee como el
       // estado actual del negocio.
       setPipeline(PIPELINE_VACIO);
-      setError(mensajeDeError(e));
+      setErrorDeCarga(mensajeDeError(e));
     } finally {
       if (vigente.current) setCargando(false);
     }
@@ -109,7 +109,7 @@ export function useCrmPipeline() {
     [pipeline, user?.tenantId, cargar],
   );
 
-  return { pipeline, cargando, error, mover, recargar: cargar };
+  return { pipeline, cargando, errorDeCarga, mover, recargar: cargar };
 }
 
 /**

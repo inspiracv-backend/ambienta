@@ -13,7 +13,7 @@ function Contenido() {
   const router = useRouter();
   const { user, cargando } = useSession();
   const { tenants } = useTenants();
-  const { equipos, plantas, cargando: cargandoIso, error, truncado } = useIso();
+  const { equipos, plantas, cargando: cargandoIso, errorDeCarga, truncado } = useIso();
 
   useEffect(() => {
     if (!FEATURE_FLAGS.matricesIso) router.replace('/dashboard');
@@ -36,9 +36,9 @@ function Contenido() {
         <h1 className="text-2xl font-semibold text-slate-900">Equipos Regulados</h1>
         <p className="text-sm text-slate-500">{tenant?.nombre}</p>
       </div>
-      {error && (
+      {errorDeCarga && (
         <p role="alert" className="rounded-card bg-semaforo-no-cumple-bg px-4 py-3 text-sm text-semaforo-no-cumple">
-          No se pudieron cargar los datos: {error}
+          No se pudieron cargar los datos: {errorDeCarga}
         </p>
       )}
       {truncado.length > 0 && (
