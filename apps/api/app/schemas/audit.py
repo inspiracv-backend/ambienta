@@ -54,6 +54,10 @@ class AuditItemCreate(BaseModel):
     article_compliance_id: UUID | None = None
     sequence: int
     question: str
+    #: **Faltaba, y por eso `notes` se perdia en silencio.** Arreglar solo el
+    #: esquema anidado dejaba el mismo agujero un nivel mas abajo: el cuerpo lo
+    #: aceptaba, `AuditItemCreate` lo descartaba, y la respuesta salia 201.
+    notes: str | None = None
     auditor_user_id: UUID | None = None
 
 
@@ -73,9 +77,18 @@ class AuditItemRead(OrmBase):
 
 
 class AuditItemUpdate(BaseModel):
+    question: str | None = None
+    #: `conform | nonconform | observation | not_applicable | pending`. Los
+    #: valores son los del CHECK de la tabla, no traducciones.
     result: str | None = None
     notes: str | None = None
-    assessed_at: datetime | None = None
+    auditor_user_id: UUID | None = None
+    article_compliance_id: UUID | None = None
+    #: `assessed_at` **se quito del cuerpo a proposito.** La marca de cuando se
+    #: respondio la pone el servidor: aceptarla permitiria fechar una respuesta
+    #: cuando conviniera, y esa fecha es justo lo que revisa un certificador
+    #: para saber si la auditoria se contesto durante su ejecucion o despues de
+    #: cerrarla.
 
 
 # ── AuditParticipant ──────────────────────────────────────────────────────
@@ -241,11 +254,48 @@ class AuditParticipantCreateAnidado(BaseModel):
 
 
 class AuditItemCreateAnidado(BaseModel):
-    """Cuerpo de `POST /audits/{audit_id}/items`. La auditoria viene del path."""
+    """Cuerpo de `POST /audits/{audit_id}/items`. La auditoria viene del path.
 
-    sequence: int
+    **Nombraba cuatro campos que la tabla no tiene** —`clause_reference`,
+    `article_id`, `result`, `evidence_note`— y `create_audit_item` los pasaba a
+    `AuditItemCreate`, que los descarta. Medido: la API respondia **201** y
+    guardaba `result = 'pending'` aunque se mandara `conform`, y la nota de
+    evidencia desaparecia sin dejar rastro.
+
+    Y faltaba `article_compliance_id`, que es **el vinculo por clausula que
+    RF-92 pide**: sin el no habia forma de decir que requisito legal revisa cada
+    pregunta, ni de calcular cobertura.
+
+    `sequence` pasa a ser opcional: sin el se toma el siguiente. La base lo
+    exige unico por auditoria (`uq_audit_items_seq`), asi que dejarlo siempre en
+    manos de quien llama convierte un olvido en un error de restriccion.
+
+    `result` **no esta a proposito**: una pregunta nace sin responder. Aceptarlo
+    al crear permitiria levantar un checklist ya contestado sin que nadie lo
+    haya recorrido, y la marca de cuando se respondio quedaria vacia.
+    """
+
     question: str
-    clause_reference: str | None = None
-    article_id: UUID | None = None
-    result: str | None = None
-    evidence_note: str | None = None
+    sequence: int | None = None
+    article_compliance_id: UUID | None = None
+    notes: str | None = None
+    auditor_user_id: UUID | None = None
+
+
+class CoberturaDeAuditoria(BaseModel):
+    """Cuanto de lo aplicable miro la auditoria de verdad (RF-93).
+
+    Es el numero que falta para leer un resumen sin equivocarse: sin el, una
+    auditoria que reviso 3 de 50 requisitos y no encontro nada se lee
+    **identica** a una que los reviso los 50 — las dos dicen "0 no conformes".
+    """
+
+    aplicables: int
+    cubiertos: int
+    #: `null` cuando no hay nada aplicable — **no cero**. Un 0 % ahi seria una
+    #: acusacion por algo que no existe, el mismo error del tablero con las
+    #: plantas sin evaluar.
+    porcentaje: float | None
+    #: Preguntas de proceso, sin requisito legal asociado. Van aparte para que
+    #: nadie las confunda con cobertura.
+    items_sin_articulo: int

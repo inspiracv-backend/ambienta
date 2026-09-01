@@ -58,6 +58,10 @@ SUFIJOS_DE_ACCION = (
     # registro de la misma cosa que se desincroniza— asi que no hay nada
     # que listar, leer ni borrar de este lado.
     "/invitacion",
+    # Cuanto de lo aplicable miro una auditoria: una medicion derivada del
+    # checklist, no un recurso. No se crea ni se borra una "cobertura" —
+    # cambia sola al responder preguntas.
+    "/coverage",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )
