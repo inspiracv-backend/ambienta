@@ -236,13 +236,25 @@ export function UsersProvider({ children }: { children: ReactNode }) {
    * entonces esto queda en local y **se dice en pantalla**, en vez de escribir
    * a un campo que no manda.
    */
+  /**
+   * **Esto cambia el tipo de cuenta en la vista, no los permisos.**
+   *
+   * `User.role` sale de `users.user_type` y decide el menú; lo que la guarda de
+   * cada ruta consulta es `user_roles`, que se administra en el modal «Rol»
+   * (`RolDePermisosModal`) contra `PUT /users/{id}/roles`.
+   *
+   * El aviso anterior decía «el cambio de rol no se guardó» y era cierto por
+   * una razón que ya no aplica: `user_roles` no tenía ni una ruta. Ahora la
+   * tiene (#140), así que el mensaje pasa a decir **dónde** se cambia el
+   * permiso en vez de dejar a la persona sin salida.
+   */
   function updateRole(userId: string, role: Role) {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)));
     mostrarToast({
       tipo: 'info',
-      mensaje: 'El cambio de rol no se guardó',
+      mensaje: 'Cambiaste el tipo de cuenta, no los permisos',
       descripcion:
-        'Cambiar el rol de forma permanente todavía no está conectado. El permiso efectivo lo define user_roles en la base.',
+        'Lo que esta persona puede hacer lo decide su rol de permisos. Se asigna en el botón «Rol» de su fila.',
     });
   }
 

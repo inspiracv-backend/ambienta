@@ -210,6 +210,18 @@ export const api = {
   patch<T>(path: string, body: unknown, opts?: RequestOptions) {
     return request<T>('PATCH', path, body, opts);
   },
+  /**
+   * **No existía hasta ahora**, y la API tiene cuatro rutas `PUT`.
+   *
+   * Ninguna se usaba desde el navegador — es la otra cara de que
+   * `updatePermisos` y `updateRole` nunca llegaran a la base.
+   *
+   * `PUT` y no `PATCH` donde el cuerpo describe el **estado final**: fijar los
+   * roles de una persona reemplaza los que tenía, no agrega.
+   */
+  put<T>(path: string, body: unknown, opts?: RequestOptions) {
+    return request<T>('PUT', path, body, opts);
+  },
   delete<T>(path: string, opts?: RequestOptions) {
     return request<T>('DELETE', path, undefined, opts);
   },
