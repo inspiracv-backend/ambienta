@@ -217,6 +217,21 @@ class RegistrarInvitadoPermanente(BaseModel):
     user_type: str = "internal"
 
 
+class InvitacionEnviada(BaseModel):
+    """Lo que quedo hecho al invitar (#139, RF-03).
+
+    No incluye el enlace: Clerk lo manda al correo y **no lo devuelve**, a
+    proposito. Un enlace de un solo uso que pasa por nuestra respuesta queda en
+    los registros de la API y en el historial del navegador de quien invito.
+    """
+
+    user_id: UUID
+    email: str
+    #: El identificador de Clerk, para rastrear la invitacion en su consola sin
+    #: tener que buscarla por correo. `None` si Clerk no lo devolvio.
+    clerk_invitation_id: str | None = None
+
+
 class InvitadoRegistrado(BaseModel):
     user: UserRead
     #: Que paso ademas de crear la cuenta: sus solicitudes cambiaron de dueno y

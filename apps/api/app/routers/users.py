@@ -9,11 +9,14 @@ from ..crud.organization import crud_department, crud_user
 from ..deps import exigir_permiso, get_current_user, get_tenant_db, get_tenant_id
 from ..models.organization import Permission, UserPermission
 from ..services import usuarios as svc_usuarios
+from ..services import invitacion_de_usuario as svc_invitacion
 from ..services import registro_de_invitado as svc_registro
+from ..services.clave_local import ClerkNoDisponible
 from ..services.permisos import excepciones_del_usuario, permisos_de_roles
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, validar_visible
 from ..schemas.organization import (
+    InvitacionEnviada,
     InvitadoRegistrado,
     RegistrarInvitadoPermanente,
     PermisoEfectivo,
@@ -137,6 +140,15 @@ def delete_user(
     borrar_o_404(crud_user, db, user_id, recurso="User")
 
 
+def _traducir_invitacion(exc: svc_invitacion.ErrorDeInvitacion) -> HTTPException:
+    """409 cuando ya esta invitada; 422 cuando el estado no corresponde."""
+    if isinstance(exc, svc_invitacion.YaInvitado):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+    )
+
+
 def _traducir_registro(exc: svc_registro.ErrorDeRegistro) -> HTTPException:
     """Cada negativa a su codigo.
 
@@ -202,6 +214,51 @@ def registrar_invitado_permanente(
     db.commit()
     db.refresh(usuario)
     return InvitadoRegistrado(user=UserRead.model_validate(usuario), efectos=efectos)
+
+
+@router.post(
+    "/{user_id}/invitacion",
+    response_model=InvitacionEnviada,
+    tags=["business-logic"],
+    summary="Invitar por correo a una persona de la empresa",
+    description=(
+        "RF-03: el Admin Empresa registra a la persona y le manda la "
+        "invitacion para que se cree la cuenta.\n\n"
+        "**La emite Clerk, no nosotros.** La identidad la administra Clerk "
+        "(ADR-006) y el signup publico se cierra, asi que la invitacion de "
+        "Clerk **es** el mecanismo: un enlace de un solo uso ligado a ese "
+        "correo, desde un remitente ya verificado.\n\n"
+        "**Lleva el `tenant_id` en `public_metadata`.** Sin eso la persona "
+        "acepta, entra y recibe `403 sesion_sin_empresa` en todo el sistema: "
+        "el claim de empresa sale de ahi. Clerk lo copia al usuario al aceptar, "
+        "asi que es el unico momento de dejarlo puesto sin tocar su consola.\n\n"
+        "Solo se invita a quien **todavia no tiene acceso**. A alguien activo le "
+        "mandaria un enlace que no necesita; a alguien desactivado le devolveria "
+        "el acceso sin pasar por la decision de reactivarlo.\n\n"
+        "Responde **503** si falta `CLERK_SECRET_KEY`: no es un error de lo que "
+        "se mando, sino que la API no puede administrar cuentas."
+    ),
+)
+def invitar_usuario(
+    user_id: UUID,
+    db: Session = Depends(get_tenant_db),
+):
+    try:
+        usuario, respuesta = svc_invitacion.invitar_por_id(db, user_id)
+    except svc_invitacion.ErrorDeInvitacion as exc:
+        raise _traducir_invitacion(exc) from None
+    except ClerkNoDisponible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from None
+
+    return InvitacionEnviada(
+        user_id=usuario.id,
+        email=usuario.email,
+        # El identificador que devuelve Clerk, para poder rastrear la invitacion
+        # en su consola sin buscarla por correo.
+        clerk_invitation_id=str(respuesta.get("id") or "") or None,
+    )
 
 
 # ── Permisos (RF-08, RF-12) ───────────────────────────────────────────────

@@ -53,6 +53,11 @@ SUFIJOS_DE_ACCION = (
     # ya existen y pasa la ficha de prospecto a cliente. No crea el contrato
     # —eso exige que el cliente ya sea un tenant— ni hay nada que listar.
     "/promover",
+    # Invitar no es crear un recurso "invitacion": la emite Clerk y vive en
+    # su lado. Nosotros no la guardamos —duplicarla seria un segundo
+    # registro de la misma cosa que se desincroniza— asi que no hay nada
+    # que listar, leer ni borrar de este lado.
+    "/invitacion",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )
