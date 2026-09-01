@@ -9,10 +9,13 @@ from ..crud.organization import crud_department, crud_user
 from ..deps import exigir_permiso, get_current_user, get_tenant_db, get_tenant_id
 from ..models.organization import Permission, UserPermission
 from ..services import usuarios as svc_usuarios
+from ..services import registro_de_invitado as svc_registro
 from ..services.permisos import excepciones_del_usuario, permisos_de_roles
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, validar_visible
 from ..schemas.organization import (
+    InvitadoRegistrado,
+    RegistrarInvitadoPermanente,
     PermisoEfectivo,
     PermisoIndividual,
     PermisosDelUsuario,
@@ -132,6 +135,73 @@ def delete_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     _rechazar_si_deja_sin_vuelta(db, obj, tenant_id, actual)
     borrar_o_404(crud_user, db, user_id, recurso="User")
+
+
+def _traducir_registro(exc: svc_registro.ErrorDeRegistro) -> HTTPException:
+    """Cada negativa a su codigo.
+
+    **409 cuando el cuerpo esta bien y el estado no corresponde** —la credencial
+    ya revocada, el correo ya tomado—: son peticiones legitimas y no hay nada
+    que corregir en lo que se mando. **422 cuando falta un dato**, que es lo
+    unico que quien llama puede arreglar.
+    """
+    if isinstance(
+        exc, (svc_registro.CredencialYaRevocada, svc_registro.CorreoYaRegistrado)
+    ):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+    )
+
+
+@router.post(
+    "/desde-invitado",
+    response_model=InvitadoRegistrado,
+    status_code=status.HTTP_201_CREATED,
+    tags=["business-logic"],
+    summary="Registrar de forma permanente a un Cliente Invitado",
+    description=(
+        "RF-03: quien entro por el acceso de invitado y quiere quedarse, lo "
+        "registra el Admin Empresa.\n\n"
+        "**No es cambiarle el rol a un usuario que ya existe.** Un invitado no "
+        "es una fila de `users`: vive en `guest_credentials` con su RUT y su "
+        "clave, y es el segundo emisor de identidad del sistema. Registrarlo es "
+        "**crear a la persona** y llevarse consigo lo que ya hizo.\n\n"
+        "Pasan tres cosas, y las tres se informan en `efectos`: se crea la "
+        "cuenta, **sus solicitudes pasan a ser suyas** —si no, entraria y no "
+        "veria lo que ella misma abrio— y **se revoca su acceso de invitado**, "
+        "porque el sentido de registrarse es dejar de serlo.\n\n"
+        "El nombre y el correo salen de sus solicitudes; la credencial solo "
+        "guarda el RUT. Si nunca abrio ninguna, hay que indicarlos."
+    ),
+)
+def registrar_invitado_permanente(
+    datos: RegistrarInvitadoPermanente,
+    db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    # `department_id` viene del cuerpo: las claves foraneas **no pasan por
+    # RLS**, asi que sin esto una empresa podria colgar a su gente del
+    # departamento de otra. La credencial la comprueba el servicio, que la lee
+    # con la sesion del tenant.
+    validar_visible(crud_department, db, datos.department_id, campo="department_id")
+
+    try:
+        usuario, efectos = svc_registro.registrar_permanente(
+            db,
+            tenant_id,
+            datos.guest_credential_id,
+            datos.department_id,
+            full_name=datos.full_name,
+            email=datos.email,
+            user_type=datos.user_type,
+        )
+    except svc_registro.ErrorDeRegistro as exc:
+        raise _traducir_registro(exc) from None
+
+    db.commit()
+    db.refresh(usuario)
+    return InvitadoRegistrado(user=UserRead.model_validate(usuario), efectos=efectos)
 
 
 # ── Permisos (RF-08, RF-12) ───────────────────────────────────────────────

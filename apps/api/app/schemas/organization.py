@@ -191,6 +191,41 @@ class UserUpdate(BaseModel):
     preferences: dict | None = None
 
 
+class RegistrarInvitadoPermanente(BaseModel):
+    """Convertir a un Cliente Invitado en usuario de la empresa (RF-03).
+
+    `guest_credential_id` identifica a la persona: es lo unico que el acceso de
+    invitado guarda de ella, junto con el RUT.
+
+    `full_name` y `email` son opcionales — salen de sus solicitudes si no
+    llegan. Se aceptan porque quien administra puede tener que corregir el dato:
+    la persona pudo escribir mal su correo al abrir la solicitud, y obligarla a
+    arrastrar ese error seria absurdo.
+
+    `department_id` **no** es opcional: la base exige departamento a los tipos
+    `internal` y `tenant_admin` (RF-11), asi que sin el la fila la rechaza
+    Postgres con un error que no se lee como lo que es.
+    """
+
+    guest_credential_id: UUID
+    department_id: UUID
+    full_name: str | None = None
+    email: str | None = None
+    #: `internal` por defecto. Registrar a alguien que venia de afuera como
+    #: administrador de la empresa deberia ser un acto deliberado, no el camino
+    #: mas corto.
+    user_type: str = "internal"
+
+
+class InvitadoRegistrado(BaseModel):
+    user: UserRead
+    #: Que paso ademas de crear la cuenta: sus solicitudes cambiaron de dueno y
+    #: su acceso de invitado quedo revocado. Se devuelve para que la pantalla lo
+    #: diga, en vez de que la persona lo descubra cuando el enlace deja de
+    #: funcionarle.
+    efectos: list[str] = Field(default_factory=list)
+
+
 # ── Role ──────────────────────────────────────────────────────────────────
 
 class RoleCreate(BaseModel):

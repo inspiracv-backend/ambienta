@@ -41,6 +41,20 @@ class SupportTicket(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     )
     guest_name: Mapped[str | None] = mapped_column(String(180))
     guest_email: Mapped[str | None] = mapped_column(CITEXT)
+    #: De que credencial de invitado salio el ticket.
+    #:
+    #: **Existia en la base y no estaba mapeado**, asi que solo se podia
+    #: consultar con SQL crudo desde `acceso_invitado.py`. Hace falta aca para
+    #: RF-03: registrar de forma permanente a un invitado exige encontrar sus
+    #: tickets, que es de donde salen su nombre y su correo — la credencial solo
+    #: guarda el RUT y la clave.
+    #:
+    #: **Sin `ForeignKey` en el mapeo, y no es un olvido.** `guest_credentials`
+    #: no tiene modelo ORM —el modulo de invitados la trata con SQL crudo— asi
+    #: que SQLAlchemy no puede resolver el destino y falla al configurar los
+    #: mapeos. La restriccion existe en Postgres, que es donde tiene que estar:
+    #: un `UPDATE` a mano tambien la respeta.
+    guest_credential_id: Mapped[PyUUID | None] = mapped_column(UUID(as_uuid=True))
     category: Mapped[str] = mapped_column(String(32), nullable=False)
     subject: Mapped[str] = mapped_column(String(240), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
