@@ -1,7 +1,7 @@
 """CRM simplificado: empresas, contactos, pipeline y actividades (epica #32)."""
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..crud.crm import (
@@ -41,6 +41,7 @@ from ..schemas.crm import (
 )
 from ..services import crm as svc
 from ._comun import borrar_o_404, obtener_o_404, validar_visible
+from ._paginacion import POR_DEFECTO, TOPE_DE_PAGINA, Pagina, paginacion, recortar
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 
@@ -154,13 +155,21 @@ def delete_stage(stage_id: UUID, db: Session = Depends(get_tenant_db)):
         "hace negocio — la mayoria sin cuenta."
     ),
 )
-def list_companies(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
+def list_companies(
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    db: Session = Depends(get_tenant_db),
+):
     """Prospectos y clientes.
 
     **No son `tenants`.** `tenants` son las empresas que usan la plataforma;
     estas son con las que la empresa hace negocio, y la mayoria no tiene cuenta.
     """
-    return crud_crm_company.get_multi(db, skip=skip, limit=limit)
+    return recortar(
+        respuesta,
+        crud_crm_company.get_multi(db, skip=pagina.skip, limit=pagina.pedir),
+        pagina,
+    )
 
 
 @router.post(
@@ -239,8 +248,16 @@ def delete_company(company_id: UUID, db: Session = Depends(get_tenant_db)):
     summary="Contactos del CRM",
     description="Las personas de las empresas con las que se hace negocio.",
 )
-def list_contacts(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_crm_contact.get_multi(db, skip=skip, limit=limit)
+def list_contacts(
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    db: Session = Depends(get_tenant_db),
+):
+    return recortar(
+        respuesta,
+        crud_crm_contact.get_multi(db, skip=pagina.skip, limit=pagina.pedir),
+        pagina,
+    )
 
 
 @router.post(
@@ -323,8 +340,16 @@ def delete_contact(contact_id: UUID, db: Session = Depends(get_tenant_db)):
         "las trae ya agrupadas por columna y con los totales."
     ),
 )
-def list_deals(skip: int = 0, limit: int = 100, db: Session = Depends(get_tenant_db)):
-    return crud_crm_deal.get_multi(db, skip=skip, limit=limit)
+def list_deals(
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    db: Session = Depends(get_tenant_db),
+):
+    return recortar(
+        respuesta,
+        crud_crm_deal.get_multi(db, skip=pagina.skip, limit=pagina.pedir),
+        pagina,
+    )
 
 
 @router.post(
@@ -508,7 +533,15 @@ def promover_a_contrato(
 def list_activities(
     deal_id: UUID | None = None,
     company_id: UUID | None = None,
-    limit: int = 100,
+    # Acotado, pero **sin `skip`**: `linea_de_tiempo` no tiene desplazamiento,
+    # asi que aceptar uno seria un parametro que se ignora en silencio. Lo que
+    # esto impide es lo unico que estaba abierto — pedir la tabla entera.
+    limit: int = Query(
+        default=POR_DEFECTO,
+        ge=1,
+        le=TOPE_DE_PAGINA,
+        description=f'Cuantas actividades devolver, hasta {TOPE_DE_PAGINA}.',
+    ),
     db: Session = Depends(get_tenant_db),
     tenant_id: UUID = Depends(get_tenant_id),
 ):
