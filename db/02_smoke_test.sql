@@ -31,10 +31,26 @@ FROM (VALUES
     ('22222222-2222-2222-2222-222222222222', '76.222.222-2', 'Empresa B')
 ) AS v(id, rut, nombre);
 
-INSERT INTO users (id, tenant_id, email, full_name, user_type, status)
+-- Un departamento por empresa, ANTES de las personas.
+--
+-- `ck_users_interno_con_departamento` (migracion 13, RF-11) exige que todo
+-- usuario `internal` o `tenant_admin` pertenezca a un departamento. Sin esto el
+-- smoke test entero revienta en su tercer INSERT — que es exactamente lo que
+-- pasaba: la migracion entro y **nadie volvio a correr este archivo**, asi que
+-- el rollback silencioso duro hasta que #55 lo puso en CI.
+
+INSERT INTO departments (id, tenant_id, code, name)
+VALUES ('aaaaaaaa-0000-0000-0000-0000000000de', '11111111-1111-1111-1111-111111111111',
+        'DEP-01', 'Medio Ambiente'),
+       ('bbbbbbbb-0000-0000-0000-0000000000de', '22222222-2222-2222-2222-222222222222',
+        'DEP-01', 'Medio Ambiente');
+
+INSERT INTO users (id, tenant_id, department_id, email, full_name, user_type, status)
 VALUES ('aaaaaaaa-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+        'aaaaaaaa-0000-0000-0000-0000000000de',
         'ana@empresa-a.cl', 'Ana Perez', 'tenant_admin', 'active'),
        ('bbbbbbbb-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222',
+        'bbbbbbbb-0000-0000-0000-0000000000de',
         'beto@empresa-b.cl', 'Beto Soto', 'tenant_admin', 'active');
 
 INSERT INTO facilities (id, tenant_id, code, name, facility_type)

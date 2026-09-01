@@ -199,7 +199,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 
 | Area | Estado |
 |---|---|
-| Base de datos | **Completa y verificada.** 52 tablas, 38 con RLS, 9 smoke tests en verde |
+| Base de datos | **Completa y verificada, y ahora CI lo comprueba** (#55). 52 tablas, 38 con RLS, 9 smoke tests en verde. Hasta el 31-ago esta linea se sostenia sola: `02_smoke_test.sql` **reventaba en su tercer INSERT** desde que la migracion 13 exigio departamento a los usuarios, y como no lo corria nada, nadie se entero. Ahora corre en el job de API, antes de pytest |
 | API | **109 rutas, 225 operaciones.** Swagger con titulo y explicacion en **las 223 de negocio, sin excepciones**. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
 | Auth — Google SSO | **Verificado en local el 17-ago.** Entrada con `oauth_google`, el claim `tenant_id` viaja y la API responde 200. **Falta para produccion:** credenciales propias (hoy usa las compartidas de Clerk) y el webhook. Ver abajo |
@@ -720,9 +720,9 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 671 pruebas, 41 archivos
-cd apps/web && npx vitest run           # 484 pruebas, 40 archivos
-bash db/run.sh --with-tests             # 9 comprobaciones del esquema
+cd apps/api && python -m pytest         # PENDIENTE_API
+cd apps/web && npx vitest run           # PENDIENTE_WEB
+bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las corre solo)
 ```
 
 Las pruebas marcadas `red` **salen a internet y se saltan por defecto**: una
