@@ -6,6 +6,7 @@ from sqlalchemy import select, and_, func
 from sqlalchemy.orm import Session
 
 from ..models.audit import ActionPlan, Audit, AuditItem, Nonconformity
+from ..models.compliance import ArticleCompliance
 
 
 AUDIT_STATUS_TRANSITIONS = {
@@ -138,3 +139,111 @@ def verify_action_plan(
     db.flush()
     db.refresh(plan)
     return plan
+
+
+# ── Checklist de la auditoria y su cobertura (#36, RF-92/RF-93) ───────────
+
+#: Cuantos items del checklist se devuelven. Un checklist se recorre en orden y
+#: se responde punto por punto; con mas de esto no es un checklist, es otra
+#: cosa. **Lo que se corta se dice** (`truncado`): una lista cortada en silencio
+#: se lee como "esto es todo lo que hay que revisar", que sobre una auditoria es
+#: exactamente la lectura que no puede darse.
+TOPE_DE_ITEMS = 500
+
+
+class ErrorDeChecklist(Exception):
+    """La operacion pedida sobre el checklist no corresponde."""
+
+
+class SecuenciaRepetida(ErrorDeChecklist):
+    """Ese numero de orden ya existe en la auditoria."""
+
+
+def items_de(db: Session, audit_id: UUID) -> tuple[list, bool]:
+    """El checklist en su orden, y si se corto.
+
+    Se ordena por `sequence` y no por fecha de creacion: el orden del checklist
+    es parte del checklist — quien audita lo recorre de arriba abajo, y una
+    pregunta fuera de sitio se salta.
+    """
+    filas = list(
+        db.scalars(
+            select(AuditItem)
+            .where(
+                AuditItem.audit_id == audit_id,
+                AuditItem.deleted_at.is_(None),
+            )
+            .order_by(AuditItem.sequence)
+            .limit(TOPE_DE_ITEMS + 1)
+        ).all()
+    )
+    return filas[:TOPE_DE_ITEMS], len(filas) > TOPE_DE_ITEMS
+
+
+def siguiente_secuencia(db: Session, audit_id: UUID) -> int:
+    """El numero que sigue, para no obligar a llevarlo a mano.
+
+    `uq_audit_items_seq` lo exige unico por auditoria, asi que dejarlo en manos
+    de quien llama convierte un olvido en un error de restriccion.
+    """
+    ultimo = db.scalar(
+        select(func.max(AuditItem.sequence)).where(AuditItem.audit_id == audit_id)
+    )
+    return (ultimo or 0) + 1
+
+
+def cobertura(db: Session, audit: Audit) -> dict:
+    """**Cuanto de lo aplicable miro esta auditoria de verdad.**
+
+    Es el numero que falta para leer un resumen sin equivocarse. Sin el, una
+    auditoria que reviso 3 de 50 requisitos y no encontro nada se lee
+    **identica** a una que los reviso los 50 — las dos dicen "0 no conformes".
+
+    El denominador son los articulos evaluados de la planta auditada; si la
+    auditoria no declara planta, los de toda la empresa. El numerador son los
+    **distintos** articulos que algun item del checklist referencia: dos
+    preguntas sobre el mismo articulo no lo cubren dos veces.
+
+    Los items **sin** articulo asociado no restan ni suman: son preguntas de
+    proceso, legitimas, que no corresponden a un requisito legal concreto. Se
+    informan aparte para que nadie las confunda con cobertura.
+    """
+    aplicables = select(func.count(func.distinct(ArticleCompliance.id))).where(
+        ArticleCompliance.tenant_id == audit.tenant_id,
+        ArticleCompliance.deleted_at.is_(None),
+    )
+    if audit.facility_id is not None:
+        aplicables = aplicables.where(
+            ArticleCompliance.facility_id == audit.facility_id
+        )
+    total = db.scalar(aplicables) or 0
+
+    # **Sin `is_not(None)`, y no es un olvido.** `count(distinct x)` ya ignora
+    # los nulos —medido: sobre `(1,1,null,null,2)` devuelve 2— asi que el
+    # filtro no puede cambiar el resultado. Lo delato una mutacion que
+    # sobrevivio: quitarlo no rompia ninguna prueba, porque no hacia nada.
+    # Una condicion que no puede alterar la respuesta se lee como proteccion.
+    cubiertos = db.scalar(
+        select(func.count(func.distinct(AuditItem.article_compliance_id))).where(
+            AuditItem.audit_id == audit.id,
+            AuditItem.deleted_at.is_(None),
+        )
+    ) or 0
+
+    sin_articulo = db.scalar(
+        select(func.count(AuditItem.id)).where(
+            AuditItem.audit_id == audit.id,
+            AuditItem.deleted_at.is_(None),
+            AuditItem.article_compliance_id.is_(None),
+        )
+    ) or 0
+
+    return {
+        "aplicables": total,
+        "cubiertos": cubiertos,
+        # **`None` y no cero cuando no hay nada aplicable.** Un 0 % ahi seria
+        # una acusacion contra la empresa por algo que no existe: es el mismo
+        # error del tablero con las plantas sin evaluar.
+        "porcentaje": round(cubiertos * 100 / total, 1) if total else None,
+        "items_sin_articulo": sin_articulo,
+    }

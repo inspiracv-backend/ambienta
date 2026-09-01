@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -10,6 +11,8 @@ from ..crud.audit import (
     crud_nonconformity,
 )
 from ..deps import get_tenant_db, get_tenant_id
+from ..services import audits as svc_audits
+from ..crud.compliance import crud_article_compliance
 from ..crud.organization import crud_user
 from ..models.audit import AuditItem, AuditParticipant
 from ._paginacion import Pagina, paginacion, recortar
@@ -23,6 +26,7 @@ from ._comun import (
 )
 from ..schemas.audit import (
     AuditItemUpdate,
+    CoberturaDeAuditoria,
     AuditItemRead,
     AuditItemCreate,
     AuditItemCreateAnidado,
@@ -279,6 +283,28 @@ def get_participant(audit_id: UUID, user_id: UUID, db: Session = Depends(get_ten
     return obj
 
 
+@router.get(
+    "/{audit_id}/coverage",
+    response_model=CoberturaDeAuditoria,
+    tags=["business-logic"],
+    summary="Cuanto de lo aplicable miro esta auditoria",
+    description=(
+        "**El numero que falta para leer un resumen sin equivocarse.** Sin "
+        "cobertura, una auditoria que reviso 3 de 50 requisitos y no encontro "
+        "nada se lee identica a una que los reviso los 50: las dos dicen "
+        "«0 no conformes».\n\n"
+        "El denominador son los articulos evaluados de la planta auditada, o "
+        "los de toda la empresa si la auditoria no declara planta. El numerador "
+        "son los **distintos** articulos que el checklist referencia: dos "
+        "preguntas sobre el mismo articulo no lo cubren dos veces.\n\n"
+        "`porcentaje` es `null` —no cero— cuando no hay nada aplicable."
+    ),
+)
+def cobertura_de_auditoria(audit_id: UUID, db: Session = Depends(get_tenant_db)):
+    auditoria = obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    return CoberturaDeAuditoria(**svc_audits.cobertura(db, auditoria))
+
+
 # ── Hallazgos de una auditoria ─────────────────────────────────────────────
 
 @router.get("/{audit_id}/items", response_model=list[AuditItemRead], tags=["audits"])
@@ -295,8 +321,27 @@ def create_audit_item(
     db: Session = Depends(get_tenant_db),
 ):
     obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    # Claves foraneas del cuerpo: **no pasan por RLS**. Sin esto, una empresa
+    # podria colgar su pregunta de la evaluacion de otra — la misma fuga que ya
+    # se midio en `POST /obligations/`.
+    validar_visible(
+        crud_article_compliance,
+        db,
+        data.article_compliance_id,
+        campo="article_compliance_id",
+    )
+    validar_visible(crud_user, db, data.auditor_user_id, campo="auditor_user_id")
+
     datos = data.model_dump()
     datos["audit_id"] = audit_id
+    if datos.get("sequence") is None:
+        datos["sequence"] = svc_audits.siguiente_secuencia(db, audit_id)
+
+    # Una `sequence` repetida la rechaza `uq_audit_items_seq`, y el manejador
+    # global de `IntegrityError` ya la traduce a **409 nombrando la
+    # restriccion**. No se envuelve aca: `CRUDBase.create` hace `flush` por
+    # dentro, asi que el error salta antes de este punto y un `try` alrededor
+    # del `commit` seria una guarda que nunca se cumple — proteccion aparente.
     obj = crud_audit_item.create(db, obj_in=AuditItemCreate(**datos), tenant_id=tenant_id)
     db.commit()
     return obj
@@ -312,7 +357,26 @@ def get_audit_item(audit_id: UUID, item_id: UUID, db: Session = Depends(get_tena
 def update_audit_item(audit_id: UUID, item_id: UUID, data: AuditItemUpdate, db: Session = Depends(get_tenant_db)):
     obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
     verificar_padre(obj, audit_id, campo="audit_id")
+    validar_visible(
+        crud_article_compliance,
+        db,
+        data.article_compliance_id,
+        campo="article_compliance_id",
+    )
+    validar_visible(crud_user, db, data.auditor_user_id, campo="auditor_user_id")
+
     obj = crud_audit_item.update(db, db_obj=obj, obj_in=data)
+    # **Al responder se anota cuando.** Sin esa marca no se puede decir si la
+    # auditoria se contesto durante su ejecucion o despues de cerrarla, que es
+    # justo lo que revisa un certificador. La pone el servidor: por eso
+    # `assessed_at` no esta en el cuerpo.
+    if data.result is not None and data.result != "pending":
+        obj.assessed_at = datetime.now(timezone.utc)
+
+    # **Sin `db.refresh()` despues del commit.** El commit cierra la
+    # transaccion y con ella se va el tenant declarado, asi que la recarga ve
+    # cero filas y revienta con `Could not refresh instance`. El objeto ya
+    # tiene los valores que se le pusieron; no hay nada que volver a leer.
     db.commit()
     return obj
 
