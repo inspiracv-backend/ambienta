@@ -65,6 +65,23 @@ class SesionQueCompila:
         )
         return res
 
+    def scalars(self, stmt):
+        """La tercera coleccion (#48) consulta con `scalars`, no con `execute`.
+
+        Se compila igual: el objetivo de esta clase es que **toda** consulta del
+        servicio pase por el dialecto de Postgres, y una que no lo haga
+        volveria a dejar el hueco que estas pruebas existen para tapar.
+
+        Devuelve vacio, asi que la segunda consulta —la de operadores— no llega
+        a construirse aca. Esa tiene cobertura contra la base real en
+        `test_equipos_vencimientos.py`, que es mas fuerte que compilarla.
+        """
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        self.sql.append(sql)
+        res = MagicMock()
+        res.all.return_value = []
+        return res
+
 
 def _articulo(numero="4", evidencia=None, planta="Planta Calama"):
     """Una fila del SELECT de articulos, en el orden en que el servicio la lee."""
@@ -110,8 +127,16 @@ class TestLasConsultasSiguenSiendoValidas:
 
         svc.listar(db, TENANT, AHORA)
 
-        assert len(db.sql) == 2, "se esperaban dos consultas"
+        assert len(db.sql) == 3, (
+            "se esperaban tres consultas: articulos, declaraciones y equipos"
+        )
         assert all("SELECT" in s for s in db.sql)
+        # **Que consultan** y no solo cuantas son: un conteo solo hay que
+        # actualizarlo cada vez y no dice nada: pasaria igual si las tres
+        # miraran la misma tabla.
+        juntas = " ".join(db.sql)
+        for tabla in ("article_compliance", "obligations", "regulated_equipment"):
+            assert tabla in juntas, f"ninguna consulta mira {tabla}"
 
     def test_la_consulta_de_articulos_SELECCIONA_la_evidencia(self) -> None:
         """Sin esta columna la pantalla no puede enlazar a nada — que es #126.

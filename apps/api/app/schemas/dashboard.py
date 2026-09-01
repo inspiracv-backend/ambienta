@@ -1,5 +1,5 @@
 """Contrato del Dashboard. De aca sale el OpenAPI que consume el frontend."""
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -128,21 +128,44 @@ class DeclaracionVencida(BaseModel):
     days_overdue: int | None
 
 
+class EquipoSinOperadorHabilitado(BaseModel):
+    """Un equipo regulado en operacion que hoy nadie puede operar (#48).
+
+    `motivo` distingue dos situaciones que se arreglan distinto: `sin_operador`
+    (no hay nadie asignado) y `certificacion_vencida` (hay gente y a toda se le
+    vencio). Mezclarlas obligaria a abrir cada equipo para saber cual es.
+    """
+
+    equipment_id: UUID
+    facility_id: UUID
+    name: str
+    equipment_type: str
+    motivo: str
+    operadores_asignados: int
+    #: La certificacion mas nueva de sus operadores, si alguna tiene fecha. Es
+    #: lo que dice hace cuanto vencio.
+    ultima_certificacion: date | None
+
+
 class Incumplimientos(BaseModel):
     """Lo que la empresa esta incumpliendo ahora mismo.
 
-    Las dos colecciones van separadas a proposito: un articulo incumplido se
-    resuelve con un plan de accion y una declaracion vencida se resuelve
-    presentandola. Mezclarlas haria que la urgencia de una tapara la de la otra.
+    Las tres colecciones van separadas a proposito, porque se resuelven de tres
+    maneras distintas: un articulo incumplido con un plan de accion, una
+    declaracion vencida presentandola, y un equipo sin operador habilitado
+    asignando a alguien o renovandole la certificacion. Mezclarlas haria que la
+    urgencia de una tapara la de las otras.
     """
 
     generated_at: datetime
     articles: list[ArticuloEnIncumplimiento]
     declarations: list[DeclaracionVencida]
+    equipment: list[EquipoSinOperadorHabilitado] = Field(default_factory=list)
     #: `true` = la lista se corto en el tope. **Se dice en vez de truncar en
     #: silencio:** una lista cortada sin avisar se lee como "esto es todo".
     articles_truncated: bool
     declarations_truncated: bool
+    equipment_truncated: bool = False
     #: Cuantos de los articulos listados no tienen evidencia. Va aparte para que
     #: la pantalla no tenga que recorrer la lista para saberlo.
     articles_without_evidence: int
