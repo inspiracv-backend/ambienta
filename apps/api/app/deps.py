@@ -126,13 +126,48 @@ def get_tenant_id(user: CurrentUser = Depends(get_current_user)) -> UUID:
         ) from None
 
 
-def _declarar(db: Session, tenant_id: UUID) -> None:
-    """Deja la sesion corriendo como `ambienta_app` con el tenant declarado."""
-    db.execute(text("SET LOCAL ROLE ambienta_app"))
+def declarar(db: Session, tenant_id: UUID, *, toda_la_sesion: bool = False) -> None:
+    """Deja la sesion corriendo como `ambienta_app` con el tenant declarado.
+
+    Publica, y no `_declarar`, porque tambien la usan las tareas programadas
+    (`app/tareas/avisos.py`): un cron que recorre empresas necesita declarar
+    contexto igual que un request. La alternativa era copiar las dos sentencias
+    alla, y **duplicar la declaracion de RLS es peor que exportarla** — el dia
+    que cambie la forma de declarar, una de las dos copias se queda vieja y
+    nada avisa.
+
+    Ojo con el alcance. Por defecto `SET LOCAL` dura lo que dure la
+    transaccion, que es lo correcto para un request: cada uno declara su
+    empresa y al terminar no queda nada pegado a la conexion.
+
+    **`toda_la_sesion=True` es para las tareas que hacen commit a mitad de
+    camino.** El despachador de avisos confirma cada aviso por separado, y con
+    `SET LOCAL` el segundo commit lo dejaria sin empresa declarada: `tomar_uno`
+    devolveria cero filas y la tarea terminaria "sin nada que hacer" habiendo
+    despachado uno solo. Medido: tras el commit el rol sigue siendo
+    `ambienta_app` —la conexion ya es de ese usuario— y lo unico que se pierde
+    es `ambienta.tenant_id`. Falla cerrado, pero falla en silencio.
+
+    Quien la use asi **tiene que llamar a `olvidar()` al terminar**: un ajuste
+    de sesion sobrevive a la conexion cuando vuelve al pool.
+    """
+    alcance_local = not toda_la_sesion
+    db.execute(text("SET LOCAL ROLE ambienta_app" if alcance_local else "SET ROLE ambienta_app"))
     db.execute(
-        text("SELECT set_config('ambienta.tenant_id', :tid, true)"),
-        {"tid": str(tenant_id)},
+        text("SELECT set_config('ambienta.tenant_id', :tid, :local)"),
+        {"tid": str(tenant_id), "local": alcance_local},
     )
+
+
+def olvidar(db: Session) -> None:
+    """Deja la conexion sin empresa declarada.
+
+    Solo hace falta despues de `declarar(..., toda_la_sesion=True)`. Sin esto,
+    la conexion vuelve al pool con una empresa pegada y la siguiente consulta
+    que no declare contexto —el catalogo global, un health check— la hereda.
+    """
+    db.execute(text("SELECT set_config('ambienta.tenant_id', '', false)"))
+    db.execute(text("RESET ROLE"))
 
 
 def get_tenant_db(
@@ -157,7 +192,7 @@ def get_tenant_db(
     el contexto muere con la sesion, asi que **una sesion no puede heredar el
     actor de otro request**.
     """
-    _declarar(db, tenant_id)
+    declarar(db, tenant_id)
     db.info[CONTEXTO_DE_AUDITORIA] = {
         "tenant_id": tenant_id,
         # El id de Clerk, no el nuestro. Traducirlo cuesta una consulta y solo
@@ -201,7 +236,7 @@ def sesion_publica_de_empresa(
     Se usa **solo** en el router de acceso de invitado. Cualquier otro uso hay
     que justificarlo igual de explicito que `get_admin_db`.
     """
-    _declarar(db, empresa_id)
+    declarar(db, empresa_id)
     yield db
 
 
@@ -238,7 +273,7 @@ def get_invitado_actual(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    _declarar(db, sesion.tenant_id)
+    declarar(db, sesion.tenant_id)
 
     if credencial_vigente(db, sesion.tenant_id, sesion.credencial_id) is None:
         raise HTTPException(

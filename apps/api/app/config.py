@@ -57,6 +57,20 @@ class Settings(BaseSettings):
     #: endpoint que no siga ese formato.
     storage_region: str = "us-east-005"
 
+    # Correo transaccional (RF-32, #122). Sin llave no hay transporte: los
+    # correos esperan encolados sin gastar intentos y las notificaciones in-app
+    # se entregan igual. Escribir el correo a un log y darlo por entregado
+    # produciria el peor resultado de este dominio — la empresa cree que le
+    # avisaron.
+    resend_api_key: str = ""
+    #: Direccion del remitente, con el formato que acepta Resend:
+    #: `Ambienta <avisos@dominio.cl>`. **El dominio tiene que estar verificado
+    #: en Resend**, si no responde 403 y el despacho se corta.
+    correo_remitente: str = ""
+    #: Adonde contesta quien responde el aviso. Vacio = al remitente, que suele
+    #: ser un buzon que nadie lee.
+    correo_responder_a: str = ""
+
     # Origenes permitidos por CORS, separados por coma.
     cors_origins: str = "http://localhost:3000"
 

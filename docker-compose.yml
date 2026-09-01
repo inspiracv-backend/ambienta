@@ -67,6 +67,8 @@ services:
       - ./db/16_evidencia_del_articulo.sql:/docker-entrypoint-initdb.d/16-evidencia-articulo.sql:ro
       - ./db/17_avisos_sin_duplicados.sql:/docker-entrypoint-initdb.d/17-avisos-sin-duplicados.sql:ro
       - ./db/18_control_documental.sql:/docker-entrypoint-initdb.d/18-control-documental.sql:ro
+      - ./db/19_despacho_de_avisos.sql:/docker-entrypoint-initdb.d/19-despacho-de-avisos.sql:ro
+      - ./db/20_plantillas_de_correo.sql:/docker-entrypoint-initdb.d/20-plantillas-de-correo.sql:ro
       - ./db/21_significancia_del_aspecto.sql:/docker-entrypoint-initdb.d/21-significancia-del-aspecto.sql:ro
       - ./db/22_crm.sql:/docker-entrypoint-initdb.d/22-crm.sql:ro
       - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
@@ -129,6 +131,13 @@ services:
       STORAGE_BUCKET: ${STORAGE_BUCKET:-}
       STORAGE_KEY_ID: ${STORAGE_KEY_ID:-}
       STORAGE_KEY: ${STORAGE_KEY:-}
+      # Correo transaccional (#122). Vacias por defecto: sin ellas los correos
+      # quedan encolados sin gastar intentos y las notificaciones in-app se
+      # entregan igual. Escribir el correo a un log y darlo por entregado seria
+      # el peor resultado posible — la empresa cree que le avisaron.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-}
+      CORREO_RESPONDER_A: ${CORREO_RESPONDER_A:-}
     ports:
       - '8000:8000'
     volumes:

@@ -2,6 +2,7 @@
 
     python -m app.tareas rotar-auditoria [--mes AAAA-MM] [--en-seco]
     python -m app.tareas sincronizar-bcn [--en-seco]
+    python -m app.tareas avisos [--solo-despachar]
 
 ## Por que un modulo y no un script suelto
 
@@ -30,6 +31,7 @@ from pathlib import Path
 
 from ..config import get_settings
 from ..db import AdminSessionLocal
+from .avisos import correr as correr_avisos
 from .rotar_auditoria import mes_anterior, rotar
 from .sincronizar_bcn import sincronizar as sincronizar_bcn
 
@@ -116,6 +118,32 @@ def sincronizar_catalogo(args) -> int:
     return 0
 
 
+def avisos(args) -> int:
+    """Genera los avisos de vencimiento del dia y despacha lo encolado.
+
+    **Sale con codigo distinto de cero si algo quedo mal**, y "mal" aca no es
+    una excepcion: es una obligacion sin nadie a quien avisarle, un aviso que
+    se rindio tras todos sus intentos, o una cola que lleva mas de un dia
+    acumulandose. Nada de eso lanza error —el sistema sigue corriendo— y por
+    eso hace falta que el cron lo grite: si esta tarea siempre sale con 0,
+    nadie va a revisar su salida nunca.
+    """
+    transporte = None
+    try:
+        from ..services.correo import transporte_configurado
+
+        transporte = transporte_configurado()
+    except ImportError:
+        # El adaptador de correo todavia no existe (#122). Las notificaciones
+        # in-app se entregan igual; los correos esperan encolados sin gastar
+        # intentos.
+        pass
+
+    informe = correr_avisos(transporte=transporte)
+    logger.info("Avisos de vencimiento:\n%s", informe.resumen())
+    return 1 if informe.hay_que_mirarlo() else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.tareas")
     sub = parser.add_subparsers(dest="tarea", required=True)
@@ -150,6 +178,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Consulta la BCN y NO escribe nada. Para ver que traeria antes de confiar.",
     )
     b.set_defaults(func=sincronizar_catalogo)
+
+    a = sub.add_parser(
+        "avisos",
+        help="Genera los avisos de vencimiento del dia y despacha lo encolado.",
+    )
+    a.set_defaults(func=avisos)
 
     args = parser.parse_args(argv)
     return args.func(args)

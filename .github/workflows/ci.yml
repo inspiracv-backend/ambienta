@@ -123,6 +123,7 @@ jobs:
                    16_evidencia_del_articulo \
                    17_avisos_sin_duplicados \
                    18_control_documental \
+                   19_despacho_de_avisos 20_plantillas_de_correo \
                    21_significancia_del_aspecto 22_crm; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \

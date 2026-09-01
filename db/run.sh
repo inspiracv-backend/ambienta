@@ -44,6 +44,8 @@ run "$DIR/15_declaracion_ante_su_sistema.sql"
 run "$DIR/16_evidencia_del_articulo.sql"
 run "$DIR/17_avisos_sin_duplicados.sql"
 run "$DIR/18_control_documental.sql"
+run "$DIR/19_despacho_de_avisos.sql"
+run "$DIR/20_plantillas_de_correo.sql"
 run "$DIR/21_significancia_del_aspecto.sql"
 run "$DIR/22_crm.sql"
 

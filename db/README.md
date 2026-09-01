@@ -53,15 +53,22 @@ psql "postgresql://postgres:ambienta@localhost:5432/ambienta" -v ON_ERROR_STOP=1
   -f db/18_control_documental.sql \
   -f db/21_significancia_del_aspecto.sql \
   -f db/22_crm.sql \
+  -f db/19_despacho_de_avisos.sql \
+  -f db/20_plantillas_de_correo.sql \
   -f db/03_seed_catalogos.sql \
   -f db/02_seed.sql
 ```
 
 `docker compose up` los carga solos la primera vez que crea el volumen, en este
-mismo orden. **Todo archivo de esquema nuevo tiene que agregarse a los cuatro
-lados** — acá, en `db/run.sh`, en `docker-compose.yml` y en
-`docker-compose.prod.yml` — o existirá solo en las bases donde alguien lo
-aplicó a mano.
+mismo orden. **Todo archivo de esquema nuevo tiene que agregarse a los CINCO
+lados** — acá, en `db/run.sh`, en `docker-compose.yml`, en
+`docker-compose.prod.yml` y en **el bucle de `.github/workflows/ci.yml`** — o
+existirá solo en las bases donde alguien lo aplicó a mano.
+
+Este texto decía "los cuatro lados" y omitía justamente el quinto, que es el
+que más cuesta: olvidarlo **no rompe nada en local** —Docker ya aplicó el
+archivo— y hace fallar CI con `column ... does not exist`, que se lee como un
+error del código y no de la configuración.
 
 O todo junto con el script:
 
@@ -93,6 +100,8 @@ bash db/run.sh
 | `18_control_documental.sql` | Control de informacion documentada, ISO 9001 §7.5 (RF-102 a RF-106). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. La decision de diseno: el ciclo de vida vive en la **revision**, no en el documento — poner el estado en `documents` haria que aprobar la revision 4 borrara el rastro de que la 3 estuvo vigente entre tales fechas, que es lo que pregunta una auditoria. Dos restricciones con dientes: aprobado exige quien y cuando, y **una sola revision vigente por documento**. Sale `deleted` de `documents.status`: un documento controlado se retira marcandolo obsoleto, no se borra. Idempotente |
 | `21_significancia_del_aspecto.sql` | `environmental_aspects.significance` admitia `compliant / partial / non_compliant / pending`: los estados de `article_compliance.compliance_status`, de donde se copio. **Son dos preguntas distintas.** La significancia (ISO 14001 §6.1.2) contesta si el aspecto importa lo suficiente como para gestionarlo; el cumplimiento, si se cumple un requisito legal. Un aspecto puede ser significativo y estar controlado, y con el vocabulario viejo eso no se podia ni escribir. El dano era visible: la pantalla tiene una columna 'Significativo' y un filtro 'significativo sin tratar' —el hallazgo mas comun en una auditoria de 14001— y ninguno podia funcionar. Las filas existentes pasan a `pending` y **no se traducen**: traducirlas seria inventar una evaluacion que nadie hizo. **Salta del 18 al 21** para no chocar con las 19 y 20 del PR de notificaciones, que va en paralelo; el hueco es inocuo porque la lista es explicita. Idempotente |
 | `22_crm.sql` | CRM simplificado (epica #32): `crm_stages`, `crm_companies`, `crm_contacts`, `crm_deals`, `crm_activities`. **Que hueco llena:** `contracts` une dos tenants, asi que solo se podia registrar a quien **ya es cliente**; una empresa a la que se le esta vendiendo no cabia en ninguna tabla y el seguimiento comercial vivia fuera del sistema. `crm_companies.client_tenant_id` es el puente: nulo mientras es prospecto, y cuando entra a la plataforma permite promover el trato ganado a `contracts` (#82). **Las etapas son tabla y no enum** porque #78 las pide configurables por empresa, y `kind` (open/won/lost) separa como la llama la empresa de que significa para el sistema. **Las actividades usan tres claves foraneas con un CHECK de 'exactamente una'** y no el par `(entity_type, entity_id)` de `entity_documents`: los padres son tres y conocidos, asi que se gana integridad real — con el par polimorfico, borrar una empresa deja actividades apuntando al vacio. Declara su propia RLS y sus GRANT, y siembra 6 etapas por defecto en **todas** las empresas. **Salta del 18 al 22** para no chocar con las 19, 20 y 21 de los PR en paralelo. Idempotente |
+| `19_despacho_de_avisos.sql` | El estado que le faltaba a la cola de avisos (#118). `notifications` ya era una cola —`status`, `scheduled_at`, `sent_at`, `provider_message_id`, `dedupe_key` con indice unico— pero **no tenia como reintentar**: un corte del proveedor de correo dejaba dos salidas y las dos malas, marcar `failed` (terminal, se pierde el aviso) o dejarlo `queued` en bucle cerrado contra un servicio caido y sin registrar por que. Agrega `attempts`, `last_error` y `next_attempt_at`. **`next_attempt_at` va aparte y no corriendo `scheduled_at`** porque esa fecha es la que contesta '¿avisamos a tiempo?' en una auditoria, y un reintento no cambia la respuesta. Reemplaza `ix_notifications_pending` por uno que ademas excluye los borrados. Idempotente |
+| `20_plantillas_de_correo.sql` | La plantilla de aviso de vencimiento en **todas** las empresas (#121). `notification_templates` tenia tres filas y todas en una sola empresa: las sembro `02_seed.sql` como demostracion, asi que la personalizacion del correo existia para una empresa de ejemplo y para nadie mas. **No rompia nada** —sin plantilla el aviso sale con el texto por defecto, falla suave a proposito— y por eso llevaba tanto sin notarse. Mismo criterio que `09_roles_por_codigo.sql`. Completa ademas `variables_schema`, que estaba en `{}`: una pantalla de edicion que lea eso ofreceria cero variables y quien edite tendria que adivinar los nombres. **No arregla** que una empresa creada despues nazca sin plantillas — el alta tendria que crearlas. Idempotente |
 | `02_seed.sql` | Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal evaluada. Sin esto el Dashboard muestra ceros correctos que no permiten ver si algo funciona |
 
 `02_smoke_test.sql` no es parte del despliegue — es la verificación. **CI lo corre en cada PR** (job de API, antes de pytest), así que ya no depende de que alguien se acuerde.

@@ -105,14 +105,32 @@ def _obligacion(db: Session, *, dias: int, con_responsable: bool) -> Obligation:
     return db.get(Obligation, oid)
 
 
-def _avisos_de(db: Session, obligacion_id) -> int:
+#: Los canales que genera un aviso de vencimiento (RF-32). Hasta el 27-ago solo
+#: se creaba el in-app, asi que **la tuberia de correo no tenia nada que
+#: enviar**: se podia configurar Resend entero y no salia un solo mensaje.
+CANALES = ("in_app", "email")
+
+
+def _avisos_de(db: Session, obligacion_id, canal: str = "in_app") -> int:
+    """Avisos de una obligacion **en un canal**.
+
+    Cuenta por canal y no en total a proposito. Contar el total hace que
+    "un aviso por obligacion" y "dos canales del mismo aviso" den el mismo
+    numero, y entonces la prueba de duplicados no distingue el caso que le
+    importa —el cron corrio dos veces— del que es correcto.
+    """
     return db.execute(
         text(
             "SELECT count(*) FROM notifications "
-            "WHERE context->>'obligation_id' = :o AND deleted_at IS NULL"
+            "WHERE context->>'obligation_id' = :o AND channel = :c "
+            "AND deleted_at IS NULL"
         ),
-        {"o": str(obligacion_id)},
+        {"o": str(obligacion_id), "c": canal},
     ).scalar_one()
+
+
+def _avisos_totales(db: Session, obligacion_id) -> int:
+    return sum(_avisos_de(db, obligacion_id, c) for c in CANALES)
 
 
 class TestNoDuplica:
@@ -126,7 +144,8 @@ class TestNoDuplica:
         generar(db, EMPRESA_A, ventanas=(7,))
         generar(db, EMPRESA_A, ventanas=(7,))
 
-        assert _avisos_de(db, obl.id) == 1
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 1, canal
 
     def test_la_segunda_corrida_lo_informa_en_vez_de_callarlo(self, db) -> None:
         """No repetir **es lo esperado**, no un error, y por eso se cuenta aparte.
@@ -154,7 +173,8 @@ class TestNoDuplica:
 
         generar(db, EMPRESA_A, ventanas=(7, 7))
 
-        assert _avisos_de(db, obl.id) == 1
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 1, canal
 
     def test_ventanas_distintas_SI_dan_avisos_distintos(self, db) -> None:
         """El otro lado: no duplicar no puede volverse no avisar.
@@ -171,7 +191,8 @@ class TestNoDuplica:
         )
         generar(db, EMPRESA_A, ventanas=(15,))
 
-        assert _avisos_de(db, obl.id) == 2
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 2, canal
 
 
 class TestSinResponsableEscala:
@@ -183,7 +204,7 @@ class TestSinResponsableEscala:
 
         r = generar(db, EMPRESA_A, ventanas=(7,))
 
-        assert _avisos_de(db, obl.id) > 0
+        assert _avisos_totales(db, obl.id) > 0
         assert r.escalados == 1
 
     def test_el_aviso_escalado_dice_por_que_llego(self, db) -> None:
@@ -226,7 +247,8 @@ class TestSinResponsableEscala:
         r = generar(db, EMPRESA_A, ventanas=(7,))
 
         assert r.escalados == 0
-        assert _avisos_de(db, obl.id) == 1
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 1, canal
 
     def test_un_escalamiento_a_medias_se_completa_en_la_corrida_siguiente(
         self, db
@@ -237,7 +259,7 @@ class TestSinResponsableEscala:
         """
         obl = _obligacion(db, dias=7, con_responsable=False)
         generar(db, EMPRESA_A, ventanas=(7,))
-        total = _avisos_de(db, obl.id)
+        total = _avisos_totales(db, obl.id)
         assert total >= 2, "hacen falta al menos dos administradores para esta prueba"
 
         # Se borra uno, como si nunca se hubiera escrito.
@@ -252,7 +274,7 @@ class TestSinResponsableEscala:
 
         generar(db, EMPRESA_A, ventanas=(7,))
 
-        assert _avisos_de(db, obl.id) == total, "no se completo el que faltaba"
+        assert _avisos_totales(db, obl.id) == total, "no se completo el que faltaba"
 
 
 class TestLasVentanas:
@@ -339,7 +361,8 @@ class TestQueNoSeAvisa:
 
         generar(db, EMPRESA_A, ventanas=(7,))
 
-        assert _avisos_de(db, obl.id) == 0
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 0, canal
 
     def test_una_presentada_SI_genera_aviso(self, db) -> None:
         """Se presento pero no la aceptaron: el plazo corre igual."""
@@ -351,14 +374,16 @@ class TestQueNoSeAvisa:
 
         generar(db, EMPRESA_A, ventanas=(7,))
 
-        assert _avisos_de(db, obl.id) == 1
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 1, canal
 
     def test_una_que_vence_fuera_de_la_ventana_no_avisa(self, db) -> None:
         obl = _obligacion(db, dias=60, con_responsable=True)
 
         generar(db, EMPRESA_A, ventanas=(7,))
 
-        assert _avisos_de(db, obl.id) == 0
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 0, canal
 
     def test_el_margen_atrapa_un_vencimiento_a_media_tarde(self, db) -> None:
         """**Sin margen no se avisaria nunca.**
@@ -378,7 +403,8 @@ class TestQueNoSeAvisa:
 
         generar(db, EMPRESA_A, ventanas=(7,))
 
-        assert _avisos_de(db, obl.id) == 1
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 1, canal
 
 
 class TestLoQueNoAvisoANadie:
@@ -397,7 +423,8 @@ class TestLoQueNoAvisoANadie:
         r = generar(db, EMPRESA_A, ventanas=(7,))
 
         assert obl.code in r.sin_destinatario
-        assert _avisos_de(db, obl.id) == 0
+        for canal in CANALES:
+            assert _avisos_de(db, obl.id, canal) == 0, canal
 
 
 class TestPorLaApi:
@@ -505,3 +532,132 @@ class TestPorLaApi:
 
         assert segunda["created"] == 0
         assert segunda["skipped_duplicates"] > 0
+
+
+class TestLosDosCanales:
+    """RF-32: correo **y** in-app. Hasta el 27-ago solo se creaba el in-app.
+
+    El efecto de esa falta era invisible mientras no hubiera proveedor de
+    correo: se podia configurar Resend entero, correr el cron, y no salia un
+    solo mensaje — porque nunca hubo una fila `channel = 'email'` que enviar.
+    """
+
+    def test_se_crean_los_dos(self, db) -> None:
+        obl = _obligacion(db, dias=7, con_responsable=True)
+        generar(db, EMPRESA_A, ventanas=(7,))
+        db.flush()
+
+        assert _avisos_de(db, obl.id, "in_app") == 1
+        assert _avisos_de(db, obl.id, "email") == 1, (
+            "sin esta fila la tuberia de correo no tiene nada que enviar"
+        )
+
+    def test_las_claves_se_distinguen_por_canal(self, db) -> None:
+        """Sin el canal en la clave, la base rechaza el segundo.
+
+        El indice unico es `(tenant, clave, destinatario)`: dos avisos de la
+        misma obligacion y la misma ventana para la misma persona chocarian, y
+        la persona recibiria uno de los dos en vez de los dos.
+        """
+        obl = _obligacion(db, dias=7, con_responsable=True)
+        generar(db, EMPRESA_A, ventanas=(7,))
+        db.flush()
+
+        claves = db.execute(
+            text(
+                "SELECT channel, dedupe_key FROM notifications "
+                "WHERE context->>'obligation_id' = :o"
+            ),
+            {"o": str(obl.id)},
+        ).all()
+        assert len({c for _, c in claves}) == len(claves), "dos canales, dos claves"
+        for canal, clave in claves:
+            assert clave.endswith(canal)
+
+    def test_el_correo_usa_la_plantilla_de_la_empresa(self, db) -> None:
+        """Lo que pedia #121, comprobado sobre el texto que sale."""
+        obl = _obligacion(db, dias=7, con_responsable=True)
+        generar(db, EMPRESA_A, ventanas=(7,))
+        db.flush()
+
+        asunto = db.execute(
+            text(
+                "SELECT subject FROM notifications "
+                "WHERE context->>'obligation_id' = :o AND channel = 'email'"
+            ),
+            {"o": str(obl.id)},
+        ).scalar_one()
+
+        assert obl.code in asunto, "la plantilla pide {{obligation_code}}"
+        assert "{{" not in asunto, "quedo un marcador sin rellenar"
+
+    def test_sin_plantilla_el_correo_sale_igual(self, db) -> None:
+        """Falla suave: un aviso sin diseno sirve, uno que no se envia no."""
+        db.execute(
+            text(
+                "UPDATE notification_templates SET active = false "
+                "WHERE event_type = 'obligation_due' AND tenant_id = :t"
+            ),
+            {"t": str(EMPRESA_A)},
+        )
+        db.expire_all()
+
+        obl = _obligacion(db, dias=7, con_responsable=True)
+        generar(db, EMPRESA_A, ventanas=(7,))
+        db.flush()
+
+        cuerpo = db.execute(
+            text(
+                "SELECT body FROM notifications "
+                "WHERE context->>'obligation_id' = :o AND channel = 'email'"
+            ),
+            {"o": str(obl.id)},
+        ).scalar_one()
+        assert obl.title in cuerpo
+
+    def test_el_contexto_trae_lo_que_la_plantilla_pide(self, db) -> None:
+        """Si se agrega una variable a la plantilla y no al contexto, el
+        marcador sale visible en un correo a un cliente. Esto lo fija.
+        """
+        obl = _obligacion(db, dias=7, con_responsable=True)
+        generar(db, EMPRESA_A, ventanas=(7,))
+        db.flush()
+
+        contexto = db.execute(
+            text(
+                "SELECT context FROM notifications "
+                "WHERE context->>'obligation_id' = :o AND channel = 'email'"
+            ),
+            {"o": str(obl.id)},
+        ).scalar_one()
+
+        for variable in (
+            "obligation_code",
+            "obligation_title",
+            "days_remaining",
+            "due_date",
+            "facility_name",
+        ):
+            assert variable in contexto, f"la plantilla pide {variable} y no esta"
+
+    def test_una_obligacion_sin_planta_no_deja_el_marcador_a_la_vista(self, db) -> None:
+        """No todas tienen planta: un compromiso de RCA es de la empresa entera."""
+        obl = _obligacion(db, dias=7, con_responsable=True)
+        db.execute(
+            text("UPDATE obligations SET facility_id = NULL WHERE id = :o"),
+            {"o": obl.id},
+        )
+        db.expire_all()
+
+        generar(db, EMPRESA_A, ventanas=(7,))
+        db.flush()
+
+        cuerpo = db.execute(
+            text(
+                "SELECT body FROM notifications "
+                "WHERE context->>'obligation_id' = :o AND channel = 'email'"
+            ),
+            {"o": str(obl.id)},
+        ).scalar_one()
+        assert "{{facility_name}}" not in cuerpo
+        assert "toda la empresa" in cuerpo

@@ -46,6 +46,7 @@ el requisito. Los 30 dias no estaban en ningun lado salvo en esa linea.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
@@ -56,8 +57,11 @@ from sqlalchemy.orm import Session
 from ..models.catalog import RetcSystem
 from ..models.notifications import Notification, NotificationRule
 from ..models.obligations import DeclarationTemplate, Obligation
-from ..models.organization import User
+from ..models.organization import Facility, User
+from . import plantillas_correo
 from .declaracion import urgencia
+
+logger = logging.getLogger("ambienta.avisos")
 
 #: Las ventanas por defecto, en dias antes del vencimiento (#120, RF-42).
 #:
@@ -67,7 +71,14 @@ from .declaracion import urgencia
 VENTANAS_POR_DEFECTO = (15, 7, 3, 1)
 
 #: El evento al que corresponden estas reglas en `notification_rules`.
-EVENTO = "obligacion_por_vencer"
+#: **`obligation_due` y no `obligacion_por_vencer`.** Esta constante decia lo
+#: segundo y no coincidia con nada: las plantillas sembradas en
+#: `notification_templates` usan `obligation_due`, igual que el resto de los
+#: `event_type` del seed (`audit_scheduled`, `nc_created`). El desajuste no
+#: rompia nada **porque nadie buscaba la plantilla todavia** — al enchufarla
+#: (#121) la busqueda no habria encontrado ninguna y el aviso habria salido con
+#: el texto de respaldo para siempre, sin ningun error.
+EVENTO = "obligation_due"
 
 #: Margen a cada lado del dia exacto.
 #:
@@ -173,9 +184,21 @@ def _plantilla_de(db: Session, obl: Obligation) -> DeclarationTemplate | None:
     )
 
 
-def _clave(obligacion_id: UUID, dias: int) -> str:
-    """La clave que impide el duplicado. Ver `db/17`."""
-    return f"vencimiento:{obligacion_id}:{dias}"
+def _clave(obligacion_id: UUID, dias: int, canal: str) -> str:
+    """La clave que impide el duplicado. Ver `db/17`.
+
+    **Lleva el canal.** El indice unico es `(tenant, clave, destinatario)`, asi
+    que sin el, el aviso in-app y el correo de la misma obligacion y la misma
+    ventana chocarian entre si: la segunda insercion la rechaza la base y la
+    persona recibe uno de los dos, no los dos.
+
+    Cambiar el formato deja de reconocer los avisos ya creados con el formato
+    viejo, o sea que la primera corrida despues del cambio los recrea. Es
+    inocuo **hoy**: no hay produccion todavia, solo datos de ejemplo. El dia que
+    la haya, un cambio de formato aca necesita reescribir las claves existentes
+    en una migracion.
+    """
+    return f"vencimiento:{obligacion_id}:{dias}:{canal}"
 
 
 def _destinatarios_ya_avisados(db: Session, tenant_id: UUID, clave: str) -> set:
@@ -195,6 +218,21 @@ def _destinatarios_ya_avisados(db: Session, tenant_id: UUID, clave: str) -> set:
             )
         ).all()
     )
+
+
+def _nombre_de_planta(db: Session, facility_id: UUID | None) -> str:
+    """El nombre de la planta, o algo legible si la obligacion no tiene una.
+
+    No todas la tienen: un compromiso de RCA puede ser de la empresa entera. La
+    plantilla la pide igual, y dejar el marcador `{{facility_name}}` a la vista
+    en un correo al cliente es peor que decir "toda la empresa".
+    """
+    if facility_id is None:
+        return "toda la empresa"
+    nombre = db.execute(
+        select(Facility.name).where(Facility.id == facility_id)
+    ).scalar()
+    return nombre or "toda la empresa"
 
 
 def _cuerpo(obligacion: Obligation, dias: int, escalado: bool) -> tuple[str, str]:
@@ -242,14 +280,7 @@ def generar(
         ).all()
 
         for obl in obligaciones:
-            clave = _clave(obl.id, dias)
-            ya = _destinatarios_ya_avisados(db, tenant_id, clave)
-
             todos, escalado = _destinatarios(db, obl)
-            destinatarios = [u for u in todos if u not in ya]
-            if todos and not destinatarios:
-                r.omitidos_por_repetidos += 1
-                continue
             if not todos:
                 # Ni responsable ni administrador activo. **Se cuenta y se
                 # informa** en vez de saltarlo en silencio, que es lo que hacia
@@ -270,34 +301,81 @@ def generar(
                 "days_before": dias,
                 "escalado": escalado,
                 "urgencia": urgencia(obl, ahora).nivel,
+                # Lo que piden las plantillas sembradas. Los nombres son los de
+                # `notification_templates`, no los de aca: la plantilla es dato
+                # de empresa y ya estaba escrita, asi que manda ella.
+                "obligation_code": obl.code,
+                "obligation_title": obl.title,
+                "days_remaining": dias,
+                "due_date": (
+                    obl.due_at.strftime("%d/%m/%Y") if obl.due_at else "sin fecha"
+                ),
+                "facility_name": _nombre_de_planta(db, obl.facility_id),
             }
             if plantilla is not None:
                 contexto["template_id"] = str(plantilla.id)
                 contexto["template_name"] = plantilla.name
                 contexto["template_version"] = plantilla.version
 
-            for uid in destinatarios:
-                db.add(
-                    Notification(
-                        tenant_id=tenant_id,
-                        recipient_user_id=uid,
-                        channel="in_app",
-                        subject=asunto,
-                        body=cuerpo,
-                        status="queued",
-                        # La misma clave para los N destinatarios de un
-                        # escalamiento: el indice unico es
-                        # `(tenant, clave, destinatario)`, asi que cada persona
-                        # recibe el aviso una vez y solo una.
-                        #
-                        # La primera version indexaba sin el destinatario y **la
-                        # base la rechazo en la primera prueba**: escalar
-                        # inserta una fila por administrador.
-                        dedupe_key=clave,
-                        context=contexto,
+            # Los dos canales (RF-32). Antes solo se creaba el in-app, asi
+            # que **la tuberia de correo no tenia nada que enviar**: se podia
+            # configurar Resend entero y no salia un solo mensaje.
+            #
+            # El correo se arma desde la plantilla de la empresa si la hay. Si
+            # no, sale con el mismo texto que el in-app: un aviso sin diseno
+            # sirve, uno que no se envia no.
+            for canal in ("in_app", "email"):
+                asunto_canal, cuerpo_canal = asunto, cuerpo
+                if canal == "email":
+                    plantilla_correo = plantillas_correo.buscar(
+                        db, tenant_id=tenant_id, event_type=EVENTO, channel="email"
                     )
-                )
-                r.creados += 1
+                    if plantilla_correo is not None:
+                        rellenada = plantillas_correo.aplicar(plantilla_correo, contexto)
+                        if rellenada.faltantes:
+                            # No se cae ni se manda a medias en silencio: sale
+                            # el texto de respaldo, que esta completo, y queda
+                            # anotado que la plantilla pide algo que el contexto
+                            # no trae.
+                            logger.warning(
+                                "La plantilla %s pide variables que el aviso no trae (%s). "
+                                "Se usa el texto por defecto.",
+                                plantilla_correo.code,
+                                ", ".join(rellenada.faltantes),
+                            )
+                        else:
+                            asunto_canal = rellenada.asunto
+                            cuerpo_canal = rellenada.cuerpo
+
+                clave = _clave(obl.id, dias, canal)
+                ya = _destinatarios_ya_avisados(db, tenant_id, clave)
+                destinatarios = [u for u in todos if u not in ya]
+                if not destinatarios:
+                    r.omitidos_por_repetidos += 1
+                    continue
+
+                for uid in destinatarios:
+                    db.add(
+                        Notification(
+                            tenant_id=tenant_id,
+                            recipient_user_id=uid,
+                            channel=canal,
+                            subject=asunto_canal,
+                            body=cuerpo_canal,
+                            status="queued",
+                            # La misma clave para los N destinatarios de un
+                            # escalamiento: el indice unico es
+                            # `(tenant, clave, destinatario)`, asi que cada
+                            # persona recibe el aviso una vez y solo una.
+                            #
+                            # La primera version indexaba sin el destinatario y
+                            # **la base la rechazo en la primera prueba**:
+                            # escalar inserta una fila por administrador.
+                            dedupe_key=clave,
+                            context=contexto,
+                        )
+                    )
+                    r.creados += 1
             if escalado:
                 r.escalados += 1
 

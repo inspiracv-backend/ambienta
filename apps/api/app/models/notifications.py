@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -93,3 +94,13 @@ class Notification(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     context: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
+    # Estado de reintento (db/19). Sin esto, un fallo del proveedor deja dos
+    # salidas y las dos son malas: `failed`, que es terminal y pierde el aviso,
+    # o `queued` para siempre contra un servicio caido y sin registrar por que.
+    attempts: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="0"
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    # NULL = usar `scheduled_at`. Va aparte para no perder cuando el aviso
+    # DEBIA salir, que es lo que se pregunta en una auditoria.
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
