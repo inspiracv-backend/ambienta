@@ -207,7 +207,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **74 %.** 29 de 39 acciones llegan a la base. Las 10 restantes tienen causa documentada en su propio docstring. El conteo anterior (26 de 37) estaba mal por dentro: decia 10 pendientes y listaba 11 — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
-| Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas.sincronizar_bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
+| Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas sincronizar-bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
 | Auth — clave local con RUT (RF-06) | **Funcionando desde el 25-ago.** Quien entro por SSO fija RUT y clave en su perfil y despues entra con ellos. **La clave la guarda Clerk, no nosotros** (D1). El RUT viaja como `username` con prefijo `rut`, porque Clerk rechaza los que son solo digitos — y un RUT lo es salvo cuando el verificador es K |
@@ -803,6 +803,51 @@ Dos que conviene entender antes de tocarlas:
 No se manda `X-XSS-Protection`: esta obsoleta, los navegadores actuales la
 ignoran y en los que la respetaban su filtro introdujo vulnerabilidades propias.
 Mandarla seria ruido que aparenta proteccion.
+
+**El comando de sincronizacion documentado aqui no existia, y no fallaba.**
+Decia `python -m app.tareas.sincronizar_bcn` —el **modulo**— y ese modulo no
+tiene punto de entrada: correrlo no hace nada y **sale con codigo 0**. El
+comando real es el subcomando del despachador:
+
+```bash
+docker compose exec api python -m app.tareas sincronizar-bcn
+```
+
+Se descubrio al preparar la semilla de demostracion: la base recien creada tenia
+8 normas y 4 articulos, se corrio "la sincronizacion" tres veces y el catalogo
+no se movia. Con el comando correcto: **24 normas y 685 articulos**. Es la misma
+familia que el resto de esta seccion — algo que responde bien y no hace nada.
+
+**Hay una tarea para dejar el sistema demostrable.**
+
+```bash
+docker compose exec api python -m app.tareas sincronizar-bcn   # primero el catalogo
+docker compose exec api python -m app.tareas.sembrar_demo      # despues los datos
+```
+
+Sin ella, una base recien creada **no puede mostrar el producto**: ninguna
+empresa tiene sector declarado, asi que el CORE responde `sin_perfil` y el
+tablero se ve vacio por falta de **datos**, no de funcionalidad.
+
+Tres cosas que conviene saber antes de tocarla:
+
+- **Usa los servicios de negocio, no `INSERT`.** La matriz sale de
+  `normativa_aplicable.calcular()` y `sincronizar_matriz.sincronizar()`, que son
+  los que corre la aplicacion. Escribir las filas a mano seria mas corto y seria
+  una mentira util: la demostracion mostraria lo que yo elegi, no lo que el
+  sistema calcula.
+- **El sector sale del giro de la empresa.** La primera version elegia el sector
+  con mas normativa clasificada, y a "Minera Andes SpA" le dejaba declarado
+  *suministro de agua y gestion de residuos*. Una demostracion que nadie se cree
+  no demuestra nada.
+- **Se niega con `ENVIRONMENT=production`**, y comprueba el entorno **antes** de
+  abrir la sesion.
+
+Y dos defectos que solo apareceieron al correrla, ninguno de los cuales fallaba:
+consultaba las evaluaciones **antes** del `flush` que las escribe —sembraba 258
+y evaluaba 33— y dejaba 226 filas **sin planta asignada**. El tablero compara
+por instalacion, asi que una evaluacion sin planta existe en la base y es
+invisible en la pantalla.
 
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
