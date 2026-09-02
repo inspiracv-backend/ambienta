@@ -843,6 +843,19 @@ Tres cosas que conviene saber antes de tocarla:
 - **Se niega con `ENVIRONMENT=production`**, y comprueba el entorno **antes** de
   abrir la sesion.
 
+**`db/23` hay que volver a aplicarla despues de sincronizar la BCN.** Corre al
+inicializar la base, cuando el catalogo son las normas sembradas, y la
+sincronizacion **crea normas que no existian** —el DS 1 del registro de
+emisiones— ademas de cambiarle el tipo a las que adopta. Medido: despues de
+sincronizar, el DS 1 quedaba con **cero** sectores y el DS 40 con uno de ocho.
+
+Nada falla: la empresa simplemente recibe menos normativa de la que le
+corresponde. `sembrar_demo` lo comprueba y se niega, diciendo el comando.
+
+Y una leccion de la propia migracion: buscaba las normas por `norm_number` **y
+`norm_type`**, y el tipo definitivo lo adquieren recien al adoptarlas la BCN.
+Ahora busca por numero **y titulo**, que no cambia.
+
 Y dos defectos que solo apareceieron al correrla, ninguno de los cuales fallaba:
 consultaba las evaluaciones **antes** del `flush` que las escribe —sembraba 258
 y evaluaba 33— y dejaba 226 filas **sin planta asignada**. El tablero compara

@@ -49,17 +49,19 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import AdminSessionLocal
 from ..models.catalog import LegalArticle, LegalNorm
 from ..models.compliance import ArticleCompliance, TenantLegalMatrix
+from ..models.iso14001 import EnvironmentalAspect, RegulatedEquipment
 from ..models.organization import Facility, Tenant, User
-from ..services import normativa_aplicable, sincronizar_matriz
+from ..services import iso14001, normativa_aplicable, sincronizar_matriz
 
 #: Palabras del giro de la empresa que apuntan a un sector CIIU.
 #:
@@ -141,7 +143,7 @@ def _comprobar_catalogo(db: Session) -> int:
             f"El catalogo tiene {normas} normas y {articulos} articulos: son las "
             "de ejemplo, no las reales. Sembrar sobre esto mostraria normativa "
             "que no existe.\n\n"
-            "  docker compose exec api python -m app.tareas.sincronizar_bcn\n"
+            "  docker compose exec api python -m app.tareas sincronizar-bcn\n"
         )
     return articulos
 
@@ -162,6 +164,51 @@ def _sector_segun_el_giro(giro: str | None) -> tuple[int, str]:
             if any(c in plano for c in claves):
                 return sector, f"por el giro ({giro})"
     return SECTOR_DE_RESPALDO, "el giro no dice nada reconocible; se usa el de respaldo"
+
+
+def _comprobar_clasificacion(db: Session) -> str:
+    """Que la normativa transversal este clasificada en todos los sectores.
+
+    `db/23` clasifica la Ley 19.300, el DS 40, el DS 148 y el DS 1 en los ocho
+    sectores CIIU. Pero **corre al inicializar la base**, cuando el catalogo son
+    las normas sembradas, y la sincronizacion con la BCN crea normas que antes
+    no existian. Medido: despues de sincronizar, el DS 1 quedaba con cero
+    sectores y el DS 40 con uno.
+
+    Sin este aviso, la demostracion sigue: la empresa recibe menos normativa de
+    la que le corresponde y **nada falla**. Que es el modo de fallar que este
+    proyecto viene persiguiendo.
+    """
+    faltan = db.execute(
+        text(
+            """
+            SELECT n.norm_number, count(ns.sector_id) AS sectores
+            FROM legal_norms n
+            LEFT JOIN norm_sectors ns ON ns.norm_id = n.id
+            WHERE n.deleted_at IS NULL
+              AND (
+                (n.norm_number = '19300' AND upper(n.title) LIKE '%BASES GENERALES%')
+                OR (n.norm_number = '40' AND upper(n.title) LIKE '%IMPACTO AMBIENTAL%')
+                OR (n.norm_number = '148' AND upper(n.title) LIKE '%RESIDUOS PELIGROSOS%')
+                OR (n.norm_number = '1' AND upper(n.title) LIKE '%REGISTRO DE EMISIONES%')
+              )
+            GROUP BY n.id, n.norm_number
+            HAVING count(ns.sector_id) < (SELECT count(*) FROM sectors)
+            """
+        )
+    ).all()
+    if faltan:
+        detalle = ", ".join(f"{f.norm_number} ({f.sectores})" for f in faltan)
+        raise NoSePuedeSembrar(
+            "Hay normativa transversal sin clasificar en todos los sectores: "
+            f"{detalle}.\n\n"
+            "Pasa cuando se sincroniza la BCN despues de inicializar la base: "
+            "la sincronizacion trae normas que no existian cuando corrio la "
+            "migracion. Se arregla volviendola a aplicar:\n\n"
+            "  docker compose exec -T postgres psql -U ambienta -d ambienta "
+            "-v ON_ERROR_STOP=1 -f /dev/stdin < db/23_normativa_transversal.sql\n"
+        )
+    return "normativa transversal clasificada en todos los sectores"
 
 
 def _declarar_perfil(db: Session, empresa: Tenant) -> str:
@@ -238,6 +285,96 @@ def _evaluar(db: Session, empresa: Tenant, quien: UUID | None) -> tuple[int, int
     return evaluadas, len(pendientes) - evaluadas
 
 
+def _matrices_iso(db: Session, empresa: Tenant) -> list[str]:
+    """Deja la cadena de ISO 14001 en un estado que se pueda mostrar.
+
+    ## Que estaba mal, y no era la semilla
+
+    Los aspectos sembrados **ya tenian sus puntajes** —severidad, frecuencia y
+    nivel legal— pero su significancia estaba en `pending`: nadie habia corrido
+    el calculo sobre ellos. Con eso, la columna "Significativo" de la pantalla y
+    el filtro *"significativo sin tratar"* —que es el hallazgo mas comun en una
+    auditoria de 14001— **no muestran nada**, y se lee como que la funcion no
+    existe.
+
+    Aca no se escriben significancias: se llama a `iso14001.evaluar_aspecto()`
+    con los puntajes que el aspecto ya tiene. El resultado sale de la regla real
+    (frecuencia x severidad contra el umbral, o requisito legal que obliga), no
+    de lo que a mi me parezca.
+
+    ## Y los equipos necesitan fechas repartidas
+
+    Un equipo cuya inscripcion vence dentro de tres anos no muestra nada. La
+    alerta de vencimientos solo se puede ver si hay algo **por vencer** y algo
+    **ya vencido**, que es como se ve una empresa real.
+    """
+    hecho: list[str] = []
+
+    aspectos = list(
+        db.scalars(
+            select(EnvironmentalAspect)
+            .where(
+                EnvironmentalAspect.tenant_id == empresa.id,
+                EnvironmentalAspect.deleted_at.is_(None),
+            )
+            .order_by(EnvironmentalAspect.created_at)
+        ).all()
+    )
+
+    evaluados = significativos = sin_puntajes = 0
+    for i, aspecto in enumerate(aspectos):
+        if aspecto.significance and aspecto.significance != "pending":
+            continue
+        if None in (aspecto.frequency_score, aspecto.severity_score, aspecto.legal_score):
+            # **No se les inventan puntajes.** Un aspecto sin evaluar es un
+            # estado legitimo y la pantalla tiene que poder mostrarlo; ademas,
+            # puntuar un aspecto es un juicio tecnico que ninguna tarea puede
+            # producir.
+            sin_puntajes += 1
+            continue
+        iso14001.evaluar_aspecto(
+            db,
+            aspecto,
+            frecuencia=aspecto.frequency_score,
+            severidad=aspecto.severity_score,
+            legal=aspecto.legal_score,
+        )
+        evaluados += 1
+        if aspecto.significance == "significant":
+            significativos += 1
+
+    hecho.append(
+        f"aspectos ambientales: {evaluados} evaluados con la regla real "
+        f"({significativos} significativos), {sin_puntajes} sin puntajes, "
+        "que se dejan sin evaluar"
+    )
+
+    # Fechas repartidas: una vencida, una por vencer, y el resto holgadas.
+    equipos = list(
+        db.scalars(
+            select(RegulatedEquipment)
+            .where(
+                RegulatedEquipment.tenant_id == empresa.id,
+                RegulatedEquipment.deleted_at.is_(None),
+            )
+            .order_by(RegulatedEquipment.created_at)
+        ).all()
+    )
+    hoy = db.scalar(select(func.current_date()))
+    repartos = [-45, 20, 200, 400]
+    for i, equipo in enumerate(equipos):
+        equipo.registration_expires_at = hoy + timedelta(days=repartos[i % len(repartos)])
+    if equipos:
+        vencidos = sum(1 for d in repartos[: len(equipos)] if d < 0)
+        hecho.append(
+            f"equipos regulados: {len(equipos)} con vencimiento repartido "
+            f"({vencidos} vencido, el resto por vencer)"
+        )
+
+    db.flush()
+    return hecho
+
+
 def sembrar(db: Session) -> list[str]:
     """Deja la empresa lista. Devuelve lo que hizo, paso por paso."""
     if get_settings().environment == "production":
@@ -249,6 +386,7 @@ def sembrar(db: Session) -> list[str]:
     hecho: list[str] = []
     articulos = _comprobar_catalogo(db)
     hecho.append(f"catalogo normativo: {articulos} articulos disponibles")
+    hecho.append(_comprobar_clasificacion(db))
 
     empresa = _empresa_demo(db)
     hecho.append(f"empresa: {empresa.legal_name}")
@@ -291,6 +429,8 @@ def sembrar(db: Session) -> list[str]:
     hecho.append(
         f"evaluaciones: {evaluadas} evaluadas, {sin_evaluar} dejadas por evaluar"
     )
+
+    hecho.extend(_matrices_iso(db, empresa))
 
     return hecho
 

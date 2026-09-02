@@ -120,3 +120,44 @@ class TestLaMezclaDeEstados:
         for estado, motivo in sembrar_demo.MEZCLA:
             if estado != "pending":
                 assert motivo  # el prefijo lo agrega la tarea al escribir
+
+
+class TestLaClasificacionTransversalSeComprueba:
+    """`db/23` corre al inicializar la base, y la BCN trae normas despues.
+
+    Medido: tras sincronizar, el DS 1 quedaba con **cero** sectores y el DS 40
+    con uno, porque no existian —o no tenian su tipo definitivo— cuando corrio
+    la migracion. La demostracion seguia funcionando y la empresa recibia menos
+    normativa de la que le corresponde, sin que nada fallara.
+
+    Estas pruebas fijan la comprobacion, no la migracion: lo que importa es que
+    el desfase **no pase inadvertido**.
+    """
+
+    def test_la_comprobacion_existe_y_se_llama_al_sembrar(self) -> None:
+        import inspect
+
+        assert hasattr(sembrar_demo, "_comprobar_clasificacion")
+        cuerpo = inspect.getsource(sembrar_demo.sembrar)
+        assert "_comprobar_clasificacion" in cuerpo, (
+            "La comprobacion existe pero `sembrar` no la llama. Es exactamente "
+            "el patron que este proyecto viene persiguiendo: la pieza escrita, "
+            "probada, y sin nadie que la use."
+        )
+
+    def test_el_mensaje_dice_el_comando_para_arreglarlo(self) -> None:
+        """Un error que no dice como salir de el obliga a leer el codigo."""
+        import inspect
+
+        fuente = inspect.getsource(sembrar_demo._comprobar_clasificacion)
+
+        assert "23_normativa_transversal.sql" in fuente
+        assert "psql" in fuente
+
+    def test_se_comprueba_ANTES_de_escribir_nada(self) -> None:
+        """Si se comprobara al final, la siembra ya habria dejado una matriz
+        incompleta y el aviso llegaria tarde."""
+        import inspect
+
+        cuerpo = inspect.getsource(sembrar_demo.sembrar)
+        assert cuerpo.index("_comprobar_clasificacion") < cuerpo.index("_declarar_perfil")
