@@ -25,4 +25,7 @@ COPY apps/api/app ./app
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# `--no-server-header`: uvicorn agrega la suya despues de la aplicacion, asi
+# que la respuesta saldria con `server:` dos veces. Ver el Dockerfile de
+# produccion, que lo explica entero.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-server-header"]

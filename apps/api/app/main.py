@@ -12,6 +12,7 @@ ORM no genera. SQLAlchemy se usa para consultar, no para definir el esquema.
 """
 from fastapi import Depends, FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from .seguridad_http import CabecerasDeSeguridad
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -72,6 +73,12 @@ app.openapi = lambda: construir_esquema(app)
 # Una restriccion violada es un dato malo del cliente, no una falla del
 # servidor. Sin este manejador sale 500 y quien llama no sabe que corregir.
 app.add_exception_handler(IntegrityError, manejar_error_de_integridad)
+
+# **Se agrega antes que CORS a proposito.** Starlette ejecuta los middleware en
+# orden inverso al de registro, asi que este queda por fuera y sus cabeceras
+# alcanzan tambien a las respuestas que genera CORS por su cuenta —el rechazo
+# de un preflight, por ejemplo— que de otro modo saldrian sin proteger.
+app.add_middleware(CabecerasDeSeguridad)
 
 app.add_middleware(
     CORSMiddleware,

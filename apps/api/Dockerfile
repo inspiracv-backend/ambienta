@@ -20,4 +20,10 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# `--no-server-header`: sin esto uvicorn agrega su propia cabecera `server:
+# uvicorn` **despues** de que la aplicacion respondio, asi que la respuesta
+# sale con la cabecera dos veces y la primera delata el servidor. El
+# middleware de la aplicacion no puede quitarla: se agrega mas abajo, en el
+# protocolo. Lo detecto una comprobacion contra el sistema corriendo, no las
+# pruebas: `TestClient` no pasa por uvicorn y no la veia.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]
