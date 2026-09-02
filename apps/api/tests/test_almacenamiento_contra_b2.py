@@ -206,3 +206,91 @@ class TestLoQueNoPodiamosComprobarSinRed:
 
         with pytest.raises(alm.ErrorDeAlmacenamiento):
             alm.confirmar_subida(clave=inexistente)
+
+
+class TestElHashLoVerificaElBucket:
+    """El hash del contenido, comprobado por B2 y no afirmado por nosotros.
+
+    ## Por que esto existe
+
+    `document_versions.checksum_sha256` existia desde el principio y estaba
+    **vacia en el 100 % de las filas**: `confirmar_subida` recibia el `ETag` de
+    B2 y lo descartaba. Una revision documental sin hash no se puede verificar
+    despues, que es justo lo que un auditor querria hacer con la evidencia.
+
+    ## La distincion que importa
+
+    Un hash **afirmado** —el que el navegador dice que tiene el archivo— sirve
+    para detectar corrupcion en el trayecto y **no sirve para nada si quien
+    sube miente**. Un hash **verificado** viaja dentro de la firma: el bucket
+    comprueba el contenido y rechaza la subida si no corresponde, asi que lo
+    que se guarda despues es un hecho.
+
+    `test_B2_RECHAZA_un_contenido_que_no_corresponde` es la prueba que sostiene
+    toda la diferencia. Si algun dia se pusiera verde por el motivo equivocado
+    —por ejemplo, porque se dejo de mandar el hash en la firma— la de al lado,
+    que comprueba que el hash vuelve, se pondria roja.
+    """
+
+    CONTENIDO = b"acta de inspeccion ambiental\n" * 40
+
+    @property
+    def sha(self) -> str:
+        import hashlib
+
+        return hashlib.sha256(self.CONTENIDO).hexdigest()
+
+    def test_el_enlace_lleva_la_cabecera_del_hash(self, borrar_al_final) -> None:
+        enlace = alm.url_para_subir(
+            tenant_id=TENANT_DE_PRUEBA, document_id=DOC_DE_PRUEBA, version_no=10,
+            nombre=NOMBRE, mime=MIME, sha256_hex=self.sha,
+        )
+        borrar_al_final(enlace.clave)
+        assert "x-amz-checksum-sha256" in enlace.cabeceras
+
+    def test_el_bucket_devuelve_el_MISMO_hash(self, borrar_al_final) -> None:
+        enlace = alm.url_para_subir(
+            tenant_id=TENANT_DE_PRUEBA, document_id=DOC_DE_PRUEBA, version_no=11,
+            nombre=NOMBRE, mime=MIME, sha256_hex=self.sha,
+        )
+        borrar_al_final(enlace.clave)
+        r = httpx.put(enlace.url, content=self.CONTENIDO, headers=enlace.cabeceras, timeout=60)
+        assert r.status_code == 200, r.text[:300]
+
+        assert alm.confirmar_subida(clave=enlace.clave)["checksum_sha256"] == self.sha
+
+    def test_B2_RECHAZA_un_contenido_que_no_corresponde(self, borrar_al_final) -> None:
+        """**La prueba que le da sentido al hash.**
+
+        Sin esto, el checksum guardado seria lo que declaro el navegador y no
+        probaria nada sobre el archivo que de verdad esta en el bucket.
+        """
+        enlace = alm.url_para_subir(
+            tenant_id=TENANT_DE_PRUEBA, document_id=DOC_DE_PRUEBA, version_no=12,
+            nombre=NOMBRE, mime=MIME, sha256_hex=self.sha,
+        )
+        borrar_al_final(enlace.clave)
+
+        r = httpx.put(enlace.url, content=b"otro archivo distinto",
+                      headers=enlace.cabeceras, timeout=60)
+
+        assert r.status_code >= 400, (
+            f"B2 acepto un contenido que NO corresponde al hash firmado "
+            f"(HTTP {r.status_code}). El checksum ya no prueba nada."
+        )
+        with pytest.raises(alm.ErrorDeAlmacenamiento):
+            alm.confirmar_subida(clave=enlace.clave)
+
+    def test_sin_hash_el_checksum_queda_VACIO_y_no_con_el_ETag(self, borrar_al_final) -> None:
+        """El ETag de B2 es **MD5** —medido—, asi que ponerlo en una columna
+        llamada `checksum_sha256` seria guardar una cosa diciendo que es otra."""
+        enlace = alm.url_para_subir(
+            tenant_id=TENANT_DE_PRUEBA, document_id=DOC_DE_PRUEBA, version_no=13,
+            nombre=NOMBRE, mime=MIME,
+        )
+        borrar_al_final(enlace.clave)
+        httpx.put(enlace.url, content=self.CONTENIDO, headers=enlace.cabeceras, timeout=60)
+
+        datos = alm.confirmar_subida(clave=enlace.clave)
+        assert datos["checksum_sha256"] is None
+        assert datos["size_bytes"] == len(self.CONTENIDO)

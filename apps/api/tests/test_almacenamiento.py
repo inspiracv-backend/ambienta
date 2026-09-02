@@ -415,3 +415,75 @@ class TestLaProximaVersion:
         finally:
             s.rollback()
             s.close()
+
+
+@pytest.fixture
+def credenciales_de_mentira(monkeypatch):
+    """Firmar es **calculo local**: no hace falta que las llaves sirvan.
+
+    Con esto las pruebas de firma corren en CI, donde no hay credenciales de
+    Backblaze y no debe haberlas. Lo que necesita el bucket de verdad vive en
+    `test_almacenamiento_contra_b2.py`, que es opt-in.
+    """
+    from app.config import get_settings
+
+    s = get_settings()
+    monkeypatch.setattr(s, "storage_endpoint", "s3.us-east-005.example.com", raising=False)
+    monkeypatch.setattr(s, "storage_bucket", "bucket-de-prueba", raising=False)
+    monkeypatch.setattr(s, "storage_key_id", "0000000000000000000000000", raising=False)
+    monkeypatch.setattr(s, "storage_key", "K000ficticiaperoconlargoplausible", raising=False)
+    monkeypatch.setattr(s, "storage_region", "us-east-005", raising=False)
+
+
+class TestElHashViajaEnLaFirma:
+    """Lo que se puede comprobar sin llamar a Backblaze.
+
+    Que B2 rechace un contenido que no corresponde al hash vive en
+    `test_almacenamiento_contra_b2.py`, que habla con el bucket. Aca queda lo
+    que es error nuestro: la conversion de formato y que el hash llegue a la
+    firma en vez de quedarse en el camino.
+    """
+
+    SHA = "930b9b1d1664c77b30f411b70e8d9270010f2a5b84569b997c5278697d84389c"
+
+    def test_la_base_guarda_hex_y_S3_habla_base64(self) -> None:
+        """Los dos formatos coexisten y hay que saber cual va donde.
+
+        `checksum_sha256` es `char(64)`, que es lo que mide un SHA-256 en
+        hexadecimal. En base64 mide 44 y **entraria igual**, rellenado con
+        espacios y sin fallar — por eso la conversion vive en un solo lugar.
+        """
+        b64 = alm.hex_a_b64(self.SHA)
+
+        assert len(self.SHA) == 64
+        assert b64 != self.SHA
+        assert alm.b64_a_hex(b64) == self.SHA
+
+    def test_el_hash_entra_en_las_cabeceras_firmadas(self, credenciales_de_mentira) -> None:
+        enlace = alm.url_para_subir(
+            tenant_id=EMPRESA_A, document_id=DOC, version_no=1,
+            nombre="acta.pdf", mime="application/pdf", sha256_hex=self.SHA,
+        )
+
+        assert enlace.cabeceras["x-amz-checksum-sha256"] == alm.hex_a_b64(self.SHA)
+
+    def test_sin_hash_no_aparece_la_cabecera(self, credenciales_de_mentira) -> None:
+        """Mandar una cabecera vacia haria fallar la firma en el navegador."""
+        enlace = alm.url_para_subir(
+            tenant_id=EMPRESA_A, document_id=DOC, version_no=1,
+            nombre="acta.pdf", mime="application/pdf",
+        )
+
+        assert "x-amz-checksum-sha256" not in enlace.cabeceras
+        assert enlace.cabeceras == {"Content-Type": "application/pdf"}
+
+    def test_el_hash_cambia_la_url_firmada(self, credenciales_de_mentira) -> None:
+        """Si no entrara en la firma, B2 no lo comprobaria y el checksum seria
+        una decoracion. Dos enlaces iguales salvo el hash tienen que diferir."""
+        comun = dict(tenant_id=EMPRESA_A, document_id=DOC, version_no=1,
+                     nombre="acta.pdf", mime="application/pdf")
+
+        sin = alm.url_para_subir(**comun)
+        con = alm.url_para_subir(**comun, sha256_hex=self.SHA)
+
+        assert sin.url != con.url

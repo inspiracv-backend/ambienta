@@ -249,6 +249,7 @@ def pedir_enlace_de_subida(
             version_no=proxima,
             nombre=datos.file_name,
             mime=datos.mime_type,
+            sha256_hex=datos.checksum_sha256,
         )
     except alm.SinConfigurar as exc:
         raise HTTPException(
@@ -322,6 +323,10 @@ def confirmar_subida(
         file_name=datos.file_name,
         mime_type=real.get("mime_type") or "application/octet-stream",
         size_bytes=real["size_bytes"],
+        # El que devolvio **el bucket**, no el que declaro el navegador: si
+        # la subida no llevaba hash queda `None`, y eso es correcto — una
+        # revision sin checksum es mejor que una con uno sin comprobar.
+        checksum_sha256=real.get("checksum_sha256"),
         source="upload",
     )
     db.add(version)
