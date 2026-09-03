@@ -53,7 +53,20 @@ def _traducir(exc: svc.ErrorDeCrm) -> HTTPException:
     legitima; lo que falta es configuracion de la empresa. Un 422 diria
     "corrige lo que mandaste", y no hay nada que corregir en el cuerpo.
     """
-    if isinstance(exc, (svc.SinEtapas, svc.TratoNoGanado, svc.YaPromovido)):
+    if isinstance(
+        exc,
+        (
+            svc.SinEtapas,
+            svc.TratoNoGanado,
+            svc.YaPromovido,
+            # Las tres de configuracion del pipeline son del mismo tipo: el
+            # cuerpo esta bien y lo que no corresponde es el estado en que
+            # quedaria la empresa.
+            svc.EtapaConTratos,
+            svc.UltimaEtapaDeSuTipo,
+            svc.EtapaNoDisponible,
+        ),
+    ):
         # 409 y no 422 por el mismo motivo que `SinEtapas`: el cuerpo esta
         # bien. Lo que no corresponde es el **estado** del trato, y eso no se
         # arregla corrigiendo lo que se mando.
@@ -96,7 +109,7 @@ def create_stage(
     db: Session = Depends(get_tenant_db),
     tenant_id: UUID = Depends(get_tenant_id),
 ):
-    fila = crud_crm_stage.create(db, data, tenant_id)
+    fila = crud_crm_stage.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return fila
 
@@ -108,7 +121,7 @@ def create_stage(
     description="Una columna del kanban, con su orden y su `kind`.",
 )
 def get_stage(stage_id: UUID, db: Session = Depends(get_tenant_db)):
-    return obtener_o_404(crud_crm_stage, db, stage_id, "Etapa")
+    return obtener_o_404(crud_crm_stage, db, stage_id, recurso="Etapa")
 
 
 @router.patch(
@@ -118,12 +131,23 @@ def get_stage(stage_id: UUID, db: Session = Depends(get_tenant_db)):
     description=(
         "`position` es el orden en el kanban. Cambiar `kind` cambia que "
         "significa la etapa para el sistema, no solo su nombre: pasar una "
-        "columna a `won` hace que los tratos que caigan ahi se cierren."
+        "columna a `won` hace que los tratos que caigan ahi se cierren.\n\n"
+        "**Responde 409** si el cambio dejaria el pipeline sin ninguna etapa "
+        "activa de un tipo, o si desactiva una columna que todavia tiene "
+        "tratos: los dejaria guardados y fuera del tablero. Renombrar y "
+        "reordenar no tienen restriccion."
     ),
 )
 def update_stage(stage_id: UUID, data: CrmStageUpdate, db: Session = Depends(get_tenant_db)):
-    fila = obtener_o_404(crud_crm_stage, db, stage_id, "Etapa")
-    actualizada = crud_crm_stage.update(db, fila, data)
+    fila = obtener_o_404(crud_crm_stage, db, stage_id, recurso="Etapa")
+    # **Desactivar es retirar, y cambiar el `kind` puede dejar a la empresa sin
+    # etapa de un tipo.** La misma comprobacion que el DELETE, o el DELETE
+    # estaria protegido y este seria la puerta de al lado.
+    try:
+        svc.comprobar_cambio_de_etapa(db, fila, activa=data.active, kind=data.kind)
+    except svc.ErrorDeCrm as exc:
+        raise _traducir(exc) from None
+    actualizada = crud_crm_stage.update(db, db_obj=fila, obj_in=data)
     db.commit()
     return actualizada
 
@@ -134,11 +158,24 @@ def update_stage(stage_id: UUID, data: CrmStageUpdate, db: Session = Depends(get
     summary="Retirar una etapa",
     description=(
         "Borrado logico: los tratos que pasaron por ella conservan su "
-        "historia. Para sacarla del kanban sin borrarla, basta `active`."
+        "historia.\n\n"
+        "**Responde 409 en dos casos.** Si la columna todavia tiene tratos, "
+        "porque `pipeline` recorre solo las activas y quedarian invisibles — en "
+        "la base y fuera del tablero, que es peor que borrados. Y si es la "
+        "ultima activa de su tipo, porque sin una `open` los tratos nuevos "
+        "nacen en una columna de cierre, sin una `won` no se puede promover a "
+        "contrato, y sin una `lost` no hay donde registrar una venta perdida "
+        "con su motivo.\n\n"
+        "`active = false` **no es la via corta**: hace lo mismo y pasa por las "
+        "mismas comprobaciones."
     ),
 )
 def delete_stage(stage_id: UUID, db: Session = Depends(get_tenant_db)):
-    borrar_o_404(crud_crm_stage, db, stage_id, "Etapa")
+    fila = obtener_o_404(crud_crm_stage, db, stage_id, recurso="Etapa")
+    try:
+        svc.retirar_etapa(db, fila)
+    except svc.ErrorDeCrm as exc:
+        raise _traducir(exc) from None
     db.commit()
 
 
@@ -191,7 +228,7 @@ def create_company(
     db: Session = Depends(get_tenant_db),
     tenant_id: UUID = Depends(get_tenant_id),
 ):
-    fila = crud_crm_company.create(db, data, tenant_id)
+    fila = crud_crm_company.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return fila
 
@@ -203,7 +240,7 @@ def create_company(
     description="La ficha del prospecto o cliente.",
 )
 def get_company(company_id: UUID, db: Session = Depends(get_tenant_db)):
-    return obtener_o_404(crud_crm_company, db, company_id, "Empresa")
+    return obtener_o_404(crud_crm_company, db, company_id, recurso="Empresa")
 
 
 @router.patch(
@@ -219,8 +256,8 @@ def get_company(company_id: UUID, db: Session = Depends(get_tenant_db)):
 def update_company(
     company_id: UUID, data: CrmCompanyUpdate, db: Session = Depends(get_tenant_db)
 ):
-    fila = obtener_o_404(crud_crm_company, db, company_id, "Empresa")
-    actualizada = crud_crm_company.update(db, fila, data)
+    fila = obtener_o_404(crud_crm_company, db, company_id, recurso="Empresa")
+    actualizada = crud_crm_company.update(db, db_obj=fila, obj_in=data)
     db.commit()
     return actualizada
 
@@ -235,7 +272,7 @@ def update_company(
     ),
 )
 def delete_company(company_id: UUID, db: Session = Depends(get_tenant_db)):
-    borrar_o_404(crud_crm_company, db, company_id, "Empresa")
+    borrar_o_404(crud_crm_company, db, company_id, recurso="Empresa")
     db.commit()
 
 
@@ -280,7 +317,7 @@ def create_contact(
     # La empresa viene en el cuerpo y **las claves foraneas no pasan por RLS**:
     # sin esto, la empresa B podria colgar un contacto de la ficha de la A.
     validar_visible(crud_crm_company, db, data.crm_company_id, campo="crm_company_id")
-    fila = crud_crm_contact.create(db, data, tenant_id)
+    fila = crud_crm_contact.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return fila
 
@@ -292,7 +329,7 @@ def create_contact(
     description="La ficha de la persona, con su empresa.",
 )
 def get_contact(contact_id: UUID, db: Session = Depends(get_tenant_db)):
-    return obtener_o_404(crud_crm_contact, db, contact_id, "Contacto")
+    return obtener_o_404(crud_crm_contact, db, contact_id, recurso="Contacto")
 
 
 @router.patch(
@@ -307,8 +344,8 @@ def get_contact(contact_id: UUID, db: Session = Depends(get_tenant_db)):
 def update_contact(
     contact_id: UUID, data: CrmContactUpdate, db: Session = Depends(get_tenant_db)
 ):
-    fila = obtener_o_404(crud_crm_contact, db, contact_id, "Contacto")
-    actualizada = crud_crm_contact.update(db, fila, data)
+    fila = obtener_o_404(crud_crm_contact, db, contact_id, recurso="Contacto")
+    actualizada = crud_crm_contact.update(db, db_obj=fila, obj_in=data)
     db.commit()
     return actualizada
 
@@ -324,7 +361,7 @@ def update_contact(
     ),
 )
 def delete_contact(contact_id: UUID, db: Session = Depends(get_tenant_db)):
-    borrar_o_404(crud_crm_contact, db, contact_id, "Contacto")
+    borrar_o_404(crud_crm_contact, db, contact_id, recurso="Contacto")
     db.commit()
 
 
@@ -391,7 +428,7 @@ def create_deal(
     ),
 )
 def get_deal(deal_id: UUID, db: Session = Depends(get_tenant_db)):
-    return obtener_o_404(crud_crm_deal, db, deal_id, "Oportunidad")
+    return obtener_o_404(crud_crm_deal, db, deal_id, recurso="Oportunidad")
 
 
 @router.patch(
@@ -407,9 +444,9 @@ def get_deal(deal_id: UUID, db: Session = Depends(get_tenant_db)):
 )
 def update_deal(deal_id: UUID, data: CrmDealUpdate, db: Session = Depends(get_tenant_db)):
     """Edita los datos del trato. **La etapa no**: para eso esta `/stage`."""
-    fila = obtener_o_404(crud_crm_deal, db, deal_id, "Oportunidad")
+    fila = obtener_o_404(crud_crm_deal, db, deal_id, recurso="Oportunidad")
     validar_visible(crud_crm_contact, db, data.crm_contact_id, campo="crm_contact_id")
-    actualizada = crud_crm_deal.update(db, fila, data)
+    actualizada = crud_crm_deal.update(db, db_obj=fila, obj_in=data)
     db.commit()
     return actualizada
 
@@ -425,7 +462,7 @@ def update_deal(deal_id: UUID, data: CrmDealUpdate, db: Session = Depends(get_te
     ),
 )
 def delete_deal(deal_id: UUID, db: Session = Depends(get_tenant_db)):
-    borrar_o_404(crud_crm_deal, db, deal_id, "Oportunidad")
+    borrar_o_404(crud_crm_deal, db, deal_id, recurso="Oportunidad")
     db.commit()
 
 
@@ -453,7 +490,7 @@ def mover_de_etapa(
     datos: MoverDeEtapa,
     db: Session = Depends(get_tenant_db),
 ):
-    deal = obtener_o_404(crud_crm_deal, db, deal_id, "Oportunidad")
+    deal = obtener_o_404(crud_crm_deal, db, deal_id, recurso="Oportunidad")
     validar_visible(crud_crm_stage, db, datos.stage_id, campo="stage_id")
     etapa = db.get(CrmStage, datos.stage_id)
     if etapa is None:
@@ -491,7 +528,7 @@ def promover_a_contrato(
     datos: PromoverAContrato,
     db: Session = Depends(get_tenant_db),
 ):
-    deal = obtener_o_404(crud_crm_deal, db, deal_id, "Oportunidad")
+    deal = obtener_o_404(crud_crm_deal, db, deal_id, recurso="Oportunidad")
     # `contract_id` viene del cuerpo, asi que pasa por la misma comprobacion
     # que cualquier otra clave foranea: las FK **no pasan por RLS**, y sin esto
     # una empresa podria enlazar su trato con el contrato de otra.
@@ -582,7 +619,7 @@ def create_activity(
     validar_visible(crud_crm_contact, db, data.crm_contact_id, campo="crm_contact_id")
     validar_visible(crud_crm_deal, db, data.crm_deal_id, campo="crm_deal_id")
 
-    fila = crud_crm_activity.create(db, data, tenant_id)
+    fila = crud_crm_activity.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return fila
 
@@ -594,7 +631,7 @@ def create_activity(
     description="Una llamada, un correo, una reunion o una nota.",
 )
 def get_activity(activity_id: UUID, db: Session = Depends(get_tenant_db)):
-    return obtener_o_404(crud_crm_activity, db, activity_id, "Actividad")
+    return obtener_o_404(crud_crm_activity, db, activity_id, recurso="Actividad")
 
 
 @router.patch(
@@ -610,8 +647,8 @@ def get_activity(activity_id: UUID, db: Session = Depends(get_tenant_db)):
 def update_activity(
     activity_id: UUID, data: CrmActivityUpdate, db: Session = Depends(get_tenant_db)
 ):
-    fila = obtener_o_404(crud_crm_activity, db, activity_id, "Actividad")
-    actualizada = crud_crm_activity.update(db, fila, data)
+    fila = obtener_o_404(crud_crm_activity, db, activity_id, recurso="Actividad")
+    actualizada = crud_crm_activity.update(db, db_obj=fila, obj_in=data)
     db.commit()
     return actualizada
 
@@ -623,7 +660,7 @@ def update_activity(
     description="Borrado logico: desaparece de la linea de tiempo y queda el rastro.",
 )
 def delete_activity(activity_id: UUID, db: Session = Depends(get_tenant_db)):
-    borrar_o_404(crud_crm_activity, db, activity_id, "Actividad")
+    borrar_o_404(crud_crm_activity, db, activity_id, recurso="Actividad")
     db.commit()
 
 
