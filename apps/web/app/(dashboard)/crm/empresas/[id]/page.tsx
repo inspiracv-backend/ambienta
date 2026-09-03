@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Star,
 } from 'lucide-react';
-import { Button, Spinner, StatusBadge } from '@/components/atoms';
+import { Button, Input, Spinner, StatusBadge, Textarea } from '@/components/atoms';
 import type { SemaforoStatus } from '@/components/atoms/StatusBadge/StatusBadge.types';
 import { Breadcrumbs, EmptyState, PageHeader } from '@/components/molecules';
 import {
@@ -26,12 +26,14 @@ import {
   formatearFecha,
   formatearMonto,
   motivoParaNoPromover,
+  nombreDelResponsable,
   sePuedePromover,
   type ContactoCrm,
   type EstadoDeEmpresa,
   type TratoCrm,
 } from '@/lib/crm';
 import { useFichaDeEmpresa } from '@/lib/crm-empresas-store';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 
 /**
  * La ficha de una empresa del CRM: contactos, oportunidades y línea de tiempo.
@@ -79,9 +81,12 @@ export default function FichaDeEmpresaPage({ params }: { params: { id: string } 
     crearTrato,
     editarTrato,
     moverTrato,
+    editarActividad,
+    retirar,
     promover,
     recargar,
   } = useFichaDeEmpresa(params.id);
+  const { personas } = usePersonasAsignables();
 
   const [contactoEnEdicion, setContactoEnEdicion] = useState<ContactoCrm | null>(null);
   const [modalContacto, setModalContacto] = useState(false);
@@ -90,6 +95,22 @@ export default function FichaDeEmpresaPage({ params }: { params: { id: string } 
   const [tratoAMover, setTratoAMover] = useState<TratoCrm | null>(null);
   const [tratoAPromover, setTratoAPromover] = useState<TratoCrm | null>(null);
   const [efectos, setEfectos] = useState<string[]>([]);
+  const [actividadEnEdicion, setActividadEnEdicion] = useState<string | null>(null);
+  const [errorDeAccion, setErrorDeAccion] = useState<string | null>(null);
+
+  /** Retira y **dice si no pudo**. Sin esto, una acción rechazada dejaría la
+   *  fila en pantalla y quien la pidió creería que se hizo. */
+  async function retirarCon(
+    que: 'contacts' | 'deals' | 'activities',
+    id: string,
+    queEs: string,
+  ) {
+    if (!window.confirm(`¿Retirar ${queEs}? Deja de aparecer, y su historial se conserva.`)) {
+      return;
+    }
+    const r = await retirar(que, id);
+    setErrorDeAccion(r.ok ? null : (r.error ?? 'No se pudo retirar.'));
+  }
 
   const etapaDe = useMemo(() => {
     const porId = new Map(etapas.map((e) => [e.id, e]));
@@ -150,6 +171,9 @@ export default function FichaDeEmpresaPage({ params }: { params: { id: string } 
           <StatusBadge status={COLOR_DEL_ESTADO[empresa.estado]} />
           <span className="text-slate-600">{ESTADO_DE_EMPRESA[empresa.estado]}</span>
         </span>
+        <span className="text-slate-600">
+          {nombreDelResponsable(empresa.responsableId, personas)}
+        </span>
         {empresa.sitioWeb && (
           <a
             href={empresa.sitioWeb}
@@ -172,6 +196,15 @@ export default function FichaDeEmpresaPage({ params }: { params: { id: string } 
         <p className="rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           La API cortó la lista de {listasCortadas.join(' y ')} en su tope, así que
           esta ficha podría no mostrarlos todos.
+        </p>
+      )}
+
+      {errorDeAccion && (
+        <p
+          role="alert"
+          className="rounded-card border border-semaforo-incumple/30 bg-semaforo-incumple-bg px-3 py-2 text-sm text-semaforo-incumple"
+        >
+          {errorDeAccion}
         </p>
       )}
 
@@ -224,16 +257,25 @@ export default function FichaDeEmpresaPage({ params }: { params: { id: string } 
                     </p>
                     {c.cargo && <p className="text-xs text-slate-500">{c.cargo}</p>}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setContactoEnEdicion(c);
-                      setModalContacto(true);
-                    }}
-                  >
-                    Editar
-                  </Button>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setContactoEnEdicion(c);
+                        setModalContacto(true);
+                      }}
+                    >
+                      Editar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void retirarCon('contacts', c.id, `a ${c.nombre}`)}
+                    >
+                      Retirar
+                    </Button>
+                  </div>
                 </div>
                 <div className="mt-2 flex flex-col gap-1 text-sm text-slate-600">
                   {c.correo && (
@@ -304,7 +346,8 @@ export default function FichaDeEmpresaPage({ params }: { params: { id: string } 
                       <p className="mt-0.5 text-sm text-slate-500">
                         {etapa?.nombre ?? 'Etapa desconocida'} ·{' '}
                         {t.monto === null ? 'Sin valorar' : formatearMonto(t.monto, t.moneda)} ·
-                        Cierre {formatearFecha(t.cierreEstimado)}
+                        Cierre {formatearFecha(t.cierreEstimado)} ·{' '}
+                        {nombreDelResponsable(t.responsableId, personas)}
                       </p>
                       {t.motivoPerdida && (
                         <p className="mt-1 text-sm text-slate-600">
@@ -345,6 +388,13 @@ export default function FichaDeEmpresaPage({ params }: { params: { id: string } 
                           Promover a contrato
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void retirarCon('deals', t.id, `«${t.titulo}»`)}
+                      >
+                        Retirar
+                      </Button>
                     </div>
                   </div>
                   {/* Y cuando no se puede, se dice por qué en vez de dejar el
@@ -394,8 +444,77 @@ export default function FichaDeEmpresaPage({ params }: { params: { id: string } 
                   </p>
                   <span className="text-xs text-slate-500">{formatearFecha(a.ocurrioEn)}</span>
                 </div>
-                {a.detalle && (
-                  <p className="mt-1 whitespace-pre-line text-sm text-slate-600">{a.detalle}</p>
+
+                {actividadEnEdicion === a.id ? (
+                  /* Se corrige en su sitio y no en un modal: casi siempre es
+                     arreglar una palabra, y para eso abrir una ventana cuesta
+                     más que el arreglo. El tipo y el padre no se tocan — mover
+                     una llamada de un trato a otro reescribiría dos líneas de
+                     tiempo a la vez. */
+                  <form
+                    className="mt-2 flex flex-col gap-2"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const datos = new FormData(e.currentTarget);
+                      const r = await editarActividad(a.id, {
+                        asunto: String(datos.get('asunto') ?? ''),
+                        detalle: String(datos.get('detalle') ?? ''),
+                      });
+                      setErrorDeAccion(r.ok ? null : (r.error ?? 'No se pudo guardar.'));
+                      if (r.ok) setActividadEnEdicion(null);
+                    }}
+                  >
+                    <label className="sr-only" htmlFor={`asunto-${a.id}`}>
+                      Asunto
+                    </label>
+                    <Input id={`asunto-${a.id}`} name="asunto" defaultValue={a.asunto} required />
+                    <label className="sr-only" htmlFor={`detalle-${a.id}`}>
+                      Detalle
+                    </label>
+                    <Textarea
+                      id={`detalle-${a.id}`}
+                      name="detalle"
+                      rows={2}
+                      defaultValue={a.detalle ?? ''}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setActividadEnEdicion(null)}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button type="submit" size="sm">
+                        Guardar
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    {a.detalle && (
+                      <p className="mt-1 whitespace-pre-line text-sm text-slate-600">
+                        {a.detalle}
+                      </p>
+                    )}
+                    <div className="mt-1 flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setActividadEnEdicion(a.id)}
+                      >
+                        Corregir
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void retirarCon('activities', a.id, 'esta anotación')}
+                      >
+                        Retirar
+                      </Button>
+                    </div>
+                  </>
                 )}
               </li>
             ))}

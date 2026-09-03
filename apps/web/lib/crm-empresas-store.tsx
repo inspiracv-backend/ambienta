@@ -36,6 +36,9 @@ const TOPE = 500;
 
 export interface DatosDeEmpresa {
   nombre: string;
+  /** Quien esta a cargo. `null` = sin responsable, que no es lo mismo que
+   *  «alguien que no reconocemos» — ver `nombreDelResponsable`. */
+  responsableId?: string | null;
   rut?: string | null;
   rubro?: string | null;
   sitioWeb?: string | null;
@@ -57,8 +60,19 @@ export interface DatosDeActividad {
   detalle?: string | null;
 }
 
+/** Lo que se puede corregir de una actividad ya anotada.
+ *
+ *  **El padre no**: mover una llamada de un trato a otro reescribiria dos
+ *  lineas de tiempo a la vez, y la API tampoco lo acepta. Se anota de nuevo en
+ *  el sitio correcto y se retira la equivocada. */
+export interface CorreccionDeActividad {
+  asunto: string;
+  detalle?: string | null;
+}
+
 export interface DatosDeTrato {
   titulo: string;
+  responsableId?: string | null;
   monto?: string | null;
   moneda?: string;
   contactoId?: string | null;
@@ -84,6 +98,7 @@ function aCuerpoDeEmpresa(datos: DatosDeEmpresa): Record<string, unknown> {
     industry: datos.rubro?.trim() || null,
     website: datos.sitioWeb?.trim() || null,
     status: datos.estado ?? 'prospect',
+    owner_user_id: datos.responsableId || null,
     notes: datos.notas?.trim() || null,
   };
 }
@@ -98,6 +113,7 @@ function aCuerpoDeTrato(datos: DatosDeTrato): Record<string, unknown> {
     amount: datos.monto?.trim() || null,
     currency: datos.moneda?.trim() || 'CLP',
     crm_contact_id: datos.contactoId || null,
+    owner_user_id: datos.responsableId || null,
     expected_close_date: datos.cierreEstimado?.trim() || null,
   };
 }
@@ -183,7 +199,23 @@ export function useCrmEmpresas() {
     [user?.tenantId, cargar],
   );
 
-  return { empresas, hayMas, cargando, errorDeCarga, crear, editar, recargar: cargar };
+  const retirar = useCallback(
+    async (id: string): Promise<Resultado> => {
+      if (!user?.tenantId) return { ok: false, error: 'Sin sesión.' };
+      try {
+        // Borrado logico: sus tratos y actividades se conservan, porque son el
+        // historial de por que se dejo de trabajar con ella.
+        await api.delete(`/crm/companies/${id}`, { tenantId: user.tenantId });
+        await cargar();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: mensajeDeError(e) };
+      }
+    },
+    [user?.tenantId, cargar],
+  );
+
+  return { empresas, hayMas, cargando, errorDeCarga, crear, editar, retirar, recargar: cargar };
 }
 
 /**
@@ -453,6 +485,48 @@ export function useFichaDeEmpresa(empresaId: string | null) {
     [user?.tenantId, cargar],
   );
 
+  const editarActividad = useCallback(
+    async (id: string, datos: CorreccionDeActividad): Promise<Resultado> => {
+      if (!user?.tenantId) return { ok: false, error: 'Sin sesión.' };
+      try {
+        await api.patch(
+          `/crm/activities/${id}`,
+          { subject: datos.asunto.trim(), body: datos.detalle?.trim() || null },
+          { tenantId: user.tenantId },
+        );
+        await cargar();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: mensajeDeError(e) };
+      }
+    },
+    [user?.tenantId, cargar],
+  );
+
+  /**
+   * Retirar cualquier pieza de la ficha. Es borrado **logico** en las cuatro.
+   *
+   * Una sola funcion y no cuatro porque lo unico que cambia es la ruta, y
+   * cuatro copias del mismo `try/catch` son cuatro sitios donde arreglar el
+   * dia que el manejo de errores cambie.
+   */
+  const retirar = useCallback(
+    async (
+      que: 'contacts' | 'deals' | 'activities',
+      id: string,
+    ): Promise<Resultado> => {
+      if (!user?.tenantId) return { ok: false, error: 'Sin sesión.' };
+      try {
+        await api.delete(`/crm/${que}/${id}`, { tenantId: user.tenantId });
+        await cargar();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: mensajeDeError(e) };
+      }
+    },
+    [user?.tenantId, cargar],
+  );
+
   const promover = useCallback(
     async (tratoId: string, contratoId: string): Promise<Resultado> => {
       if (!user?.tenantId) return { ok: false, error: 'Sin sesión.' };
@@ -492,6 +566,8 @@ export function useFichaDeEmpresa(empresaId: string | null) {
     crearTrato,
     editarTrato,
     moverTrato,
+    editarActividad,
+    retirar,
     promover,
     recargar: cargar,
   };

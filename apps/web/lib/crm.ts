@@ -408,3 +408,123 @@ export function contratosCompatibles(
   if (!empresa.clienteTenantId) return contratos;
   return contratos.filter((c) => c.clienteTenantId === empresa.clienteTenantId);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Configuración del pipeline y responsables
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/** Qué significa cada tipo de etapa para quien configura el pipeline. */
+export const TIPO_DE_ETAPA: Record<TipoDeEtapa, string> = {
+  open: 'Abierta',
+  won: 'Ganado',
+  lost: 'Perdido',
+};
+
+export const AYUDA_DEL_TIPO: Record<TipoDeEtapa, string> = {
+  open: 'El trato sigue vivo. Los nuevos entran en la primera de estas.',
+  won: 'Al llegar acá el trato se cierra, y desde acá se promueve a contrato.',
+  lost: 'Al llegar acá el trato se cierra y se exige el motivo de la pérdida.',
+};
+
+/**
+ * Una persona de la empresa, para asignarle una ficha o un trato.
+ *
+ * **Sale de `/users/`, no de `useUsers()`.** Ese store arranca con `mockUsers` y
+ * se queda con ellos si la API falla, así que un selector construido sobre él
+ * ofrecería identificadores que no existen en la base — y `owner_user_id` es
+ * una clave foránea: la escritura respondería 422. Ya pasó en este repositorio
+ * con el selector de plantas.
+ */
+export interface PersonaAsignable {
+  id: string;
+  nombre: string;
+}
+
+export function mapPersona(raw: Record<string, unknown>): PersonaAsignable {
+  return {
+    id: String(raw.id),
+    nombre: String(raw.full_name ?? raw.email ?? 'Sin nombre'),
+  };
+}
+
+/** El nombre de quien está a cargo, o el aviso de que no hay nadie. */
+export function nombreDelResponsable(
+  responsableId: string | null,
+  personas: PersonaAsignable[],
+): string {
+  if (!responsableId) return 'Sin responsable';
+  // Un id que no está en la lista **se dice**, no se esconde tras «Sin
+  // responsable»: son cosas distintas — alguien está a cargo y no sabemos
+  // quién, contra nadie está a cargo. La segunda es la que hay que repartir.
+  return personas.find((p) => p.id === responsableId)?.nombre ?? 'Responsable desconocido';
+}
+
+/**
+ * Si retirar esta etapa va a ser rechazado, y por qué.
+ *
+ * Las mismas dos reglas que `services/crm.py::comprobar_cambio_de_etapa`, con
+ * una diferencia que importa: **acá no son la barrera**. El servidor responde
+ * 409 igual. Existen para no ofrecer un botón que va a fallar, y para explicar
+ * la salida antes de que alguien la busque probando.
+ */
+export function motivoParaNoRetirarEtapa(
+  etapa: EtapaCrm,
+  todas: EtapaCrm[],
+  tratosEnLaEtapa: number,
+): string | null {
+  if (tratosEnLaEtapa > 0) {
+    return (
+      `Tiene ${tratosEnLaEtapa} oportunidad${tratosEnLaEtapa === 1 ? '' : 'es'} dentro. ` +
+      'Retirarla las dejaría fuera del tablero sin borrarlas. Muévelas primero.'
+    );
+  }
+  const otrasDeSuTipo = todas.filter((e) => e.tipo === etapa.tipo && e.id !== etapa.id);
+  if (otrasDeSuTipo.length === 0) {
+    return (
+      `Es la única etapa «${TIPO_DE_ETAPA[etapa.tipo]}» que queda, y el pipeline ` +
+      'la necesita. Se puede renombrar y reordenar.'
+    );
+  }
+  return null;
+}
+
+/**
+ * El `code` de una etapa nueva, derivado de su nombre.
+ *
+ * ## Por qué no se pide
+ *
+ * `code` es el identificador estable de la columna y **no se puede cambiar
+ * después**. Pedirlo aparte sería pedir un dato técnico a quien está
+ * describiendo su proceso de venta, y quien lo escriba mal se queda con él.
+ *
+ * ## Y por qué recibe los que ya existen
+ *
+ * Hay un índice único por `(tenant_id, code)`. Dos etapas llamadas «Propuesta»
+ * y «propuesta!» dan el mismo código y la segunda respondería 409, con un
+ * mensaje sobre una columna que la persona no sabe que existe. Se numera.
+ *
+ * Devuelve cadena vacía si del nombre no queda nada utilizable —un nombre hecho
+ * solo de símbolos—, y ahí la pantalla no deja guardar: es preferible a mandar
+ * un código vacío que la base rechaza por otra razón.
+ */
+export function codigoDeEtapa(nombre: string, yaUsados: string[] = []): string {
+  const base = nombre
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    // Los diacríticos combinantes que `NFD` separó. Se quitan en vez de
+    // traducirse: `ñ` → `n` es lo que se espera de un identificador.
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+
+  if (!base) return '';
+  if (!yaUsados.includes(base)) return base;
+
+  for (let n = 2; n < 100; n += 1) {
+    const candidato = `${base.slice(0, 37)}_${n}`;
+    if (!yaUsados.includes(candidato)) return candidato;
+  }
+  return '';
+}

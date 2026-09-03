@@ -2,8 +2,17 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Building2, Plus, RefreshCw, Search } from 'lucide-react';
+import {
+  AlertTriangle,
+  Building2,
+  LayoutGrid,
+  Plus,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { Button, Input, Spinner, StatusBadge } from '@/components/atoms';
+import { buttonVariants } from '@/components/atoms/Button/Button';
 import type { SemaforoStatus } from '@/components/atoms/StatusBadge/StatusBadge.types';
 import { EmptyState, PageHeader } from '@/components/molecules';
 import { EmpresaCrmModal } from '@/components/organisms';
@@ -40,10 +49,12 @@ const COLOR_DEL_ESTADO: Record<EstadoDeEmpresa, SemaforoStatus> = {
 };
 
 export default function EmpresasCrmPage() {
-  const { empresas, hayMas, cargando, errorDeCarga, crear, editar, recargar } = useCrmEmpresas();
+  const { empresas, hayMas, cargando, errorDeCarga, crear, editar, retirar, recargar } =
+    useCrmEmpresas();
   const [busqueda, setBusqueda] = useState('');
   const [enEdicion, setEnEdicion] = useState<EmpresaCrm | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
+  const [errorDeAccion, setErrorDeAccion] = useState<string | null>(null);
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -76,7 +87,15 @@ export default function EmpresasCrmPage() {
         titulo="Empresas"
         descripcion="Prospectos y clientes de la cartera comercial. Desde acá se dan de alta las oportunidades del pipeline."
         acciones={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Link href="/crm" className={buttonVariants({ variant: 'secondary' })}>
+              <LayoutGrid className="h-4 w-4" aria-hidden />
+              Tablero
+            </Link>
+            <Link href="/crm/etapas" className={buttonVariants({ variant: 'secondary' })}>
+              <SlidersHorizontal className="h-4 w-4" aria-hidden />
+              Etapas
+            </Link>
             <Button
               variant="secondary"
               icon={<RefreshCw className="h-4 w-4" aria-hidden />}
@@ -90,6 +109,15 @@ export default function EmpresasCrmPage() {
           </div>
         }
       />
+
+      {errorDeAccion && (
+        <p
+          role="alert"
+          className="rounded-card border border-semaforo-incumple/30 bg-semaforo-incumple-bg px-3 py-2 text-sm text-semaforo-incumple"
+        >
+          {errorDeAccion}
+        </p>
+      )}
 
       {cargando && (
         <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -178,9 +206,32 @@ export default function EmpresasCrmPage() {
                       <span className="text-slate-600">{ESTADO_DE_EMPRESA[empresa.estado]}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <Button variant="secondary" size="sm" onClick={() => abrirEdicion(empresa)}>
-                        Editar
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button variant="secondary" size="sm" onClick={() => abrirEdicion(empresa)}>
+                          Editar
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            // Se pregunta porque la fila desaparece de la lista.
+                            // Es borrado logico —sus tratos y actividades quedan,
+                            // porque son el historial de por que se dejo de
+                            // trabajar con ella— y eso se dice en la pregunta.
+                            if (
+                              !window.confirm(
+                                `¿Retirar ${empresa.nombre}? Deja de aparecer en la cartera, y sus oportunidades y actividades se conservan.`,
+                              )
+                            ) {
+                              return;
+                            }
+                            const r = await retirar(empresa.id);
+                            setErrorDeAccion(r.ok ? null : (r.error ?? 'No se pudo retirar.'));
+                          }}
+                        >
+                          Retirar
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

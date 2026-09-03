@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import { Button, Input, Textarea } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { ESTADO_DE_EMPRESA, type EmpresaCrm, type EstadoDeEmpresa } from '@/lib/crm';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 import type { DatosDeEmpresa, Resultado } from '@/lib/crm-empresas-store';
 
 /**
@@ -38,11 +39,13 @@ export function EmpresaCrmModal({
   onGuardar: (datos: DatosDeEmpresa) => Promise<Resultado>;
 }) {
   const formId = useId();
+  const { personas, fallo: falloDePersonas } = usePersonasAsignables();
   const [nombre, setNombre] = useState('');
   const [rut, setRut] = useState('');
   const [rubro, setRubro] = useState('');
   const [sitioWeb, setSitioWeb] = useState('');
   const [estado, setEstado] = useState<EstadoDeEmpresa>('prospect');
+  const [responsableId, setResponsableId] = useState('');
   const [notas, setNotas] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +59,7 @@ export function EmpresaCrmModal({
     setRubro(empresa?.rubro ?? '');
     setSitioWeb(empresa?.sitioWeb ?? '');
     setEstado(empresa?.estado ?? 'prospect');
+    setResponsableId(empresa?.responsableId ?? '');
     setNotas(empresa?.notas ?? '');
     setError(null);
   }, [open, empresa]);
@@ -74,6 +78,7 @@ export function EmpresaCrmModal({
       rubro,
       sitioWeb,
       estado,
+      responsableId: responsableId || null,
       notas,
     });
 
@@ -161,6 +166,30 @@ export function EmpresaCrmModal({
                   {(Object.keys(ESTADO_DE_EMPRESA) as EstadoDeEmpresa[]).map((e) => (
                     <option key={e} value={e}>
                       {ESTADO_DE_EMPRESA[e]}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+
+              <FormField
+                label="Responsable"
+                htmlFor={`${formId}-responsable`}
+                hint={
+                  falloDePersonas
+                    ? 'No se pudo traer la gente de la empresa, así que la lista está vacía.'
+                    : 'Quién sigue a esta empresa. Opcional.'
+                }
+              >
+                <select
+                  id={`${formId}-responsable`}
+                  value={responsableId}
+                  onChange={(e) => setResponsableId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <option value="">Sin responsable</option>
+                  {personas.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
                     </option>
                   ))}
                 </select>

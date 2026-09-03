@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import { Button, Input } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import type { ContactoCrm, TratoCrm } from '@/lib/crm';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 import type { DatosDeTrato, Resultado } from '@/lib/crm-empresas-store';
 
 /** Las monedas que se ofrecen. `currency` es texto libre en la base, así que
@@ -48,10 +49,12 @@ export function TratoCrmModal({
   onGuardar: (datos: DatosDeTrato) => Promise<Resultado>;
 }) {
   const formId = useId();
+  const { personas, fallo: falloDePersonas } = usePersonasAsignables();
   const [titulo, setTitulo] = useState('');
   const [monto, setMonto] = useState('');
   const [moneda, setMoneda] = useState('CLP');
   const [contactoId, setContactoId] = useState('');
+  const [responsableId, setResponsableId] = useState('');
   const [cierre, setCierre] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export function TratoCrmModal({
     setMonto(trato?.monto === null || trato?.monto === undefined ? '' : String(trato.monto));
     setMoneda(trato?.moneda ?? 'CLP');
     setContactoId(trato?.contactoId ?? '');
+    setResponsableId(trato?.responsableId ?? '');
     setCierre(trato?.cierreEstimado ?? '');
     setError(null);
   }, [open, trato]);
@@ -80,6 +84,7 @@ export function TratoCrmModal({
       monto,
       moneda,
       contactoId: contactoId || null,
+      responsableId: responsableId || null,
       cierreEstimado: cierre,
     });
 
@@ -170,6 +175,30 @@ export function TratoCrmModal({
                     <option key={c.id} value={c.id}>
                       {c.nombre}
                       {c.cargo ? ` · ${c.cargo}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+
+              <FormField
+                label="Responsable"
+                htmlFor={`${formId}-responsable`}
+                hint={
+                  falloDePersonas
+                    ? 'No se pudo traer la gente de la empresa, así que la lista está vacía.'
+                    : 'Quién lleva esta venta. Opcional.'
+                }
+              >
+                <select
+                  id={`${formId}-responsable`}
+                  value={responsableId}
+                  onChange={(e) => setResponsableId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <option value="">Sin responsable</option>
+                  {personas.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
                     </option>
                   ))}
                 </select>

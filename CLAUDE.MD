@@ -224,7 +224,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | worker · ai-service | Sin implementar |
 | Avisos de vencimiento | **Cerrados el 27-ago (epica #22).** El generador anterior **duplicaba** —tres corridas, tres avisos—, **se saltaba en silencio las obligaciones sin responsable** (3 de 8 en el seed) y tenia las ventanas escritas a mano mientras `notification_rules` existia vacia. Ahora: clave unica en la base, escalamiento a los administradores, y ventanas por empresa con defecto 15/7/3/1. El 27-ago se cerro el resto: la cola sabe **reintentar** (`db/19`), hay un cron (`python -m app.tareas avisos`), el correo sale por **Resend**, y las plantillas de la empresa se rellenan en Python. Al enchufarlas aparecio que el generador **nunca creaba notificaciones de correo** — se podia configurar Resend entero y no salia un solo mensaje — ver abajo |
 | Control documental (RF-102 a RF-106) | **Modelo, ciclo de vida y subida de archivos desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. La subida va por **enlace firmado** directo a B2, con la ruta del objeto llevando el `tenant_id` — ver abajo |
-| CRM comercial | **Usable desde el 3-sep, y hasta ese dia no lo era.** La API tiene **28 operaciones** y la interfaz llamaba a **dos** —`/crm/pipeline` y mover de etapa—, en una sola pantalla: el kanban. Se podia mirar el tablero y arrastrar una tarjeta, y nada mas — no dar de alta una empresa, ni un contacto, ni una oportunidad, ni anotar una llamada, ni promover un trato ganado. O sea que las tarjetas del kanban solo podian existir si alguien las creaba por fuera del sistema. Ahora hay cartera (`/crm/empresas`) y ficha por empresa con contactos, oportunidades, linea de tiempo, mover de etapa y promocion a contrato. Al construirlo aparecieron dos cosas que no fallaban — ver abajo |
+| CRM comercial | **Usable desde el 3-sep, y hasta ese dia no lo era.** La API tiene **28 operaciones** y la interfaz llamaba a **dos** —`/crm/pipeline` y mover de etapa—, en una sola pantalla: el kanban. Se podia mirar el tablero y arrastrar una tarjeta, y nada mas — no dar de alta una empresa, ni un contacto, ni una oportunidad, ni anotar una llamada, ni promover un trato ganado. O sea que las tarjetas del kanban solo podian existir si alguien las creaba por fuera del sistema. Ahora hay cartera (`/crm/empresas`), ficha por empresa con contactos, oportunidades, linea de tiempo, responsables, retiro y promocion a contrato, y configuracion de etapas (`/crm/etapas`). **Y al construirlo aparecio que casi nada del modulo funcionaba**: 26 llamadas con la firma equivocada dejaban en 500 todo lo direccionado por id, incluido mover una tarjeta del kanban — ver abajo |
 | worker | **No existe como servicio, a proposito.** El trabajo en segundo plano vive en `apps/api/app/tareas/` y lo dispara cron. Ver `apps/worker/README.md` |
 | ai-service | Sin implementar |
 
@@ -805,6 +805,60 @@ No se manda `X-XSS-Protection`: esta obsoleta, los navegadores actuales la
 ignoran y en los que la respetaban su filtro introdujo vulnerabilidades propias.
 Mandarla seria ruido que aparenta proteccion.
 
+**Casi ningun endpoint del CRM funcionaba, y ninguna prueba fallaba.** Medido
+el 3-sep: **26 llamadas** de `routers/crm.py` pasaban por posicion un argumento
+que es **solo por nombre**, asi que el handler levantaba `TypeError` en su
+primera linea — HTTP 500.
+
+| Lo que decia `crm.py` | Lo que aceptan las funciones |
+|---|---|
+| `obtener_o_404(crud, db, id, "Empresa")` | `recurso` es solo por nombre |
+| `borrar_o_404(crud, db, id, "Empresa")` | idem |
+| `crud.create(db, data, tenant_id)` | `obj_in` y `tenant_id`, solo por nombre |
+| `crud.update(db, fila, data)` | `db_obj` y `obj_in`, solo por nombre |
+
+Afectaba a ver, editar y retirar empresas, contactos, oportunidades, etapas y
+actividades, **mover una tarjeta del kanban** y promover a contrato. O sea que
+lo unico que el modulo dejaba hacer tampoco funcionaba.
+
+El barrido dice lo suyo: **el defecto estaba contenido en `crm.py`**, porque el
+resto de los routers si tiene pruebas que pasan por sus endpoints. `test_crm.py`
+probaba el **servicio**, y muy bien. Lo que no hacia nadie era llamar a la API.
+
+`tests/test_crm_endpoints.py` recorre los 28 endpoints con una sesion real y
+ademas **barre el codigo de los routers** para que el que se agregue manana no
+repita la clase. La leccion general: **una suite que solo prueba servicios no
+dice nada sobre si los endpoints existen**, y en este repositorio ya habia
+pasado con `bcn.sincronizar()` y con `control_documental.py`.
+
+**Configurar las etapas podia dejar el CRM inservible en silencio.** Son
+configurables por empresa a proposito (#78), y hasta el 3-sep no habia pantalla
+—asi que todas tenian el mismo pipeline— ni guarda ninguna. Tres puertas:
+
+1. **Retirar una etapa con tratos dentro.** `pipeline()` recorre solo las
+   activas: esos tratos desaparecen del tablero y siguen en la base. Invisibles,
+   no borrados, que es peor porque nadie los busca.
+2. **Quedarse sin una etapa de un tipo.** Y aca la prueba se escribio primero
+   mal: decia que crear un trato responderia 409. Al medirlo resulto peor —
+   `primera_etapa` cae a `(abiertas or etapas)[0]`, asi que sin ninguna columna
+   abierta el trato nuevo **nace en «Ganado» y sin `closed_at`**: una venta
+   ganada que nadie gano, y un ciclo de venta que no se puede medir.
+3. **La puerta trasera del `PATCH`.** `active = false` y cambiar el `kind` hacen
+   lo mismo que retirar. La comprobacion es una sola (`comprobar_cambio_de_etapa`)
+   y la llaman los dos endpoints: una guarda que solo mira el `DELETE` no
+   protege, hace creer que si. Se comprobo desconectandola del `PATCH` — y no
+   fallaba ninguna prueba, de ahi las que ejecutan los endpoints.
+
+Renombrar y reordenar no pasan por ninguna guarda, que es lo que hace que la
+pantalla sirva para algo.
+
+**El selector de responsables NO usa `useUsers()`.** Ese store arranca con
+`mockUsers` y se queda con ellos si la API falla, asi que ofreceria gente que no
+existe en la base — y `owner_user_id` es una clave foranea: la escritura
+responderia 422 sin que se entienda por que. Es exactamente el error del
+selector de plantas, dos secciones mas arriba. `usePersonasAsignables` pide
+`/users/` y, si falla, deja la lista vacia **y lo dice**.
+
 **Las etapas del CRM se sembraban una sola vez, y una empresa nueva quedaba
 sin pipeline.** `db/22_crm.sql` las crea con un `CROSS JOIN tenants`, que corre
 al aplicar la migracion: las empresas que existian ese dia quedaron con sus seis
@@ -921,8 +975,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 1019 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
-cd apps/web && npx vitest run           # 619 pruebas, 54 archivos
+cd apps/api && python -m pytest         # 1053 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
+cd apps/web && npx vitest run           # 633 pruebas, 55 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las corre solo)
 ```
 
