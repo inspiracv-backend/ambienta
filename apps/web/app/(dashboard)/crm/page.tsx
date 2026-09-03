@@ -1,7 +1,9 @@
 'use client';
 
-import { Handshake, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { Building2, Handshake, RefreshCw } from 'lucide-react';
 import { Button, Spinner } from '@/components/atoms';
+import { buttonVariants } from '@/components/atoms/Button/Button';
 import { EmptyState, PageHeader } from '@/components/molecules';
 import { PipelineKanban } from '@/components/organisms';
 import { useCrmPipeline } from '@/lib/crm-store';
@@ -40,14 +42,22 @@ export default function CrmPage() {
         titulo="Pipeline comercial"
         descripcion="Las oportunidades de la empresa por etapa. Arrastra una tarjeta, o usa «Mover a» en cada una."
         acciones={
-          <Button
-            variant="secondary"
-            icon={<RefreshCw className="h-4 w-4" aria-hidden />}
-            onClick={() => void recargar()}
-            disabled={cargando}
-          >
-            Actualizar
-          </Button>
+          <div className="flex gap-2">
+            {/* Las oportunidades del tablero nacen en una ficha de empresa: sin
+                este paso el kanban solo se puede mirar. */}
+            <Link href="/crm/empresas" className={buttonVariants({ variant: 'secondary' })}>
+              <Building2 className="h-4 w-4" aria-hidden />
+              Empresas
+            </Link>
+            <Button
+              variant="secondary"
+              icon={<RefreshCw className="h-4 w-4" aria-hidden />}
+              onClick={() => void recargar()}
+              disabled={cargando}
+            >
+              Actualizar
+            </Button>
+          </div>
         }
       />
 

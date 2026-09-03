@@ -224,6 +224,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | worker · ai-service | Sin implementar |
 | Avisos de vencimiento | **Cerrados el 27-ago (epica #22).** El generador anterior **duplicaba** —tres corridas, tres avisos—, **se saltaba en silencio las obligaciones sin responsable** (3 de 8 en el seed) y tenia las ventanas escritas a mano mientras `notification_rules` existia vacia. Ahora: clave unica en la base, escalamiento a los administradores, y ventanas por empresa con defecto 15/7/3/1. El 27-ago se cerro el resto: la cola sabe **reintentar** (`db/19`), hay un cron (`python -m app.tareas avisos`), el correo sale por **Resend**, y las plantillas de la empresa se rellenan en Python. Al enchufarlas aparecio que el generador **nunca creaba notificaciones de correo** — se podia configurar Resend entero y no salia un solo mensaje — ver abajo |
 | Control documental (RF-102 a RF-106) | **Modelo, ciclo de vida y subida de archivos desde el 27-ago** (epica #31). La capa de evidencias ya existia; **lo que faltaba era el control**: sin codigo no se puede citar un documento en una auditoria, y sin aprobacion registrada **nada impedia usar un borrador como evidencia**. El ciclo vive en la **revision**, no en el documento. Dos restricciones con dientes: aprobado exige quien y cuando, y una sola revision vigente por documento. La subida va por **enlace firmado** directo a B2, con la ruta del objeto llevando el `tenant_id` — ver abajo |
+| CRM comercial | **Usable desde el 3-sep, y hasta ese dia no lo era.** La API tiene **28 operaciones** y la interfaz llamaba a **dos** —`/crm/pipeline` y mover de etapa—, en una sola pantalla: el kanban. Se podia mirar el tablero y arrastrar una tarjeta, y nada mas — no dar de alta una empresa, ni un contacto, ni una oportunidad, ni anotar una llamada, ni promover un trato ganado. O sea que las tarjetas del kanban solo podian existir si alguien las creaba por fuera del sistema. Ahora hay cartera (`/crm/empresas`) y ficha por empresa con contactos, oportunidades, linea de tiempo, mover de etapa y promocion a contrato. Al construirlo aparecieron dos cosas que no fallaban — ver abajo |
 | worker | **No existe como servicio, a proposito.** El trabajo en segundo plano vive en `apps/api/app/tareas/` y lo dispara cron. Ver `apps/worker/README.md` |
 | ai-service | Sin implementar |
 
@@ -804,6 +805,57 @@ No se manda `X-XSS-Protection`: esta obsoleta, los navegadores actuales la
 ignoran y en los que la respetaban su filtro introdujo vulnerabilidades propias.
 Mandarla seria ruido que aparenta proteccion.
 
+**Las etapas del CRM se sembraban una sola vez, y una empresa nueva quedaba
+sin pipeline.** `db/22_crm.sql` las crea con un `CROSS JOIN tenants`, que corre
+al aplicar la migracion: las empresas que existian ese dia quedaron con sus seis
+columnas y **toda empresa dada de alta despues quedo con cero**.
+
+Lo grave no es que falte, es que no se ve como un error:
+
+| Lo que pasa | Como se ve |
+|---|---|
+| El kanban no tiene columnas | Una empresa que todavia no vende |
+| El primer trato responde 409 | "el sistema esta fallando" |
+
+Ahora lo siembra `POST /tenants/` llamando a
+`services/crm.py::sembrar_etapas_por_defecto`, en la **misma transaccion** que
+el alta y declarando el tenant antes — `crm_stages` si lleva RLS, y esa ruta usa
+`get_db`, asi que sin declarar el `INSERT` no pasa el `WITH CHECK`. La funcion es
+idempotente por `code`, porque tambien sirve para reparar una empresa que quedo a
+medias. Una prueba **lee `db/22_crm.sql`** y exige que las dos listas coincidan:
+dos listas distintas darian pipelines distintos segun cuando nacio la empresa, y
+la diferencia recien se veria comparando dos cuentas. Mismo criterio que la
+prueba que lee los Dockerfile.
+
+**Y la condicion para promover un trato a contrato estaba escrita al reves en el
+navegador.** `sePuedePromover` exigia que la ficha **ya tuviera**
+`client_tenant_id`, cuando promover es justamente lo que lo fija
+(`services/crm.py::promover_a_contrato`). El boton se escondia en el unico caso
+para el que existe —un prospecto al que se le acaba de ganar el trato— y aparecia
+solo donde ya no hacia falta. No fallaba nada: la accion simplemente no estaba, y
+quien la buscara habria concluido que el sistema no la tiene. La condicion real
+son dos cosas, las dos del servidor: que la etapa sea de tipo `won` y que el
+trato no apunte ya a otro contrato.
+
+**Contactos y oportunidades se filtran por empresa en el navegador, y la ficha lo
+dice.** `/crm/contacts` y `/crm/deals` no aceptan filtro por empresa: devuelven la
+lista de la cuenta, acotada al tope. Se pide el tope y se filtra en el cliente,
+pero si la respuesta vino cortada, *"esta empresa no tiene contactos"* puede ser
+falso — asi que la ficha muestra que la lista vino cortada en vez de dejar una
+seccion vacia, que se leeria como un hecho.
+
+**Y la suite de la API no corre verde sin `DATABASE_URL`.** Medido el 3-sep:
+`cd apps/api && python -m pytest` da **16 fallos y 13 errores** con
+`getaddrinfo failed`, y cada archivo pasa solo. La causa es el defecto de
+`app/config.py`, que apunta a `postgres:5432` —el nombre del contenedor, que no
+resuelve desde el host— y gana cuando ninguna prueba alcanzo a hacer su
+`os.environ.setdefault`. CI no lo ve porque pasa la variable explicita. Con ella
+puesta: **1019 pasan, 12 se saltan**.
+
+```bash
+DATABASE_URL=postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta python -m pytest
+```
+
 **El comando de sincronizacion documentado aqui no existia, y no fallaba.**
 Decia `python -m app.tareas.sincronizar_bcn` —el **modulo**— y ese modulo no
 tiene punto de entrada: correrlo no hace nada y **sale con codigo 0**. El
@@ -869,8 +921,8 @@ funcionan en la terminal. Un comando por linea.
 
 ```bash
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 962 pruebas, 60 archivos (8 se saltan: las de B2, opt-in)
-cd apps/web && npx vitest run           # 576 pruebas, 49 archivos
+cd apps/api && python -m pytest         # 1019 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
+cd apps/web && npx vitest run           # 619 pruebas, 54 archivos
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las corre solo)
 ```
 

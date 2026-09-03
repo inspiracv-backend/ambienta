@@ -74,6 +74,61 @@ def etapas_de(db: Session, tenant_id: UUID) -> list[CrmStage]:
     )
 
 
+#: Las etapas con las que arranca una empresa. Son **las mismas** que siembra
+#: `db/22_crm.sql`: dos listas distintas darian pipelines distintos segun si la
+#: empresa nacio antes o despues de la migracion, y nadie sabria por que.
+#:
+#: Son un punto de partida editable, no una verdad: cada empresa las renombra,
+#: reordena y agrega las suyas.
+ETAPAS_POR_DEFECTO: tuple[tuple[str, str, int, str], ...] = (
+    ("prospecto", "Prospecto", 0, "open"),
+    ("contactado", "Contactado", 1, "open"),
+    ("propuesta", "Propuesta enviada", 2, "open"),
+    ("negociacion", "En negociacion", 3, "open"),
+    ("ganado", "Ganado", 4, "won"),
+    ("perdido", "Perdido", 5, "lost"),
+)
+
+
+def sembrar_etapas_por_defecto(db: Session, tenant_id: UUID) -> list[CrmStage]:
+    """Le da a una empresa nueva el pipeline con el que puede empezar a vender.
+
+    **Sin esto el CRM no funciona para ninguna empresa creada despues de la
+    migracion, y no falla de forma visible.** `db/22_crm.sql` siembra las etapas
+    con un `CROSS JOIN tenants`, que corre **una vez**: las empresas que ya
+    existian quedaron con su pipeline y las que se dieron de alta despues, con
+    cero etapas. El sintoma no se parece a la causa — el kanban se ve vacio,
+    como una empresa que todavia no vende, y el primer trato responde **409**.
+
+    Es idempotente por `code`: llamarla dos veces no duplica columnas. Eso
+    importa porque tambien sirve para reparar una empresa que quedo sin etapas,
+    y una reparacion que duplica es peor que el problema.
+    """
+    ya_estan = {
+        codigo
+        for codigo in db.scalars(
+            select(CrmStage.code).where(
+                CrmStage.tenant_id == tenant_id,
+                CrmStage.deleted_at.is_(None),
+            )
+        ).all()
+    }
+
+    creadas: list[CrmStage] = []
+    for codigo, nombre, posicion, tipo in ETAPAS_POR_DEFECTO:
+        if codigo in ya_estan:
+            continue
+        etapa = CrmStage(
+            tenant_id=tenant_id, code=codigo, name=nombre, position=posicion, kind=tipo
+        )
+        db.add(etapa)
+        creadas.append(etapa)
+
+    if creadas:
+        db.flush()
+    return creadas
+
+
 def primera_etapa(db: Session, tenant_id: UUID) -> CrmStage:
     """Donde entra un trato nuevo cuando nadie eligio columna.
 

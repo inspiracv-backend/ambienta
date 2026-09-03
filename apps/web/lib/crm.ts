@@ -221,3 +221,190 @@ export function mapPipeline(raw: Record<string, unknown>): Pipeline {
     truncado: raw.truncado === true,
   };
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Empresas, contactos y actividades
+ *
+ * La API del CRM tiene 28 operaciones y la interfaz llamaba a **dos**, desde
+ * una sola pantalla: el pipeline. Se podía mirar el tablero y arrastrar un
+ * trato, y nada más — no crear una empresa, ni registrar una llamada, ni
+ * promover un trato ganado.
+ *
+ * Lo de abajo es lo que faltaba para que el módulo se pueda usar, con el mismo
+ * criterio del resto del archivo: mapear la respuesta y **no repetir reglas de
+ * negocio** que ya viven en `services/crm.py`.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/** Prospecto, cliente o inactiva. Los tres valores que admite la base. */
+export type EstadoDeEmpresa = 'prospect' | 'client' | 'inactive';
+
+export interface EmpresaCrm {
+  id: string;
+  nombre: string;
+  rut: string | null;
+  rubro: string | null;
+  sitioWeb: string | null;
+  /**
+   * La empresa **dentro de la plataforma**, cuando ya es cliente.
+   *
+   * `null` mientras es prospecto. Es el puente que permite promover un trato
+   * ganado a contrato: sin él no hay a quién asociarle el contrato.
+   */
+  clienteTenantId: string | null;
+  estado: EstadoDeEmpresa;
+  responsableId: string | null;
+  notas: string | null;
+}
+
+export interface ContactoCrm {
+  id: string;
+  empresaId: string;
+  nombre: string;
+  correo: string | null;
+  telefono: string | null;
+  cargo: string | null;
+  /** El interlocutor por defecto de esa empresa. */
+  esPrincipal: boolean;
+}
+
+/** Los cinco tipos que admite la base. */
+export type TipoDeActividad = 'call' | 'email' | 'meeting' | 'note' | 'task';
+
+export interface ActividadCrm {
+  id: string;
+  tipo: TipoDeActividad;
+  asunto: string;
+  detalle: string | null;
+  ocurrioEn: string;
+  autorId: string | null;
+  empresaId: string | null;
+  contactoId: string | null;
+  tratoId: string | null;
+}
+
+export const ESTADO_DE_EMPRESA: Record<EstadoDeEmpresa, string> = {
+  prospect: 'Prospecto',
+  client: 'Cliente',
+  inactive: 'Inactiva',
+};
+
+export const TIPO_DE_ACTIVIDAD: Record<TipoDeActividad, string> = {
+  call: 'Llamada',
+  email: 'Correo',
+  meeting: 'Reunión',
+  note: 'Nota',
+  task: 'Tarea',
+};
+
+export function mapEmpresa(raw: Record<string, unknown>): EmpresaCrm {
+  return {
+    id: String(raw.id),
+    nombre: String(raw.name ?? ''),
+    rut: raw.rut ? String(raw.rut) : null,
+    rubro: raw.industry ? String(raw.industry) : null,
+    sitioWeb: raw.website ? String(raw.website) : null,
+    clienteTenantId: raw.client_tenant_id ? String(raw.client_tenant_id) : null,
+    estado: (String(raw.status ?? 'prospect') as EstadoDeEmpresa),
+    responsableId: raw.owner_user_id ? String(raw.owner_user_id) : null,
+    notas: raw.notes ? String(raw.notes) : null,
+  };
+}
+
+export function mapContacto(raw: Record<string, unknown>): ContactoCrm {
+  return {
+    id: String(raw.id),
+    empresaId: String(raw.crm_company_id),
+    nombre: String(raw.full_name ?? ''),
+    correo: raw.email ? String(raw.email) : null,
+    telefono: raw.phone ? String(raw.phone) : null,
+    cargo: raw.role_title ? String(raw.role_title) : null,
+    esPrincipal: Boolean(raw.is_primary),
+  };
+}
+
+export function mapActividad(raw: Record<string, unknown>): ActividadCrm {
+  return {
+    id: String(raw.id),
+    tipo: (String(raw.kind ?? 'note') as TipoDeActividad),
+    asunto: String(raw.subject ?? ''),
+    detalle: raw.body ? String(raw.body) : null,
+    ocurrioEn: String(raw.occurred_at ?? raw.created_at ?? ''),
+    autorId: raw.author_user_id ? String(raw.author_user_id) : null,
+    empresaId: raw.crm_company_id ? String(raw.crm_company_id) : null,
+    contactoId: raw.crm_contact_id ? String(raw.crm_contact_id) : null,
+    tratoId: raw.crm_deal_id ? String(raw.crm_deal_id) : null,
+  };
+}
+
+export interface ContratoParaPromover {
+  id: string;
+  numero: string;
+  titulo: string;
+  clienteTenantId: string;
+  estado: string;
+}
+
+export function mapContratoParaPromover(
+  raw: Record<string, unknown>,
+): ContratoParaPromover {
+  return {
+    id: String(raw.id),
+    numero: String(raw.contract_number ?? ''),
+    titulo: String(raw.title ?? ''),
+    clienteTenantId: String(raw.client_tenant_id ?? ''),
+    estado: String(raw.status ?? ''),
+  };
+}
+
+/**
+ * Si el trato se puede promover a contrato.
+ *
+ * ## La condición es la etapa, y esto estuvo mal escrito
+ *
+ * La primera versión exigía que la empresa **ya tuviera** `client_tenant_id`, y
+ * era exactamente al revés: promover es lo que lo **fija**
+ * (`services/crm.py::promover_a_contrato`). Con esa condición el botón se
+ * escondía justo en el caso para el que existe — un prospecto al que se le
+ * acaba de ganar el trato — y aparecía solo en las fichas donde ya no hacía
+ * falta.
+ *
+ * Lo que el servidor exige de verdad son dos cosas: que el trato esté en una
+ * etapa de tipo `won`, y que no apunte ya a otro contrato.
+ */
+export function sePuedePromover(trato: TratoCrm, etapa: EtapaCrm | null): boolean {
+  return etapa?.tipo === 'won' && !trato.contratoId;
+}
+
+/** Por qué no se puede promover, en palabras. `null` si sí se puede. */
+export function motivoParaNoPromover(
+  trato: TratoCrm,
+  etapa: EtapaCrm | null,
+): string | null {
+  if (trato.contratoId) {
+    return (
+      'Este trato ya está enlazado a un contrato. Mover el enlace dejaría al ' +
+      'contrato anterior sin la venta que lo originó.'
+    );
+  }
+  if (etapa === null) return 'No se sabe en qué etapa está el trato.';
+  if (etapa.tipo !== 'won') {
+    return `Solo un trato ganado se promueve a contrato. Este está en «${etapa.nombre}».`;
+  }
+  return null;
+}
+
+/**
+ * Los contratos que el servidor va a aceptar para esta ficha.
+ *
+ * Si la empresa ya nombra a un cliente de la plataforma, un contrato de otro
+ * cliente se rechaza con 409 (`ClienteDistinto`). Filtrarlos acá evita ofrecer
+ * en el selector opciones que van a fallar; **la barrera sigue siendo el
+ * servidor**, esto es cortesía.
+ */
+export function contratosCompatibles(
+  empresa: EmpresaCrm,
+  contratos: ContratoParaPromover[],
+): ContratoParaPromover[] {
+  if (!empresa.clienteTenantId) return contratos;
+  return contratos.filter((c) => c.clienteTenantId === empresa.clienteTenantId);
+}

@@ -17,9 +17,10 @@ from sqlalchemy.orm import Session
 from ..auth import CurrentUser
 from ..config import get_settings
 from ..crud.organization import crud_tenant
-from ..deps import exigir_admin_global, get_current_user, get_db
+from ..deps import declarar, exigir_admin_global, get_current_user, get_db
 from ..models.organization import User
 from ..schemas.organization import TenantCreate, TenantRead, TenantUpdate
+from ..services import crm as svc_crm
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -88,9 +89,26 @@ def create_tenant(
     _: CurrentUser = Depends(exigir_admin_global),
     db: Session = Depends(get_db),
 ):
-    """Alta de una empresa cliente. Solo Admin Global."""
+    """Alta de una empresa cliente. Solo Admin Global.
+
+    **Y con su pipeline comercial listo.** `db/22_crm.sql` siembra las etapas
+    del CRM con un `CROSS JOIN tenants`, que corre una sola vez: las empresas
+    dadas de alta despues de esa migracion quedaban con **cero etapas**, y eso
+    no se ve como un error — el kanban se muestra vacio, igual que una empresa
+    que todavia no vende, y el primer trato responde 409. Se siembra aca para
+    que no dependa de cuando nacio la empresa.
+
+    Se declara el tenant antes de sembrar porque `crm_stages` **si** lleva RLS:
+    esta sesion es `get_db` —sin empresa declarada— y el `INSERT` no pasaria el
+    `WITH CHECK` de la politica. Va en la **misma transaccion** que el alta: una
+    empresa a medias, creada pero sin pipeline, es justo el estado que esto
+    existe para evitar.
+    """
     obj = crud_tenant.create(db, obj_in=data)
+    declarar(db, obj.id)
+    svc_crm.sembrar_etapas_por_defecto(db, obj.id)
     db.commit()
+    db.refresh(obj)
     return obj
 
 
