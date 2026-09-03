@@ -767,6 +767,43 @@ fila cambia en la base y `db.get()` sigue devolviendo el objeto viejo, asi que
 la prueba falla con "DID NOT RAISE" y el mensaje no se parece en nada a la
 causa. `db.expire_all()` despues del `UPDATE`.
 
+**`TestClient` no pasa por uvicorn, y eso esconde una clase de error.**
+Llama a la aplicacion directamente, asi que **nada de lo que agrega el servidor
+existe en las pruebas**. Se descubrio con las cabeceras de seguridad: el
+middleware ponia `server: ambienta`, las pruebas pasaban, y el sistema corriendo
+devolvia la cabecera **dos veces** —`uvicorn` primero— porque uvicorn la escribe
+mas abajo, en el protocolo, despues de que la aplicacion respondio.
+
+El arreglo es `--no-server-header` en los dos Dockerfile, y como es
+configuracion y no codigo, lo fija una prueba que **lee el archivo**
+(`test_seguridad_http.py::TestElFlagDeUvicornNoSePierde`). Mismo criterio que
+las cinco listas de migraciones.
+
+**La regla general:** todo lo que viva en la capa del servidor —cabeceras que el
+agrega, limites de tamano del cuerpo, tiempos de espera, TLS— hay que
+comprobarlo con `curl` contra el sistema levantado. Una suite en verde no dice
+nada sobre eso.
+
+**Las cabeceras de seguridad se emiten en middleware, no por endpoint.**
+`app/seguridad_http.py`. Son casi 300 operaciones: ponerlas una por una es una
+decision que se puede olvidar, y olvidarla no falla — la respuesta sale igual,
+solo que sin proteger.
+
+Dos que conviene entender antes de tocarlas:
+
+- **La CSP solo declara `frame-ancestors`.** Una politica con `default-src`
+  deja `/docs` en blanco, porque Swagger UI carga su estilo y su script desde
+  `cdn.jsdelivr.net` — comprobado contra la pagina real, no supuesto. Y una
+  documentacion rota se lee como una API rota.
+- **HSTS solo en produccion.** Es la unica cabecera que el navegador
+  **recuerda**: emitida en desarrollo, deja sin acceso por HTTP a quien alguna
+  vez entro por HTTPS al mismo puerto, y el error no se parece en nada a la
+  causa.
+
+No se manda `X-XSS-Protection`: esta obsoleta, los navegadores actuales la
+ignoran y en los que la respetaban su filtro introdujo vulnerabilidades propias.
+Mandarla seria ruido que aparenta proteccion.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
