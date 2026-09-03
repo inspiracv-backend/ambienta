@@ -48,6 +48,7 @@ run "$DIR/19_despacho_de_avisos.sql"
 run "$DIR/20_plantillas_de_correo.sql"
 run "$DIR/21_significancia_del_aspecto.sql"
 run "$DIR/22_crm.sql"
+run "$DIR/23_normativa_transversal.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"
