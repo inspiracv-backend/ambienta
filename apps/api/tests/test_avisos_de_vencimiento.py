@@ -207,38 +207,74 @@ class TestSinResponsableEscala:
         assert _avisos_totales(db, obl.id) > 0
         assert r.escalados == 1
 
-    def test_el_aviso_escalado_dice_por_que_llego(self, db) -> None:
+    def test_el_aviso_escalado_dice_por_que_llego_EN_LOS_DOS_CANALES(self, db) -> None:
         """Un aviso sobre algo que la persona no reconoce como suyo se archiva.
 
         Tiene que explicar que llego por falta de responsable, y que hacer.
+
+        **Y tiene que decirlo en los dos canales.** Esta prueba decia
+        `LIMIT 1` sin `ORDER BY`, o sea que afirmaba sobre **una fila
+        cualquiera** de las seis que genera un escalamiento — tres
+        administradores por dos canales. Postgres devolvia casi siempre una
+        `in_app`, asi que pasaba; cuando devolvia una de correo, fallaba. Se
+        veia como una prueba intermitente y era un defecto de verdad:
+
+        | Canal | Explicaba el escalamiento |
+        |---|---|
+        | `in_app` | si |
+        | `email` | **no** |
+
+        El correo se arma con la plantilla de la empresa, que reemplazaba el
+        cuerpo entero — y la plantilla no sabe de escalamientos. O sea que el
+        canal que de verdad llega era justo el que no decia por que llegaba.
         """
         obl = _obligacion(db, dias=7, con_responsable=False)
 
         generar(db, EMPRESA_A, ventanas=(7,))
 
-        cuerpo = db.execute(
+        filas = db.execute(
             text(
-                "SELECT body FROM notifications "
-                "WHERE context->>'obligation_id' = :o LIMIT 1"
+                "SELECT channel, body FROM notifications "
+                "WHERE context->>'obligation_id' = :o"
             ),
             {"o": str(obl.id)},
-        ).scalar_one()
-        assert "no tiene un responsable asignado" in cuerpo
+        ).all()
+
+        assert filas, "el escalamiento no genero ningun aviso"
+        # Los dos canales existen, o la tabla siguiente no probaria nada.
+        assert {canal for canal, _ in filas} == {"in_app", "email"}
+
+        sin_explicacion = [
+            canal for canal, cuerpo in filas
+            if "no tiene un responsable asignado" not in (cuerpo or "")
+        ]
+        assert sin_explicacion == [], (
+            f"Estos canales avisan sin decir por que le llego al destinatario: "
+            f"{sorted(set(sin_explicacion))}. Quien lo recibe no reconoce la "
+            "obligacion como suya y lo archiva."
+        )
 
     def test_el_contexto_marca_que_fue_escalado(self, db) -> None:
-        """Para que la pantalla pueda distinguirlo sin leer el texto."""
+        """Para que la pantalla pueda distinguirlo sin leer el texto.
+
+        Sobre **todas** las filas y no sobre una cualquiera, por lo mismo que
+        la de arriba: un `LIMIT 1` sin orden es una afirmacion sobre la fila que
+        el planificador quiera devolver hoy.
+        """
         obl = _obligacion(db, dias=7, con_responsable=False)
 
         generar(db, EMPRESA_A, ventanas=(7,))
 
-        escalado = db.execute(
+        marcas = db.execute(
             text(
                 "SELECT context->>'escalado' FROM notifications "
-                "WHERE context->>'obligation_id' = :o LIMIT 1"
+                "WHERE context->>'obligation_id' = :o"
             ),
             {"o": str(obl.id)},
-        ).scalar_one()
-        assert escalado == "true"
+        ).scalars().all()
+
+        assert marcas, "el escalamiento no genero ningun aviso"
+        assert set(marcas) == {"true"}
 
     def test_con_responsable_NO_escala(self, db) -> None:
         """Escalar siempre seria avisar a los administradores de todo."""
