@@ -36,7 +36,7 @@ import os
 import uuid
 
 import pytest
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from app.models.crm import CrmCompany, CrmDeal, CrmStage
