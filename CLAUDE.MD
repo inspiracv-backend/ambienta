@@ -277,8 +277,27 @@ no llega a `localhost`**, asi que ambas cosas se hacen a mano:
 1. Clerk → Users → Public metadata: `{"tenant_id": "<uuid de la empresa>"}`
 2. `UPDATE users SET clerk_id = 'user_xxx' WHERE email = '...'`
 
-Sin el paso 1 la persona entra y recibe `403 sesion_sin_empresa` en todo. El
-paso 2 solo hace falta en local; en el VPS el webhook lo resuelve. Ver
+**Los dos hacen falta, y el 2 es el que se olvida.** Esta entrada decia que el
+paso 2 "solo hace falta en local", lo que se lee como opcional — y con el paso 1
+hecho y el 2 sin hacer **no funciona nada igual**, solo que el error cambia y
+apunta a otro lado. Costo una sesion entera de diagnostico el 3-sep:
+
+| Falta | Respuesta | Como se lee |
+|---|---|---|
+| Paso 1 | `403 sesion_sin_empresa` desde `auth.py` | "tu sesion no tiene empresa" |
+| **Paso 2** | `403 permiso_insuficiente` desde `deps.py` | **"No tienes permiso para hacer esto"** |
+
+El segundo enga~na mas: la guarda de permisos hace
+`select(User).where(User.clerk_id == user.user_id)` y **si no encuentra fila
+responde igual que si el permiso faltara**. O sea que una persona con todos los
+permisos de su rol recibe exactamente el mismo 403 que una sin ninguno, y el
+mensaje la manda a pedirle permisos a alguien que no se los puede dar.
+
+Como distinguirlos en un minuto, sin adivinar: el paso 1 deja un `WARNING` en el
+log de la API (`Sesion verificada sin empresa asignada`). **Si ese aviso no esta,
+el paso 1 esta bien y lo que falta es el 2.**
+
+En el VPS el webhook de Clerk escribe la fila y esto no aplica. Ver
 `docs/development/setup-local.md`.
 
 **El registro de actividades se engancha en un solo lugar, y ese lugar importa.**
