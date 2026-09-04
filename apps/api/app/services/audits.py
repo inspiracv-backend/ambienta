@@ -9,11 +9,31 @@ from ..models.audit import ActionPlan, Audit, AuditItem, Nonconformity
 from ..models.compliance import ArticleCompliance
 
 
+#: El ciclo de vida de una auditoria, con **el vocabulario de la base**.
+#:
+#: Hasta el 4-sep esta tabla decia `in_progress`, `fieldwork` y `review`, tres
+#: estados que el CHECK de `audits.status` no admite: son
+#: `planned|active|reporting|closed|cancelled`. La consecuencia era que
+#: `POST /audits/{id}/advance` **fallaba en todos los avances**:
+#:
+#: | intento | resultado |
+#: |---|---|
+#: | planned -> in_progress | 422, `audits_status_check` |
+#: | planned -> active | 400, "no permitida" |
+#: | planned -> cancelled | 200 |
+#:
+#: O sea que lo unico que se podia hacer con una auditoria era cancelarla, y
+#: los dos errores se leen distinto —uno como dato invalido, otro como una
+#: transicion prohibida— asi que ninguno apunta a la causa. Misma familia que
+#: `fulfill` escribiendo un estado fuera del CHECK.
+#:
+#: La base manda: es lo que dicen `db/01_schema.sql`, el dump y el mapa
+#: `ESTADO_POR_STATUS` del frontend. Cambiar el CHECK en vez de esto habria
+#: dejado a la pantalla traduciendo estados que ya no existen.
 AUDIT_STATUS_TRANSITIONS = {
-    "planned": ["in_progress", "cancelled"],
-    "in_progress": ["fieldwork", "cancelled"],
-    "fieldwork": ["review", "cancelled"],
-    "review": ["closed"],
+    "planned": ["active", "cancelled"],
+    "active": ["reporting", "cancelled"],
+    "reporting": ["closed", "cancelled"],
     "closed": [],
     "cancelled": [],
 }
@@ -33,7 +53,7 @@ def advance_audit_status(
             f"Allowed: {allowed}"
         )
 
-    if new_status == "in_progress" and not audit.actual_start:
+    if new_status == "active" and not audit.actual_start:
         audit.actual_start = datetime.now(timezone.utc)
     if new_status == "closed":
         audit.actual_end = datetime.now(timezone.utc)
