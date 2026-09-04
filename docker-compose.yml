@@ -75,6 +75,7 @@ services:
       - ./db/21_significancia_del_aspecto.sql:/docker-entrypoint-initdb.d/21-significancia-del-aspecto.sql:ro
       - ./db/22_crm.sql:/docker-entrypoint-initdb.d/22-crm.sql:ro
       - ./db/23_normativa_transversal.sql:/docker-entrypoint-initdb.d/23-normativa-transversal.sql:ro
+      - ./db/24_datos_por_tipo_de_registro.sql:/docker-entrypoint-initdb.d/24-datos-por-tipo.sql:ro
       - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
       # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
       # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —

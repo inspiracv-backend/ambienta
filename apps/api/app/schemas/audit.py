@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .base import OrmBase
 
@@ -118,7 +118,31 @@ class AuditParticipantRead(OrmBase):
 
 # ── Nonconformity ─────────────────────────────────────────────────────────
 
+#: Los origenes que obligan a decir de que hallazgo salio el registro.
+ORIGENES_DE_AUDITORIA = ("auditoria_interna", "auditoria_externa")
+
+#: Lo que cada tipo de registro exige, con la clausula que lo pide.
+#:
+#: **Las mismas reglas viven en la base** (`db/24`), y esa es la barrera: un
+#: `UPDATE` a mano tambien tiene que respetarlas, y el registro de mejora es de
+#: las tablas que alguien corrige por SQL cuando algo sale mal. Aca se
+#: comprueban antes para responder un 422 legible en vez de un error de
+#: restriccion, que se lee como un fallo del sistema y no como un dato que falta.
+DATOS_POR_TIPO = {
+    "salida_no_conforme": ("product_data", ("sku", "lote"), "ISO 9001 8.7"),
+    "reclamo": ("complaint_data", ("cliente_nombre", "canal"), "ISO 9001 9.1.2"),
+}
+
+
 class NonconformityCreate(BaseModel):
+    """Alta de un registro de mejora (#37, RF-46 y RF-96).
+
+    **El tipo es la primera decision y define que mas se exige.** No es un
+    campo de clasificacion que se rellena al final: una salida no conforme sin
+    producto ni lote no dice que salida se controlo, y un reclamo sin cliente ni
+    canal no es un reclamo, es una nota.
+    """
+
     facility_id: UUID | None = None
     audit_item_id: UUID | None = None
     article_compliance_id: UUID | None = None
@@ -130,6 +154,47 @@ class NonconformityCreate(BaseModel):
     detection_origin: str | None = None
     owner_user_id: UUID | None = None
     due_date: date | None = None
+    #: Solo para `salida_no_conforme`. Claves: sku, lote, nombre, cantidad, unidad.
+    product_data: dict | None = None
+    #: Solo para `reclamo`. Claves: cliente_nombre, canal, fecha_reclamo, cliente_id.
+    complaint_data: dict | None = None
+    risk_opportunity_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _los_datos_de_su_tipo(self):
+        """Que esten los del tipo, y que no esten los de otro.
+
+        Las dos mitades importan. La primera es la que pide la norma; la segunda
+        evita un registro mal clasificado —un reclamo con datos de producto—
+        que **se veria exactamente igual que uno bien hecho** en cualquier
+        listado.
+        """
+        for tipo, (campo, claves, clausula) in DATOS_POR_TIPO.items():
+            valor = getattr(self, campo)
+            if self.record_type == tipo:
+                faltan = [
+                    k for k in claves
+                    if not str((valor or {}).get(k, "")).strip()
+                ]
+                if faltan:
+                    raise ValueError(
+                        f"Un registro de tipo «{tipo}» exige {campo} con "
+                        f"{', '.join(faltan)} ({clausula})."
+                    )
+            elif valor is not None:
+                raise ValueError(
+                    f"«{campo}» solo corresponde a un registro de tipo "
+                    f"«{tipo}», y este es «{self.record_type or 'sin tipo'}»."
+                )
+
+        if self.detection_origin in ORIGENES_DE_AUDITORIA and self.audit_item_id is None:
+            raise ValueError(
+                "Un registro con origen en una auditoria tiene que decir de que "
+                "hallazgo salio: sin eso no hay trazabilidad hacia la auditoria "
+                "que lo origino, que es lo primero que se pide al revisar su "
+                "seguimiento."
+            )
+        return self
 
 
 class NonconformityRead(OrmBase):
@@ -147,6 +212,9 @@ class NonconformityRead(OrmBase):
     detection_origin: str | None
     root_cause_answers: list
     improvement_stages: dict
+    product_data: dict | None
+    complaint_data: dict | None
+    risk_opportunity_id: UUID | None
     detected_at: datetime
     detected_by: UUID | None
     owner_user_id: UUID | None

@@ -83,6 +83,7 @@ services:
       - ./db/21_significancia_del_aspecto.sql:/docker-entrypoint-initdb.d/21-significancia-del-aspecto.sql:ro
       - ./db/22_crm.sql:/docker-entrypoint-initdb.d/22-crm.sql:ro
       - ./db/23_normativa_transversal.sql:/docker-entrypoint-initdb.d/23-normativa-transversal.sql:ro
+      - ./db/24_datos_por_tipo_de_registro.sql:/docker-entrypoint-initdb.d/24-datos-por-tipo.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s

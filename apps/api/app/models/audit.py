@@ -145,6 +145,13 @@ class Nonconformity(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     improvement_stages: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
+    #: Solo para `salida_no_conforme` (ISO 9001 8.7). La base exige SKU y lote
+    #: cuando el tipo lo pide, y que no aparezca en otro tipo.
+    product_data: Mapped[dict | None] = mapped_column(JSONB)
+    #: Solo para `reclamo` (ISO 9001 9.1.2). Exige cliente y canal.
+    complaint_data: Mapped[dict | None] = mapped_column(JSONB)
+    #: Para `riesgo` y `oportunidad` (6.1): el registro del que salio.
+    risk_opportunity_id: Mapped[PyUUID | None] = mapped_column(UUID(as_uuid=True))
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
