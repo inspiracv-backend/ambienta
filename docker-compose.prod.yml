@@ -5,11 +5,21 @@
 #
 # Diferencias clave con el compose de desarrollo:
 #   · Imágenes construidas (no hot reload, no devDependencies, usuario no-root).
-#   · Postgres y Redis NO publican puertos al host: solo accesibles desde la red
+#   · Postgres NO publica puertos al host: solo accesible desde la red
 #     interna de Docker. Para conectarse a la base hay que hacer túnel SSH.
 #   · Caddy como reverse proxy con HTTPS automático (Let's Encrypt).
 #   · Todos los secretos vienen de .env — este archivo no contiene ninguno.
-#   · Redis con contraseña y persistencia AOF.
+#
+# **Aquí había un servicio Redis y no lo usaba nadie.** Se midió el 4-sep: cero
+# referencias a Redis en todo `apps/api/app/`. La decisión ya estaba tomada y
+# escrita en CLAUDE.md — la cola de avisos es la tabla `notifications` en
+# Postgres, para que la fila del aviso y el hecho que lo causa se escriban en la
+# misma transacción — pero el compose seguía levantándolo, con volumen,
+# healthcheck y una `REDIS_PASSWORD` marcada con `:?`.
+#
+# O sea que el despliegue **se negaba a arrancar** si faltaba la contraseña de un
+# servicio que ningún código consulta. Es el mismo patrón de siempre acá: la
+# pieza declarada, sostenida por configuración, sin un solo llamador.
 #
 # Requisitos previos en el servidor:
 #   1. DNS: los dominios de DOMAIN_WEB y DOMAIN_API apuntando (registro A) a la
@@ -82,27 +92,6 @@ services:
     networks:
       - interna
 
-  redis:
-    image: redis:7-alpine
-    restart: always
-    # AOF para que las colas del worker sobrevivan un reinicio, y contraseña
-    # obligatoria (en dev no la lleva porque no está expuesto).
-    command: >
-      redis-server
-      --requirepass ${REDIS_PASSWORD:?falta REDIS_PASSWORD en .env}
-      --appendonly yes
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ['CMD-SHELL', 'redis-cli -a "$${REDIS_PASSWORD}" ping | grep -q PONG']
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    networks:
-      - interna
-
   api:
     # Backend FastAPI (Python). El Dockerfile corre uvicorn como usuario no-root.
     build:
@@ -169,6 +158,58 @@ services:
     networks:
       - publica
 
+  cron:
+    # **Los avisos de vencimiento no corrian solos, y nada lo decia.**
+    #
+    # Medido el 4-sep: el generador existe, el despachador existe, el correo por
+    # Resend existe y las plantillas existen — y `python -m app.tareas avisos` no
+    # aparecia en el compose, ni en el runbook, ni en `infra/`. Desplegando tal
+    # cual, un sistema cuya unica funcion es avisar de vencimientos **no habria
+    # avisado nunca**, sin ningun error a la vista. La epica #22 figura cerrada.
+    #
+    # Va como servicio y no como linea de crontab del host a proposito: un paso
+    # fuera de `docker compose up -d` es un paso que se olvida y que nadie
+    # verifica. Asi se despliega con todo lo demas y `docker compose ps` lo
+    # muestra.
+    #
+    # Misma imagen que la API: comparte codigo y variables, y no hay una segunda
+    # copia de la configuracion que mantener en sincronia.
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: always
+    # Se sobreescribe el CMD de uvicorn: este contenedor no sirve HTTP.
+    #
+    # El bucle duerme hasta la proxima vez que den las 7 y recien ahi corre. Se
+    # calcula el intervalo en cada vuelta en vez de dormir 24 h fijas: un
+    # reinicio del contenedor no desplaza la hora para siempre.
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        while true; do
+          ahora=$$(date +%s)
+          proxima=$$(date -d "today ${HORA_AVISOS:-07}:00" +%s)
+          if [ "$$proxima" -le "$$ahora" ]; then
+            proxima=$$(date -d "tomorrow ${HORA_AVISOS:-07}:00" +%s)
+          fi
+          echo "[cron] proxima corrida de avisos: $$(date -d @$$proxima)"
+          sleep $$((proxima - ahora))
+          python -m app.tareas avisos || echo "[cron] la corrida de avisos fallo"
+        done
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # El despachador manda el correo, asi que necesita las mismas credenciales
+      # que la API. Sin ellas los avisos se generan y se quedan encolados.
+      RESEND_API_KEY: ${RESEND_API_KEY:?falta la llave de Resend}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:?falta el remitente, con dominio verificado en Resend}
+      CORREO_RESPONDER_A: ${CORREO_RESPONDER_A:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - interna
+
   caddy:
     image: caddy:2-alpine
     restart: always
@@ -194,12 +235,11 @@ services:
 
 volumes:
   postgres-data:
-  redis-data:
   caddy-data:
   caddy-config:
 
 networks:
-  # Postgres y Redis viven solo aquí; ni Caddy ni la web los alcanzan.
+  # Postgres vive solo aquí; ni Caddy ni la web lo alcanzan.
   interna:
     internal: true
   publica:

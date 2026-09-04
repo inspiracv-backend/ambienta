@@ -107,7 +107,11 @@ docker compose -f docker-compose.prod.yml logs -f
 docker compose -f docker-compose.prod.yml ps
 ```
 
-Los cinco servicios (`postgres`, `redis`, `api`, `web`, `caddy`) deben estar `Up`; `postgres` y `redis` además `(healthy)`.
+Los cinco servicios (`postgres`, `api`, `web`, `cron`, `caddy`) deben estar `Up`, y `postgres` además `(healthy)`.
+
+> **`redis` ya no está, y `cron` sí.** Medido el 4-sep: no había una sola referencia a Redis en `apps/api/app/`, pero el Compose lo levantaba con volumen, healthcheck y una `REDIS_PASSWORD` obligatoria que impedía arrancar. La cola de avisos es la tabla `notifications` en Postgres — la decisión estaba tomada y escrita, y el Compose no se había enterado.
+>
+> `cron` es el servicio nuevo, y es el que faltaba de verdad: ver 4.7.
 
 ### 4.2 La API responde y alcanza sus dependencias
 
@@ -116,7 +120,7 @@ curl https://api.tudominio.cl/health
 curl https://api.tudominio.cl/health/ready
 ```
 
-El segundo debe devolver `"estado": "ok"` con `postgres` y `redis` en `ok`. Si da **503**, la API está viva pero no alcanza una dependencia: revisar `docker compose -f docker-compose.prod.yml logs api`.
+El segundo debe devolver `"estado": "ok"` con `postgres` en `ok`. Si da **503**, la API está viva pero no alcanza una dependencia: revisar `docker compose -f docker-compose.prod.yml logs api`.
 
 ### 4.3 El frontend carga
 
@@ -149,10 +153,77 @@ Desde una máquina **distinta** al servidor:
 
 ```bash
 nc -zv api.tudominio.cl 5432    # debe FALLAR (timeout o refused)
-nc -zv api.tudominio.cl 6379    # debe FALLAR
 ```
 
-Si alguno conecta, hay un problema de seguridad: revisar que el Compose de producción no publique esos puertos y que el firewall los bloquee.
+Si conecta, hay un problema de seguridad: revisar que el Compose de producción no publique ese puerto y que el firewall lo bloquee.
+
+### 4.7 Los avisos de vencimiento van a correr
+
+**Es el paso que no existía, y es el que decide si el producto cumple su función.**
+
+Hasta el 4-sep no había cron en ninguna parte: ni en el Compose, ni en este runbook, ni en `infra/`. El generador de avisos, el despachador, el envío por Resend y las plantillas estaban todos construidos y probados — y nada los llamaba. Desplegando así, **un sistema de alertas de vencimiento no habría avisado nunca**, sin un solo error a la vista. La épica figura cerrada desde el 27-ago.
+
+Ahora corre el servicio `cron`, que despierta a la hora de `HORA_AVISOS` (07 por defecto):
+
+```bash
+docker compose -f docker-compose.prod.yml logs cron | tail -5
+```
+
+Debe mostrar la línea con la próxima corrida:
+
+```
+[cron] proxima corrida de avisos: ...
+```
+
+Para no esperar hasta mañana, forzar una corrida ahora:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m app.tareas avisos
+```
+
+Informa cuántos avisos creó, cuántos omitió por repetidos y **cuántas obligaciones no avisaron a nadie**. Ese último número es el que hay que mirar: significa que esa empresa no tiene ni responsable ni administrador activo.
+
+### 4.8 El correo sale de verdad
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m app.tareas.comprobar_correo tu@correo.cl
+```
+
+Manda un correo real. El error más común —dominio del remitente sin verificar en Resend— **no se detecta hasta el primer envío**, que sin esto sería el primer aviso de vencimiento de un cliente. Y «aceptado por Resend» no es «entregado»: si no llega, revisar SPF y DKIM.
+
+### 4.9 El almacenamiento acepta archivos
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m app.tareas.comprobar_almacenamiento
+```
+
+Sube, baja, compara el contenido y borra. Que `boto3` construya una URL firmada **no prueba nada**: la firma se genera igual con una clave equivocada y falla recién al usarla.
+
+### 4.10 Cargar el catálogo normativo
+
+Producción arranca **sin `02_seed.sql`**, así que el catálogo son las ocho normas de ejemplo del esquema. Hay que traer las reales:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m app.tareas sincronizar-bcn
+```
+
+Y **después** volver a aplicar la clasificación transversal, porque la sincronización crea normas que la migración no alcanzó a clasificar:
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T postgres   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 < db/23_normativa_transversal.sql
+```
+
+Medido en local: sin este segundo paso, el DS 1 queda con **cero** sectores y el DS 40 con uno de ocho. Nada falla — la empresa simplemente recibe menos normativa de la que le corresponde.
+
+Comprobar el resultado:
+
+```bash
+docker compose -f docker-compose.prod.yml exec postgres   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c   "SELECT count(*) AS normas FROM legal_norms WHERE deleted_at IS NULL;"
+```
+
+Deben ser **24 o más**, no 8. Con 8 la sincronización no corrió.
+
+> **No correr `sembrar_demo` en producción.** La tarea se niega sola con `ENVIRONMENT=production`, y comprueba el entorno antes de abrir la sesión.
 
 ---
 

@@ -20,7 +20,10 @@
 # estan en texto plano: la base solo escucha en localhost y no contiene datos
 # reales. Produccion usa docker-compose.prod.yml, que exige un .env.
 #
-# Redis y el worker no estan aca: vuelven con la epica de Notificaciones/Worker.
+# Redis y el worker no estan aca, y ya no vuelven: la epica de Notificaciones se
+# cerro con la cola en Postgres (`notifications`) y el trabajo en segundo plano
+# en `apps/api/app/tareas/` disparado por cron. El compose de produccion todavia
+# levantaba un Redis que nadie consultaba; se quito el 4-sep.
 
 name: ambienta-dev
 
