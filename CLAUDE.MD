@@ -661,6 +661,45 @@ los avisos escalan a los administradores, asi que correrlo "para ver como se
 ven" mandaria correo de verdad a esa gente. Las notificaciones in-app se
 entregan igual —que es lo que se quiere mirar— y los correos quedan encolados.
 
+**Los catalogos del registro de mejora son de cada empresa desde el 4-sep, y
+el CHECK de la severidad sigue donde estaba.** La escala era
+`minor | major | critical`: la misma para todos y solo en ingles, mientras el
+cliente dice `Alta` y `Mayor` y el siguiente dira otra cosa (#41, RF-100,
+decision S-14). `db/25` agrega `improvement_severities` —etiqueta, orden y
+**dias para cerrar**— y `improvement_methodologies`.
+
+Tres cosas que conviene saber antes de tocarlo:
+
+- **El catalogo se monta ENCIMA del CHECK, no lo reemplaza.** Cambiar
+  `nonconformities.severity` por una clave foranea es un paso aparte y mas
+  riesgoso: hay filas escritas, el frontend traduce esos tres valores en
+  `CRITICIDAD_POR_SEVERITY`, y la escala definitiva es una de las tres
+  decisiones abiertas (#57). Son dos barreras: la de la base admite los tres de
+  siempre, la de la empresa es mas estrecha.
+- **Los plazos nacen en NULL a proposito.** Sembrar 60/30/15 seria inventarle el
+  compromiso a la empresa, y un plazo falso en cumplimiento produce una fecha
+  limite que nadie acordo — la empresa cree que va a tiempo. Mismo criterio que
+  la `periodicidad` vacia de `retc_systems`. Mientras este vacio, `due_date` se
+  sigue pidiendo a mano; en cuanto la empresa lo declara, el sistema la calcula.
+  Y eso es lo que hace que el catalogo no sea decorativo: **`due_date` existia
+  desde el principio y nadie la calculaba**.
+- **`POST /tenants/` tambien los siembra**, porque el `CROSS JOIN tenants` de la
+  migracion corre una sola vez — la leccion de `22_crm.sql`, que dejo sin etapas
+  a toda empresa creada despues. Una prueba **lee el archivo SQL** y exige que
+  las dos listas coincidan.
+
+Lo que NO entra: los plazos **por etapa** del design. Las etapas tipadas no
+existen todavia —`improvement_stages` sigue siendo JSONB provisorio y su modelo
+depende de #57— y una tabla de configuracion para algo que nadie lee es el
+patron que este repositorio ya conoce de sobra.
+
+**Y una leccion sobre el guardian de las dos listas:** su primera version
+comparaba con una expresion regular y **perdio una fila en silencio**. El nombre
+sembrado es `Diagrama de Ishikawa (causa-efecto)` y los parentesis del nombre se
+leyeron como el fin del registro. Esta vez fallo del lado util; si hubiera
+faltado del otro, la prueba habria pasado verde comparando dos listas
+incompletas. Ahora recorre caracter por caracter respetando comillas.
+
 **El puente hacia el almacenamiento existe desde el 27-ago, y no guarda nada
 en disco local.** El CHECK de `document_versions.storage_provider` son cuatro
 —`s3`, `backblaze`, `google_drive`, `onedrive`— y **no hay opcion local ni de

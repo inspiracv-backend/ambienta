@@ -216,6 +216,18 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "catalogos-de-mejora",
+        "description": (
+            "Los catalogos con que **cada empresa** clasifica sus hallazgos "
+            "(RF-100): la escala de severidad, con su etiqueta, su orden y los "
+            "dias para cerrar, y las metodologias de analisis de causa. "
+            "La escala era un CHECK igual para todos y solo en ingles; el "
+            "catalogo se monta encima, no lo reemplaza. `days_to_close` en "
+            "`null` significa que la empresa **no declaro plazo**, y entonces "
+            "nadie calcula la fecha limite del hallazgo."
+        ),
+    },
+    {
         "name": "action-plans",
         "description": (
             "Planes de accion. Nacen de una no conformidad o de un hallazgo "
@@ -370,6 +382,10 @@ _RESPUESTA_422 = {
 # frase — eso se deriva del metodo y de la forma de la ruta.
 _RECURSOS: dict[str, tuple[str, str]] = {
     "action-plans": ("el plan de accion", "los planes de accion"),
+    "catalogos-de-mejora": (
+        "el catalogo del registro de mejora",
+        "los catalogos del registro de mejora",
+    ),
     "article-compliance": ("el cumplimiento del articulo", "el cumplimiento por articulo"),
     "articles": ("el articulo", "los articulos"),
     "aspects": ("el aspecto ambiental", "los aspectos ambientales"),

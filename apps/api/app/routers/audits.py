@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -9,11 +9,14 @@ from ..crud.audit import (
     crud_action_plan,
     crud_audit,
     crud_audit_item,
+    crud_metodologia,
     crud_nonconformity,
+    crud_severidad,
 )
 from ..auth import CurrentUser
 from ..deps import get_current_user, get_tenant_db, get_tenant_id
 from ..services import audits as svc_audits
+from ..services import catalogos_de_mejora as svc_catalogos
 from ..crud.compliance import crud_article_compliance
 from ..crud.organization import crud_user
 from ..models.audit import AuditItem, AuditParticipant
@@ -29,6 +32,12 @@ from ._comun import (
 )
 from ..schemas.audit import (
     AuditItemUpdate,
+    MetodologiaCreate,
+    MetodologiaRead,
+    MetodologiaUpdate,
+    SeveridadCreate,
+    SeveridadRead,
+    SeveridadUpdate,
     CoberturaDeAuditoria,
     AuditItemRead,
     AuditItemCreate,
@@ -97,7 +106,39 @@ def create_nonconformity(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    """Registra un hallazgo, con la severidad y el plazo de **esta** empresa.
+
+    Dos cosas que no hacia antes:
+
+    - La severidad se comprueba contra el catalogo de la empresa (RF-100). El
+      CHECK de la columna sigue siendo la barrera de la base; esta es mas
+      estrecha, y es la que hace que configurar el catalogo signifique algo.
+    - `due_date` **se calcula** desde el plazo del nivel, si la empresa lo
+      declaro. Esa columna existia y nadie la llenaba: el compromiso de cierre
+      vivia en la cabeza de alguien. Lo que venga en el cuerpo manda —una
+      autoridad puede fijar otra fecha— y el calculo solo cubre el vacio.
+    """
+    try:
+        nivel = svc_catalogos.comprobar_severidad(db, tenant_id, data.severity)
+    except svc_catalogos.SinNivelesDeSeveridad as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from None
+    except svc_catalogos.SeveridadNoDisponible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from None
+
+    validar_visible(
+        crud_metodologia,
+        db,
+        data.root_cause_methodology_id,
+        campo="root_cause_methodology_id",
+    )
+
     obj = crud_nonconformity.create(db, obj_in=data, tenant_id=tenant_id)
+    if obj.due_date is None:
+        obj.due_date = svc_catalogos.fecha_limite(nivel, date.today())
     db.commit()
     return obj
 
@@ -453,3 +494,208 @@ def delete_audit_item(audit_id: UUID, item_id: UUID, db: Session = Depends(get_t
     obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
     verificar_padre(obj, audit_id, campo="audit_id")
     borrar_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
+
+
+# -- Catalogos configurables por empresa (RF-100, #41) --------------------
+#
+# Van bajo `/audits/` y no en un router propio porque son la configuracion del
+# registro de mejora: separarlos daria un modulo de una tabla y media cuyo
+# unico lector vive aca.
+
+
+@router.get(
+    "/catalogos/severidades",
+    response_model=list[SeveridadRead],
+    tags=["catalogos-de-mejora"],
+    summary="Escala de severidad de la empresa",
+    description=(
+        "Los niveles con que esta empresa clasifica sus hallazgos, de mas leve "
+        "a mas grave. `days_to_close` en `null` significa que **no declaro "
+        "plazo**: la fecha limite se sigue pidiendo a mano."
+    ),
+)
+def list_severidades(
+    solo_activas: bool = True,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    if solo_activas:
+        return svc_catalogos.niveles_activos(db, tenant_id)
+    return crud_severidad.get_multi(db, skip=0, limit=200)
+
+
+@router.post(
+    "/catalogos/severidades",
+    response_model=SeveridadRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["catalogos-de-mejora"],
+    summary="Agregar un nivel de severidad",
+    description=(
+        "El `code` es el valor que se guarda en el hallazgo, asi que tiene que "
+        "ser uno de los que admite el CHECK de la columna mientras ese CHECK "
+        "siga vigente. Lo que la empresa configura libremente es la etiqueta, "
+        "el orden y el plazo."
+    ),
+)
+def create_severidad(
+    data: SeveridadCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    obj = crud_severidad.create(db, obj_in=data, tenant_id=tenant_id)
+    db.commit()
+    return obj
+
+
+@router.patch(
+    "/catalogos/severidades/{severidad_id}",
+    response_model=SeveridadRead,
+    tags=["catalogos-de-mejora"],
+    summary="Renombrar, reordenar o fijarle plazo a un nivel",
+    description=(
+        "Cambiar el plazo **no mueve las fechas limite ya calculadas**: la de "
+        "un hallazgo se fijo con el compromiso vigente el dia que se registro, "
+        "y recalcularla hacia atras reescribiria un plazo que alguien acordo."
+    ),
+)
+def update_severidad(
+    severidad_id: UUID,
+    data: SeveridadUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    obj = obtener_o_404(
+        crud_severidad, db, severidad_id, recurso="Nivel de severidad"
+    )
+    obj = crud_severidad.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete(
+    "/catalogos/severidades/{severidad_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["catalogos-de-mejora"],
+    summary="Retirar un nivel de severidad",
+    description=(
+        "Los hallazgos ya registrados con ese nivel **no se tocan**: su "
+        "severidad es parte de lo que se decidio en su momento. Lo que cambia "
+        "es que no se pueden registrar nuevos."
+    ),
+)
+def delete_severidad(severidad_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_severidad, db, severidad_id, recurso="Nivel de severidad")
+
+
+@router.get(
+    "/catalogos/metodologias",
+    response_model=list[MetodologiaRead],
+    tags=["catalogos-de-mejora"],
+    summary="Metodologias de analisis de causa de la empresa",
+    description=(
+        "`shape` dice que datos exige cada una: `cinco_porques` las respuestas "
+        "encadenadas, `espina_pescado` las categorias, `texto_libre` ninguna en "
+        "particular. El nombre lo elige la empresa; la forma no."
+    ),
+)
+def list_metodologias(
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    db: Session = Depends(get_tenant_db),
+):
+    return recortar(
+        respuesta,
+        crud_metodologia.get_multi(db, skip=pagina.skip, limit=pagina.pedir),
+        pagina,
+    )
+
+
+@router.post(
+    "/catalogos/metodologias",
+    response_model=MetodologiaRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["catalogos-de-mejora"],
+    summary="Agregar una metodologia",
+    description=(
+        "`shape` tiene que ser una de las tres formas que el sistema sabe "
+        "pedir. El nombre es libre: una empresa llama a su metodologia como "
+        "quiera, pero no puede inventar una forma para la que no hay ni "
+        "formulario ni manera de leer las respuestas."
+    ),
+)
+def create_metodologia(
+    data: MetodologiaCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    obj = crud_metodologia.create(db, obj_in=data, tenant_id=tenant_id)
+    db.commit()
+    return obj
+
+
+@router.patch(
+    "/catalogos/metodologias/{metodologia_id}",
+    response_model=MetodologiaRead,
+    tags=["catalogos-de-mejora"],
+    summary="Editar una metodologia",
+    description=(
+        "Los hallazgos ya analizados con ella conservan su vinculo: cambiarle "
+        "el nombre no reescribe con que se analizaron."
+    ),
+)
+def update_metodologia(
+    metodologia_id: UUID,
+    data: MetodologiaUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    obj = obtener_o_404(
+        crud_metodologia, db, metodologia_id, recurso="Metodologia"
+    )
+    obj = crud_metodologia.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete(
+    "/catalogos/metodologias/{metodologia_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["catalogos-de-mejora"],
+    summary="Retirar una metodologia",
+    description=(
+        "Deja de ofrecerse para analisis nuevos. Los hallazgos que ya la usan "
+        "siguen apuntandola: es parte de como se llego a su causa raiz."
+    ),
+)
+def delete_metodologia(metodologia_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_metodologia, db, metodologia_id, recurso="Metodologia")
+
+
+@router.get(
+    "/catalogos/severidades/{severidad_id}",
+    response_model=SeveridadRead,
+    tags=["catalogos-de-mejora"],
+    summary="Ver un nivel de severidad",
+    description=(
+        "Incluye los inactivos: un hallazgo antiguo puede apuntar a un nivel "
+        "que la empresa ya no usa, y su ficha tiene que poder mostrarlo."
+    ),
+)
+def get_severidad(severidad_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(
+        crud_severidad, db, severidad_id, recurso="Nivel de severidad"
+    )
+
+
+@router.get(
+    "/catalogos/metodologias/{metodologia_id}",
+    response_model=MetodologiaRead,
+    tags=["catalogos-de-mejora"],
+    summary="Ver una metodologia",
+    description=(
+        "Incluye las inactivas, por el mismo motivo: el analisis de un hallazgo "
+        "viejo nombra la metodologia con que se hizo."
+    ),
+)
+def get_metodologia(metodologia_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(
+        crud_metodologia, db, metodologia_id, recurso="Metodologia"
+    )

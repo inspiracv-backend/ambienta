@@ -3,11 +3,13 @@ from uuid import UUID as PyUUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -142,6 +144,12 @@ class Nonconformity(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     root_cause_answers: Mapped[list] = mapped_column(
         JSONB, nullable=False, server_default="[]"
     )
+    #: Con que metodologia del catalogo de la empresa se analizo la causa.
+    #: `root_cause_answers` guarda las respuestas y no como se llego a ellas, y
+    #: las de un Ishikawa no se leen igual que las de un 5 porques.
+    root_cause_methodology_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("improvement_methodologies.id")
+    )
     improvement_stages: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
@@ -229,4 +237,49 @@ class EntityStatusHistory(Base, TenantMixin):
     reason: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
+    )
+
+
+class ImprovementSeverity(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """Un nivel de la escala de severidad de esta empresa (RF-100).
+
+    **Se monta encima del CHECK de `nonconformities.severity`, no lo
+    reemplaza.** El `code` es el valor que se escribe en esa columna; lo que la
+    empresa configura es como se llama, en que orden va y en cuantos dias se
+    cierra un hallazgo de ese nivel.
+    """
+
+    __tablename__ = "improvement_severities"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    rank: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    #: **NULL significa que la empresa no declaro plazo**, y entonces nadie
+    #: calcula `due_date`. No es lo mismo que cero, que la base rechaza: cero
+    #: dias es un plazo imposible, no la ausencia de uno.
+    days_to_close: Mapped[int | None] = mapped_column(SmallInteger)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+
+
+class ImprovementMethodology(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """Una metodologia de analisis de causa de esta empresa (RF-100, RF-35)."""
+
+    __tablename__ = "improvement_methodologies"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    #: **La forma decide que datos exige el analisis.** La empresa le pone el
+    #: nombre que quiera; la forma tiene que ser una de las que el sistema sabe
+    #: pedir y mostrar.
+    shape: Mapped[str] = mapped_column(String(30), nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
     )

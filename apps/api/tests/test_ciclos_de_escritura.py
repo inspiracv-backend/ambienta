@@ -290,16 +290,6 @@ class TestUnValorFueraDelCheckDa422:
             (
                 "/api/v1/audits/nonconformities/",
                 {
-                    "code": "PRB-X",
-                    "title": "t",
-                    "description": "d",
-                    "severity": "INVENTADA",
-                },
-                "severity",
-            ),
-            (
-                "/api/v1/audits/nonconformities/",
-                {
                     "code": "PRB-Y",
                     "title": "t",
                     "description": "d",
@@ -322,4 +312,37 @@ class TestUnValorFueraDelCheckDa422:
         assert restriccion in respuesta.json()["detail"], (
             "El 422 no dice que restriccion se violo, y sin eso quien llama "
             "tiene que adivinar cual de los campos corrigio mal."
+        )
+
+    def test_una_severidad_inventada_la_ataja_el_catalogo_antes(self, cliente) -> None:
+        """Este caso **ya no llega al CHECK**, y es a proposito.
+
+        Estaba en la lista de arriba: `severity: "INVENTADA"` viajaba hasta
+        Postgres y volvia como 422 nombrando `nonconformities_severity_check`.
+        Desde los catalogos por empresa (#41, RF-100) lo ataja antes
+        `comprobar_severidad`, que es una barrera **mas estrecha** —la escala de
+        esta empresa, no la de todas— y ademas contesta mejor: dice cuales hay.
+
+        Se deja escrito en vez de borrar el caso porque un 422 que cambia de
+        emisor se lee igual desde afuera, y sin esto la proxima persona que mire
+        creeria que sigue probando `app/errores.py`. Quien lo prueba ahora es el
+        caso de `record_type`, que no tiene catalogo y sigue bajando a la base.
+        """
+        respuesta = cliente.post(
+            "/api/v1/audits/nonconformities/",
+            json={
+                "code": "PRB-SEV",
+                "title": "t",
+                "description": "d",
+                "severity": "INVENTADA",
+            },
+        )
+
+        assert respuesta.status_code == 422, respuesta.text
+        detalle = respuesta.json()["detail"]
+        assert "INVENTADA" in detalle, "el error no dice que valor se rechazo"
+        assert "minor" in detalle, (
+            "El error no enumera los niveles disponibles, y esa es la mitad de "
+            "su utilidad: la escala es de cada empresa, asi que quien llama no "
+            "puede adivinarla."
         )

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -159,6 +160,9 @@ class NonconformityCreate(BaseModel):
     #: Solo para `reclamo`. Claves: cliente_nombre, canal, fecha_reclamo, cliente_id.
     complaint_data: dict | None = None
     risk_opportunity_id: UUID | None = None
+    #: Del catalogo de la empresa. La clave foranea **no pasa por RLS**, asi que
+    #: el router tiene que comprobarla con `validar_visible`.
+    root_cause_methodology_id: UUID | None = None
 
     @model_validator(mode="after")
     def _los_datos_de_su_tipo(self):
@@ -367,3 +371,64 @@ class CoberturaDeAuditoria(BaseModel):
     #: Preguntas de proceso, sin requisito legal asociado. Van aparte para que
     #: nadie las confunda con cobertura.
     items_sin_articulo: int
+
+
+# ── Catalogos configurables por empresa (RF-100, #41) ───────────────────────
+
+
+#: Las formas que el sistema sabe pedir y mostrar.
+#:
+#: Es una lista cerrada mientras el nombre no lo es: una empresa llama a su
+#: metodologia como quiera, pero no puede inventar una forma para la que no hay
+#: ni formulario ni manera de leer las respuestas.
+FORMAS_DE_ANALISIS = ("cinco_porques", "espina_pescado", "texto_libre")
+
+
+class SeveridadBase(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
+    label: str = Field(min_length=1, max_length=80)
+    rank: int = 0
+    #: Dias para cerrar un hallazgo de este nivel. **`None` no es cero**: es
+    #: "la empresa no declaro plazo", y entonces nadie calcula la fecha limite.
+    #: Sembrar un numero seria inventarle el compromiso, y un plazo falso en un
+    #: sistema de cumplimiento hace creer que se va a tiempo.
+    days_to_close: int | None = Field(default=None, gt=0)
+    active: bool = True
+
+
+class SeveridadCreate(SeveridadBase):
+    pass
+
+
+class SeveridadUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=80)
+    rank: int | None = None
+    days_to_close: int | None = Field(default=None, gt=0)
+    active: bool | None = None
+
+
+class SeveridadRead(SeveridadBase, OrmBase):
+    id: UUID
+    tenant_id: UUID
+
+
+class MetodologiaBase(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    shape: Literal["cinco_porques", "espina_pescado", "texto_libre"]
+    active: bool = True
+
+
+class MetodologiaCreate(MetodologiaBase):
+    pass
+
+
+class MetodologiaUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    shape: Literal["cinco_porques", "espina_pescado", "texto_libre"] | None = None
+    active: bool | None = None
+
+
+class MetodologiaRead(MetodologiaBase, OrmBase):
+    id: UUID
+    tenant_id: UUID
