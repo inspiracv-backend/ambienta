@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..crud.audit import (
@@ -10,11 +11,13 @@ from ..crud.audit import (
     crud_audit_item,
     crud_nonconformity,
 )
-from ..deps import get_tenant_db, get_tenant_id
+from ..auth import CurrentUser
+from ..deps import get_current_user, get_tenant_db, get_tenant_id
 from ..services import audits as svc_audits
 from ..crud.compliance import crud_article_compliance
 from ..crud.organization import crud_user
 from ..models.audit import AuditItem, AuditParticipant
+from ..models.organization import User
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import (
     CRUDAsociacion,
@@ -159,27 +162,89 @@ def audit_summary(audit_id: UUID, db: Session = Depends(get_tenant_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.post("/nonconformities/{nc_id}/close", response_model=NonconformityRead, tags=["business-logic"])
+@router.post(
+    "/nonconformities/{nc_id}/close",
+    response_model=NonconformityRead,
+    tags=["business-logic"],
+    summary="Cerrar un registro de mejora",
+    description=(
+        "**Exige una verificacion de eficacia afirmativa** (ISO 14001 10.2.1 d): "
+        "al menos un plan de accion `verified`, y ninguno pendiente.\n\n"
+        "Responde **409** cuando falta, y no 422: el cuerpo esta bien y la "
+        "peticion es legitima; lo que no corresponde es el **estado** del "
+        "registro, y eso no se arregla corrigiendo lo que se mando.\n\n"
+        "Un plan `cancelled` no bloquea —cancelar es decidir que ese trabajo no "
+        "se hace— pero tampoco alcanza para cerrar: cancelar todo no es haber "
+        "verificado nada."
+    ),
+)
 def close_nc(nc_id: UUID, closure_notes: str = "", db: Session = Depends(get_tenant_db)):
-    from ..services.audits import close_nonconformity
+    from ..services.audits import SinVerificarLaEficacia, close_nonconformity
+
     try:
         obj = close_nonconformity(db, nc_id, closure_notes)
         db.commit()
         return obj
+    except SinVerificarLaEficacia as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/action-plans/{plan_id}/verify", response_model=ActionPlanRead, tags=["business-logic"])
+@router.post(
+    "/action-plans/{plan_id}/verify",
+    response_model=ActionPlanRead,
+    tags=["business-logic"],
+    summary="Verificar la eficacia de un plan de accion",
+    description=(
+        "Deja escrito **quien** verifico que la accion funciono y cuando. Es lo "
+        "que habilita cerrar el registro.\n\n"
+        "Con `success=false` el plan vuelve a `in_progress`: la verificacion "
+        "concluyo que no funciono, y el trabajo sigue.\n\n"
+        "Responde **409** si la sesion no esta asociada a un usuario de la "
+        "empresa. No se toma a otra persona en su lugar: ante una auditoria la "
+        "pregunta no es si se verifico, es quien."
+    ),
+)
 def verify_plan(
     plan_id: UUID,
     success: bool = True,
-    tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
+    usuario: CurrentUser = Depends(get_current_user),
 ):
+    """Verifica la eficacia de un plan de accion.
+
+    **Este endpoint respondia 500 en el 100 % de los casos.** Le pasaba el
+    `tenant_id` al servicio donde este espera el id de quien verifica, y
+    `action_plans.verified_by` tiene clave foranea contra `users`: el `UPDATE`
+    violaba la restriccion. Medido el 4-sep contra la base real.
+
+    Nadie se entero porque `audits.py` no tenia una sola prueba que llamara a
+    sus endpoints —30 operaciones—, y porque verificar la eficacia es el paso
+    que solo se ejecuta al final de un ciclo largo.
+    """
     from ..services.audits import verify_action_plan
+
+    verificador = (
+        db.scalar(select(User).where(User.clerk_id == usuario.user_id))
+        if usuario.user_id
+        else None
+    )
+    if verificador is None:
+        # Mismo criterio que aprobar un documento: no se inventa quien firma.
+        # Tomar al primer administrador dejaria escrito que esa persona
+        # verifico algo que no verifico, y es lo que un auditor lee.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se puede registrar quien verifica: la sesion no esta "
+                "asociada a un usuario de esta empresa. Verificar la eficacia "
+                "exige una sesion identificada."
+            ),
+        )
+
     try:
-        obj = verify_action_plan(db, plan_id, tenant_id, success)
+        obj = verify_action_plan(db, plan_id, verificador.id, success)
         db.commit()
         return obj
     except ValueError as e:
