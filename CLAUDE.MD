@@ -611,6 +611,56 @@ verificar en Resend— **no se detecta hasta el primer envio**, que sin esto ser
 el primer aviso de vencimiento de un cliente. Y "aceptado por Resend" no es
 "entregado": si no llega, el problema esta en SPF/DKIM.
 
+**El cron de avisos estaba configurado a la unica hora a la que no avisaba.**
+Medido el 4-sep. `generar()` buscaba los vencimientos dentro de una banda de
+**±12 h** alrededor de `ahora + N dias`. Un plazo legal vence a las **23:59**, y
+`HORA_AVISOS` vale **07**: entre los dos hay 17 horas, o sea fuera de la banda.
+
+| hora del cron | avisos, en cualquiera de las cuatro ventanas |
+|---|---|
+| **07:00 — la configurada** | **0** |
+| 12:00, 18:00, 23:00 | 2 |
+
+Desplegado tal cual, un sistema cuya unica funcion es avisar de vencimientos
+**no habria avisado nunca**, y la corrida habria informado "0 avisos nuevos" —
+identico a lo que informa un dia en que de verdad no vence nada. Doce horas
+parecen una precaucion razonable y cubren medio dia; el medio que quedaba afuera
+era el de la mañana, que es justo cuando uno quiere que salga.
+
+Ahora se comparan **fechas del calendario en el huso de la empresa**
+(`countries.default_timezone`, cinco husos distintos) y no instantes: "avisar 15
+dias antes" quiere decir un dia, no un intervalo de horas. Ensanchar el margen a
+24 h no era el arreglo — haria que un mismo vencimiento cayera en dos ventanas
+contiguas y la persona recibiera dos correos por lo mismo.
+`test_hora_del_cron_de_avisos.py` barre las cuatro ventanas por cuatro horas del
+dia, porque **una sola prueba a mediodia pasa con el codigo roto**.
+
+**Y los vencimientos del seed eran fechas fijas, asi que la demostracion se
+vencia sola.** El mas cercano quedaba a 27 dias — fuera de las ventanas
+15/7/3/1 — asi que el cron corria y no generaba nada; unos meses mas y las cinco
+obligaciones quedan en el pasado. Ademas `OBL-REP-NFU-2026` decia `overdue` con
+fecha futura: el estado era verdadero el dia que se escribio.
+
+Ahora `db/02_seed.sql` las siembra relativas a `CURRENT_DATE` conservando las
+distancias que tenian entre si, y `sembrar_demo` **reancla una base que ya
+existe** —02_seed corre una sola vez, al crear el volumen—. La mas cercana entra
+en la ventana de 15 y baja a 7, 3 y 1 los dias siguientes, asi que la
+demostracion produce avisos nuevos varias veces y no uno solo.
+
+**Para verlo en local:**
+
+```bash
+docker compose exec api python -m app.tareas.sembrar_demo   # reancla los vencimientos
+docker compose run --rm avisos                              # corre el cron una vez
+```
+
+El servicio `avisos` del compose de desarrollo va detras de un `profile`, asi
+que `docker compose up -d` levanta lo mismo de siempre. **No recibe
+`RESEND_API_KEY` a proposito:** los usuarios sembrados tienen correos reales y
+los avisos escalan a los administradores, asi que correrlo "para ver como se
+ven" mandaria correo de verdad a esa gente. Las notificaciones in-app se
+entregan igual —que es lo que se quiere mirar— y los correos quedan encolados.
+
 **El puente hacia el almacenamiento existe desde el 27-ago, y no guarda nada
 en disco local.** El CHECK de `document_versions.storage_provider` son cuatro
 —`s3`, `backblaze`, `google_drive`, `onedrive`— y **no hay opcion local ni de

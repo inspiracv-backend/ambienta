@@ -375,6 +375,61 @@ def _matrices_iso(db: Session, empresa: Tenant) -> list[str]:
     return hecho
 
 
+#: Donde queda cada obligacion sembrada, en dias desde hoy, y con que estado.
+#:
+#: Los desfases conservan las distancias que las cinco tenian entre si en
+#: `db/02_seed.sql`: el ancla se pone a 15 dias y el resto guarda su separacion
+#: original. Lo unico que se mueve es "hoy".
+#:
+#: La de 15 dias entra hoy en la primera ventana de aviso y va bajando a 7, 3 y
+#: 1 los dias siguientes, asi que la demostracion produce avisos nuevos varias
+#: veces en vez de uno solo el primer dia.
+VENCIMIENTOS_DE_LA_DEMO: list[tuple[str, int, str]] = [
+    ("OBL-SIDREP-2026S1", -62, "submitted"),
+    ("OBL-REP-NFU-2026", 15, "open"),
+    ("OBL-DS90-2026Q3", 30, "open"),
+    ("OBL-SIDREP-2026S2", 122, "draft"),
+    ("OBL-RETC-2026", 197, "in_progress"),
+]
+
+
+def _reanclar_vencimientos(db: Session, empresa: Tenant) -> str:
+    """Pone los vencimientos sembrados a una distancia fija de hoy.
+
+    **Sin esto el cron de avisos corre y no genera nada.** Medido el 4-sep sobre
+    una base creada semanas antes: el vencimiento mas cercano estaba a 27 dias,
+    fuera de las cuatro ventanas (15/7/3/1). La corrida informaba "0 avisos
+    nuevos", que es identico a lo que informa un dia en que de verdad no vence
+    nada — y por eso no se ve como un problema de datos.
+
+    `db/02_seed.sql` ya siembra fechas relativas, pero corre **una sola vez, al
+    crear el volumen**. Una base que ya existe no vuelve a pasar por ahi, asi
+    que esto es lo que la deja demostrable sin recrearla.
+
+    Solo toca las obligaciones sembradas, por codigo: lo que haya creado alguien
+    probando el sistema se queda donde esta.
+    """
+    movidas = 0
+    for codigo, dias, estado in VENCIMIENTOS_DE_LA_DEMO:
+        resultado = db.execute(
+            text(
+                "UPDATE obligations SET "
+                "  due_at = ((CURRENT_DATE + :dias) + TIME '23:59') "
+                "           AT TIME ZONE 'America/Santiago', "
+                "  status = :estado "
+                "WHERE tenant_id = :t AND code = :c AND deleted_at IS NULL"
+            ),
+            {"dias": dias, "estado": estado, "t": empresa.id, "c": codigo},
+        )
+        movidas += resultado.rowcount
+
+    proximo = min(d for _, d, _ in VENCIMIENTOS_DE_LA_DEMO if d >= 0)
+    return (
+        f"vencimientos: {movidas} obligaciones reancladas; la mas cercana vence "
+        f"en {proximo} dias, dentro de la primera ventana de aviso"
+    )
+
+
 def sembrar(db: Session) -> list[str]:
     """Deja la empresa lista. Devuelve lo que hizo, paso por paso."""
     if get_settings().environment == "production":
@@ -431,6 +486,7 @@ def sembrar(db: Session) -> list[str]:
     )
 
     hecho.extend(_matrices_iso(db, empresa))
+    hecho.append(_reanclar_vencimientos(db, empresa))
 
     return hecho
 

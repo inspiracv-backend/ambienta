@@ -160,6 +160,43 @@ services:
       postgres:
         condition: service_healthy
 
+  avisos:
+    # **El cron de vencimientos, para poder demostrarlo en local.**
+    #
+    # En produccion esto es el servicio `cron` de `docker-compose.prod.yml`, que
+    # duerme hasta las 07:00 y corre solo. Aca no: un bucle que dispara mañana a
+    # las siete no sirve para mostrar nada hoy. Este corre **una vez y termina**.
+    #
+    #     docker compose run --rm avisos
+    #
+    # Va detras de un `profile`, asi que `docker compose up -d` sigue levantando
+    # exactamente lo mismo que antes y esto no aparece hasta que se pide.
+    #
+    # **No recibe RESEND_API_KEY, y es a proposito.** Los usuarios sembrados
+    # tienen correos reales —el del dueno del repositorio entre ellos— y los
+    # avisos escalan a los administradores de la empresa. Con la llave puesta,
+    # correr esto para "ver como se ven las notificaciones" le manda correo de
+    # verdad a esa gente. Sin ella, las notificaciones in-app se generan y se
+    # entregan igual, que es lo que se quiere mirar; los correos quedan
+    # encolados y la corrida lo dice. Para probar el envio real ya existe
+    # `python -m app.tareas.comprobar_correo <destino>`, donde el destino se
+    # escribe a mano.
+    profiles: ['avisos']
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@postgres:5432/ambienta
+      DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@postgres:5432/ambienta
+    entrypoint: ['python', '-m', 'app.tareas', 'avisos']
+    command: []
+    volumes:
+      - ./apps/api/app:/repo/apps/api/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   web:
     build:
       context: .
