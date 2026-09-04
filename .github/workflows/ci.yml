@@ -124,7 +124,8 @@ jobs:
                    17_avisos_sin_duplicados \
                    18_control_documental \
                    19_despacho_de_avisos 20_plantillas_de_correo \
-                   21_significancia_del_aspecto 22_crm 23_normativa_transversal \n                   24_datos_por_tipo_de_registro; do
+                   21_significancia_del_aspecto 22_crm 23_normativa_transversal \
+                   24_datos_por_tipo_de_registro; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"
