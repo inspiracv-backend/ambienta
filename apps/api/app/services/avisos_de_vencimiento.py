@@ -235,6 +235,18 @@ def _nombre_de_planta(db: Session, facility_id: UUID | None) -> str:
     return nombre or "toda la empresa"
 
 
+#: Por que un aviso escalado le llego a quien le llego.
+#:
+#: Vive aparte porque **tiene que ir en los dos canales**, y el del correo se
+#: arma con la plantilla de la empresa — que no sabe nada de escalamientos.
+#: Estaba solo en el texto de respaldo, asi que en cuanto una empresa tenia
+#: plantilla de correo el parrafo desaparecia justo del canal que si llega.
+POR_QUE_TE_LLEGA = (
+    "\n\nRecibes este aviso porque la declaracion no tiene un responsable "
+    "asignado. Asignale uno para que los proximos le lleguen directamente."
+)
+
+
 def _cuerpo(obligacion: Obligation, dias: int, escalado: bool) -> tuple[str, str]:
     fecha = obligacion.due_at.strftime("%d/%m/%Y") if obligacion.due_at else "sin fecha"
     asunto = f"Vence en {dias} {'dia' if dias == 1 else 'dias'}: {obligacion.title}"
@@ -246,10 +258,7 @@ def _cuerpo(obligacion: Obligation, dias: int, escalado: bool) -> tuple[str, str
     if escalado:
         # **Se dice por que le llego.** Un aviso sin explicacion sobre algo que
         # la persona no reconoce como suyo se archiva sin leer.
-        cuerpo += (
-            "\n\nRecibes este aviso porque la declaracion no tiene un responsable "
-            "asignado. Asignale uno para que los proximos le lleguen directamente."
-        )
+        cuerpo += POR_QUE_TE_LLEGA
     return asunto, cuerpo
 
 
@@ -346,6 +355,19 @@ def generar(
                         else:
                             asunto_canal = rellenada.asunto
                             cuerpo_canal = rellenada.cuerpo
+                            if escalado:
+                                # **La plantilla no sabe de escalamientos**, y
+                                # no puede: son dato de empresa y solo admiten
+                                # sustitucion de `{{variable}}`, sin
+                                # condicionales — a proposito, porque un motor
+                                # con expresiones convierte "editar una
+                                # plantilla" en "ejecutar codigo en la API".
+                                #
+                                # Asi que el parrafo se pega despues. Medido: el
+                                # aviso in-app lo explicaba y **el del correo
+                                # no**, o sea que el canal que de verdad llega
+                                # era justo el que no decia por que llegaba.
+                                cuerpo_canal += POR_QUE_TE_LLEGA
 
                 clave = _clave(obl.id, dias, canal)
                 ya = _destinatarios_ya_avisados(db, tenant_id, clave)
