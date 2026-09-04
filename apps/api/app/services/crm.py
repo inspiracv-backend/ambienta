@@ -55,6 +55,18 @@ class PadreInvalido(ErrorDeCrm):
     """Una actividad cuelga de exactamente uno."""
 
 
+class EtapaConTratos(ErrorDeCrm):
+    """Retirar una columna que todavia tiene tarjetas las volveria invisibles."""
+
+
+class UltimaEtapaDeSuTipo(ErrorDeCrm):
+    """Sin una etapa activa de cada tipo, el pipeline deja de funcionar."""
+
+
+class EtapaNoDisponible(ErrorDeCrm):
+    """La columna destino no esta activa: el trato no se veria en el kanban."""
+
+
 def _ahora() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -74,6 +86,61 @@ def etapas_de(db: Session, tenant_id: UUID) -> list[CrmStage]:
     )
 
 
+#: Las etapas con las que arranca una empresa. Son **las mismas** que siembra
+#: `db/22_crm.sql`: dos listas distintas darian pipelines distintos segun si la
+#: empresa nacio antes o despues de la migracion, y nadie sabria por que.
+#:
+#: Son un punto de partida editable, no una verdad: cada empresa las renombra,
+#: reordena y agrega las suyas.
+ETAPAS_POR_DEFECTO: tuple[tuple[str, str, int, str], ...] = (
+    ("prospecto", "Prospecto", 0, "open"),
+    ("contactado", "Contactado", 1, "open"),
+    ("propuesta", "Propuesta enviada", 2, "open"),
+    ("negociacion", "En negociacion", 3, "open"),
+    ("ganado", "Ganado", 4, "won"),
+    ("perdido", "Perdido", 5, "lost"),
+)
+
+
+def sembrar_etapas_por_defecto(db: Session, tenant_id: UUID) -> list[CrmStage]:
+    """Le da a una empresa nueva el pipeline con el que puede empezar a vender.
+
+    **Sin esto el CRM no funciona para ninguna empresa creada despues de la
+    migracion, y no falla de forma visible.** `db/22_crm.sql` siembra las etapas
+    con un `CROSS JOIN tenants`, que corre **una vez**: las empresas que ya
+    existian quedaron con su pipeline y las que se dieron de alta despues, con
+    cero etapas. El sintoma no se parece a la causa — el kanban se ve vacio,
+    como una empresa que todavia no vende, y el primer trato responde **409**.
+
+    Es idempotente por `code`: llamarla dos veces no duplica columnas. Eso
+    importa porque tambien sirve para reparar una empresa que quedo sin etapas,
+    y una reparacion que duplica es peor que el problema.
+    """
+    ya_estan = {
+        codigo
+        for codigo in db.scalars(
+            select(CrmStage.code).where(
+                CrmStage.tenant_id == tenant_id,
+                CrmStage.deleted_at.is_(None),
+            )
+        ).all()
+    }
+
+    creadas: list[CrmStage] = []
+    for codigo, nombre, posicion, tipo in ETAPAS_POR_DEFECTO:
+        if codigo in ya_estan:
+            continue
+        etapa = CrmStage(
+            tenant_id=tenant_id, code=codigo, name=nombre, position=posicion, kind=tipo
+        )
+        db.add(etapa)
+        creadas.append(etapa)
+
+    if creadas:
+        db.flush()
+    return creadas
+
+
 def primera_etapa(db: Session, tenant_id: UUID) -> CrmStage:
     """Donde entra un trato nuevo cuando nadie eligio columna.
 
@@ -88,6 +155,80 @@ def primera_etapa(db: Session, tenant_id: UUID) -> CrmStage:
         )
     abiertas = [e for e in etapas if e.kind == "open"]
     return (abiertas or etapas)[0]
+
+
+#: Como se llama cada tipo cuando hay que explicarselo a una persona. El `kind`
+#: es vocabulario del sistema; el mensaje de error lo lee quien configura.
+NOMBRE_DEL_TIPO = {"open": "abierta", "won": "de ganado", "lost": "de perdido"}
+
+
+def _tratos_en(db: Session, etapa: CrmStage) -> int:
+    """Cuantas tarjetas vivas hay en esa columna."""
+    return int(
+        db.scalar(
+            select(func.count(CrmDeal.id)).where(
+                CrmDeal.stage_id == etapa.id,
+                CrmDeal.deleted_at.is_(None),
+            )
+        )
+        or 0
+    )
+
+
+def _es_la_ultima_de_su_tipo(db: Session, etapa: CrmStage, kind: str) -> bool:
+    otras = [
+        e
+        for e in etapas_de(db, etapa.tenant_id)
+        if e.kind == kind and e.id != etapa.id
+    ]
+    return not otras
+
+
+def comprobar_cambio_de_etapa(
+    db: Session, etapa: CrmStage, *, activa: bool | None, kind: str | None
+) -> None:
+    """Se niega a dejar el pipeline inservible, venga por `PATCH` o por `DELETE`.
+
+    **Desactivar una etapa y retirarla hacen lo mismo**: `etapas_de` filtra por
+    `active` y por `deleted_at`, asi que las dos la sacan del kanban y se llevan
+    sus tratos de la vista. Cambiarle el `kind` a la unica `won` deja a la
+    empresa sin forma de ganar un trato. Por eso la comprobacion es una sola y
+    la llaman los dos endpoints: una guarda que solo mira el `DELETE` se salta
+    con un `PATCH`, y entonces no protege nada — solo hace creer que si.
+
+    `activa` y `kind` son **lo que se quiere dejar**, no lo que hay: `None`
+    significa "no se toca". Renombrar y reordenar no pasan por ninguna guarda,
+    que es lo que hace que la pantalla de configuracion sirva para algo.
+    """
+    se_apaga = activa is False
+    cambia_de_tipo = kind is not None and kind != etapa.kind
+
+    if se_apaga and (cuantos := _tratos_en(db, etapa)):
+        raise EtapaConTratos(
+            f"«{etapa.name}» todavia tiene {cuantos} oportunidad"
+            f"{'es' if cuantos != 1 else ''}. Desactivarla las dejaria fuera del "
+            "tablero sin borrarlas, que es peor que borrarlas: siguen en la base "
+            "y nadie las ve. Muevelas a otra columna primero."
+        )
+
+    if (se_apaga or cambia_de_tipo) and _es_la_ultima_de_su_tipo(db, etapa, etapa.kind):
+        tipo = NOMBRE_DEL_TIPO.get(etapa.kind, etapa.kind)
+        raise UltimaEtapaDeSuTipo(
+            f"«{etapa.name}» es la unica etapa {tipo} que queda. Sin ella el "
+            "pipeline deja de funcionar: no se podrian crear, ganar o perder "
+            "tratos segun el caso. Se puede **renombrar** y reordenar; lo que no "
+            "se puede es quedarse sin ninguna de su tipo."
+        )
+
+
+def retirar_etapa(db: Session, etapa: CrmStage) -> None:
+    """Saca una columna del pipeline, si eso no deja nada roto ni invisible.
+
+    Es borrado logico: los tratos que pasaron por ella conservan su historia.
+    """
+    comprobar_cambio_de_etapa(db, etapa, activa=False, kind=None)
+    etapa.deleted_at = _ahora()
+    db.flush()
 
 
 def crear_deal(
@@ -110,7 +251,19 @@ def mover_de_etapa(
     que poder decirlos: arrastrar una tarjeta a "Perdido" cierra el trato, y si
     eso ocurre en silencio la persona lo descubre cuando el trato ya no aparece
     en sus pendientes.
+
+    **La columna destino tiene que estar activa.** Mover una tarjeta a una etapa
+    retirada la guarda bien y la deja fuera del kanban, porque `pipeline()`
+    recorre solo las activas: el trato existe en la base y no se ve en ninguna
+    parte. Es la misma invisibilidad que impide retirar una etapa con tratos
+    dentro, entrando por la otra puerta.
     """
+    if not etapa.active or etapa.deleted_at is not None:
+        raise EtapaNoDisponible(
+            f"«{etapa.name}» no esta activa en el pipeline. El trato quedaria "
+            "guardado y fuera del tablero, que es la peor de las dos opciones."
+        )
+
     efectos: list[str] = []
 
     if etapa.kind == "lost":
