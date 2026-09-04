@@ -41,6 +41,13 @@ SUFIJOS_DE_ACCION = (
     # los que **nadie enlazo un riesgo** (ISO 14001 §6.1.4). No se crea ni se
     # borra un "aspecto sin tratar" — se trata, y entonces sale solo.
     "/significant-untreated",
+    # El informe es una **vista derivada**, no un recurso (RF-101): todos sus
+    # conteos se calculan al pedirlo. Guardarlo para poder "crearlo" y
+    # "borrarlo" seria justamente el error que evita — un informe guardado y el
+    # sistema diciendo cosas distintas, y el que miente es siempre el guardado.
+    # Lo que si es un recurso con CRUD completo es el veredicto por proceso
+    # (`/procesos`), que es la parte que el auditor escribe.
+    "/informe",
     # Tampoco un recurso: lo que vence son la inscripcion del equipo y la
     # certificacion de su operador, y las dos se editan en su propia ficha.
     # Esto es la consulta que las junta.

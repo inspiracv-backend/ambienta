@@ -72,6 +72,13 @@ class AuditItem(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     article_compliance_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("article_compliance.id")
     )
+    #: A que proceso pertenece esta pregunta. **Nulable a proposito**: una
+    #: auditoria tiene requisitos generales del sistema de gestion que no son
+    #: de ningun proceso, y forzarlos a uno inventaria una pertenencia. El
+    #: informe los cuenta aparte en vez de esconderlos en una fila cualquiera.
+    process_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("processes.id")
+    )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     result: Mapped[str] = mapped_column(
@@ -238,6 +245,34 @@ class EntityStatusHistory(Base, TenantMixin):
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
     )
+
+
+class AuditProcessResult(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """La fila de la matriz por proceso que **escribe el auditor** (RF-101).
+
+    Lo derivable no vive aca a proposito: las clausulas auditadas, los hallazgos
+    y los conteos salen de los items y de los registros de mejora cada vez que
+    se pide el informe. Guardar un conteo escrito a mano es la forma mas rapida
+    de que el informe y el sistema digan cosas distintas, y el que miente es
+    siempre el guardado.
+    """
+
+    __tablename__ = "audit_process_results"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    audit_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("audits.id"), nullable=False
+    )
+    process_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("processes.id"), nullable=False
+    )
+    classification: Mapped[str] = mapped_column(String(40), nullable=False)
+    conclusion: Mapped[str | None] = mapped_column(Text)
+    #: Que tuvo a la vista el auditor. Va escrito y no derivado porque "el
+    #: registro de calibracion de marzo" no esta en ninguna tabla.
+    evidence_reviewed: Mapped[str | None] = mapped_column(Text)
 
 
 class ImprovementSeverity(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):

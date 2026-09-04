@@ -700,6 +700,55 @@ leyeron como el fin del registro. Esta vez fallo del lado util; si hubiera
 faltado del otro, la prueba habria pasado verde comparando dos listas
 incompletas. Ahora recorre caracter por caracter respetando comillas.
 
+**El informe de auditoria existe desde el 4-sep, y lo que faltaba no era el
+endpoint: `audit_items` no tenia proceso.** El design de RF-101 dice que las tres
+primeras columnas de la matriz "son derivables", y no lo eran — no habia de
+donde. Una auditoria sabia que preguntas hizo y que hallazgos salieron, y **no a
+que proceso pertenecia cada pregunta**, asi que no podia decir como quedo
+ninguno. El dueno de un proceso no lee la lista de hallazgos de toda la planta;
+lee su fila.
+
+`db/26` agrega `audit_items.process_id` —**nulable**, porque un requisito general
+del sistema de gestion no es de ningun proceso y forzarlo inventaria una
+pertenencia— y `audit_process_results` con lo que **escribe el auditor**:
+clasificacion, conclusion y evidencia revisada.
+
+**Los conteos no se guardan.** Se derivan al pedir `GET /audits/{id}/informe`.
+Guardarlos seria mas rapido de leer y es la forma mas corta de que el informe y
+el sistema digan cosas distintas — y el que miente es siempre el guardado,
+porque el otro se actualiza solo.
+
+**Y aca el error del cero volvia a estar servido, tres veces.** Es el que este
+repositorio ya cometio cuatro veces (`normSemaforo(0)`, el tablero con las
+plantas sin evaluar, la cobertura, los reportes):
+
+| situacion | el cero se leeria como | lo que devuelve |
+|---|---|---|
+| Auditoria sin nada evaluado | "cumple 0 %" | `conformidad: null` |
+| Proceso sin veredicto | "no conforme" | `no_auditado`, explicito |
+| Ciclo anterior sin hallazgos | "no cerraron nada" | `null` + `motivo_sin_tasa` |
+
+El tercero es el peor: un 0 % de tasa de cierre es una **acusacion**, y los tres
+casos que lo producirian —no hay auditoria anterior, la anterior no encontro
+nada, la anterior sigue abierta— no son ninguno un incumplimiento. Por eso el
+informe dice ademas **cual de los tres es**.
+
+**Dos trampas que aparecieron construyendolo, las dos de la misma familia:**
+un campo que la API **descarta en silencio**.
+
+1. `POST /audits/` acepta `planned_start_date` y lo tira: el campo es
+   `planned_start`. Mis sondas y una prueba propia lo mandaban mal y pasaban
+   igual, dejando todas las auditorias con `planned_start` en NULL — y la tasa
+   de cierre depende de esa fecha para saber cual es la anterior.
+2. El alta anidada de un item **rebota por `AuditItemCreate`**, asi que un campo
+   que ese schema no declare desaparece aunque el anidado si lo tenga. Es lo que
+   pasaba con `process_id`: la peticion respondia 201 y el proceso no se
+   guardaba.
+
+Y una prueba mia fallo por una premisa falsa: **el seed tiene una auditoria
+interna cerrada** (`AUD-2026-001`, 2026-06-01), asi que "sin ciclo anterior" no
+era cierto. El mensaje de fallo apuntaba al codigo y el error era de la prueba.
+
 **El puente hacia el almacenamiento existe desde el 27-ago, y no guarda nada
 en disco local.** El CHECK de `document_versions.storage_provider` son cuatro
 —`s3`, `backblaze`, `google_drive`, `onedrive`— y **no hay opcion local ni de

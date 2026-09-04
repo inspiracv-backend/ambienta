@@ -2,6 +2,7 @@ from ..models.audit import (
     ActionPlan,
     Audit,
     AuditItem,
+    AuditProcessResult,
     ImprovementMethodology,
     ImprovementSeverity,
     Nonconformity,
@@ -19,6 +20,8 @@ from ..schemas.audit import (
     NonconformityUpdate,
     SeveridadCreate,
     SeveridadUpdate,
+    VeredictoDeProcesoCreate,
+    VeredictoDeProcesoUpdate,
 )
 from .base import CRUDBase
 
@@ -35,3 +38,8 @@ crud_severidad = CRUDBase[ImprovementSeverity, SeveridadCreate, SeveridadUpdate]
 crud_metodologia = CRUDBase[
     ImprovementMethodology, MetodologiaCreate, MetodologiaUpdate
 ](ImprovementMethodology)
+
+# El veredicto del auditor sobre cada proceso (RF-101, #42).
+crud_veredicto_de_proceso = CRUDBase[
+    AuditProcessResult, VeredictoDeProcesoCreate, VeredictoDeProcesoUpdate
+](AuditProcessResult)

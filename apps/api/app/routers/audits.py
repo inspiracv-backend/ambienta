@@ -12,14 +12,16 @@ from ..crud.audit import (
     crud_metodologia,
     crud_nonconformity,
     crud_severidad,
+    crud_veredicto_de_proceso,
 )
 from ..auth import CurrentUser
 from ..deps import get_current_user, get_tenant_db, get_tenant_id
 from ..services import audits as svc_audits
 from ..services import catalogos_de_mejora as svc_catalogos
+from ..services import informe_de_auditoria as svc_informe
 from ..crud.compliance import crud_article_compliance
-from ..crud.organization import crud_user
-from ..models.audit import AuditItem, AuditParticipant
+from ..crud.organization import crud_process, crud_user
+from ..models.audit import AuditItem, AuditParticipant, AuditProcessResult
 from ..models.organization import User
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import (
@@ -32,6 +34,11 @@ from ._comun import (
 )
 from ..schemas.audit import (
     AuditItemUpdate,
+    InformeDeAuditoria,
+    VeredictoDeProcesoCreate,
+    VeredictoDeProcesoCreateAnidado,
+    VeredictoDeProcesoRead,
+    VeredictoDeProcesoUpdate,
     MetodologiaCreate,
     MetodologiaRead,
     MetodologiaUpdate,
@@ -437,6 +444,7 @@ def create_audit_item(
         campo="article_compliance_id",
     )
     validar_visible(crud_user, db, data.auditor_user_id, campo="auditor_user_id")
+    validar_visible(crud_process, db, data.process_id, campo="process_id")
 
     datos = data.model_dump()
     datos["audit_id"] = audit_id
@@ -698,4 +706,182 @@ def get_severidad(severidad_id: UUID, db: Session = Depends(get_tenant_db)):
 def get_metodologia(metodologia_id: UUID, db: Session = Depends(get_tenant_db)):
     return obtener_o_404(
         crud_metodologia, db, metodologia_id, recurso="Metodologia"
+    )
+
+
+# -- El informe de auditoria (RF-101, #42) --------------------------------
+
+
+@router.get(
+    "/{audit_id}/informe",
+    response_model=InformeDeAuditoria,
+    tags=["business-logic"],
+    summary="Informe de auditoria con matriz por proceso",
+    description=(
+        "El informe completo (RF-101): resumen ejecutivo, **una fila por "
+        "proceso auditado** y la tasa de cierre del ciclo anterior.\n\n"
+        "**Todos los conteos se derivan al pedirlo**, no se guardan: un "
+        "hallazgo que se cierra despues de emitir el informe cambia el numero "
+        "la proxima vez que se abra. Lo unico persistido es lo que escribe el "
+        "auditor — la clasificacion de cada proceso, su conclusion y la "
+        "evidencia que tuvo a la vista.\n\n"
+        "**Ojo con los `null`, que no son ceros.** `conformidad` viene vacia "
+        "cuando no se evaluo ni una pregunta, y `tasa_de_cierre_del_ciclo_"
+        "anterior` cuando no hay auditoria anterior, cuando la anterior no dejo "
+        "hallazgos o cuando no esta cerrada. Un 0 % ahi se leeria como «no "
+        "cerraron nada», que es una acusacion; `motivo_sin_tasa` dice cual de "
+        "los tres casos es."
+    ),
+)
+def informe_de_auditoria(audit_id: UUID, db: Session = Depends(get_tenant_db)):
+    try:
+        return svc_informe.construir(db, audit_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from None
+
+
+@router.get(
+    "/{audit_id}/procesos",
+    response_model=list[VeredictoDeProcesoRead],
+    tags=["business-logic"],
+    summary="Veredictos del auditor por proceso",
+    description=(
+        "Solo la parte **escrita** de la matriz. Los conteos y los hallazgos de "
+        "cada proceso salen del informe, que los deriva."
+    ),
+)
+def list_veredictos(audit_id: UUID, db: Session = Depends(get_tenant_db)):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    return listar_por_padre(
+        AuditProcessResult, db, audit_id, campo="audit_id"
+    )
+
+
+@router.post(
+    "/{audit_id}/procesos",
+    response_model=VeredictoDeProcesoRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["business-logic"],
+    summary="Dejar el veredicto de un proceso",
+    description=(
+        "Un proceso tiene **un veredicto por auditoria y no mas**: dos seria una "
+        "matriz que se contradice a si misma y el informe elegiria uno de los "
+        "dos sin decirlo. Repetirlo responde 409.\n\n"
+        "`no_auditado` es un veredicto valido y conviene usarlo: decirle al "
+        "dueno de un proceso que no se lo miro es informacion, y una fila "
+        "ausente se lee como un descuido del informe."
+    ),
+)
+def create_veredicto(
+    audit_id: UUID,
+    data: VeredictoDeProcesoCreateAnidado,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    # La clave foranea a `processes` no pasa por RLS: solo exige que la fila
+    # exista, no que sea de esta empresa.
+    validar_visible(crud_process, db, data.process_id, campo="process_id")
+
+    ya_esta = db.scalar(
+        select(AuditProcessResult).where(
+            AuditProcessResult.audit_id == audit_id,
+            AuditProcessResult.process_id == data.process_id,
+            AuditProcessResult.deleted_at.is_(None),
+        )
+    )
+    if ya_esta is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Ese proceso ya tiene veredicto en esta auditoria. Editalo en "
+                "vez de agregar otro: dos veredictos sobre el mismo proceso "
+                "dejarian la matriz contradiciendose."
+            ),
+        )
+
+    # `audit_id` sale de la URL, no del cuerpo: mandarlo en el cuerpo dejaria
+    # crear un veredicto bajo una auditoria y guardarlo en otra. Va antes del
+    # create porque `CRUDBase.create` hace `flush` por dentro y la columna es
+    # NOT NULL: ponerlo despues llega tarde y da 422 "falta un campo".
+    obj = crud_veredicto_de_proceso.create(
+        db,
+        obj_in=VeredictoDeProcesoCreate(**data.model_dump(), audit_id=audit_id),
+        tenant_id=tenant_id,
+    )
+    db.commit()
+    return obj
+
+
+@router.patch(
+    "/{audit_id}/procesos/{veredicto_id}",
+    response_model=VeredictoDeProcesoRead,
+    tags=["business-logic"],
+    summary="Corregir el veredicto de un proceso",
+    description=(
+        "El proceso no se cambia: mover un veredicto de un proceso a otro "
+        "reescribiria lo que se dijo del primero. Se retira y se agrega."
+    ),
+)
+def update_veredicto(
+    audit_id: UUID,
+    veredicto_id: UUID,
+    data: VeredictoDeProcesoUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    obj = obtener_o_404(
+        crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
+    )
+    verificar_padre(obj, audit_id, campo="audit_id")
+    obj = crud_veredicto_de_proceso.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete(
+    "/{audit_id}/procesos/{veredicto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["business-logic"],
+    summary="Retirar el veredicto de un proceso",
+    description=(
+        "El proceso vuelve a aparecer en la matriz como `no_auditado` si tiene "
+        "preguntas, y desaparece de ella si no tiene ninguna."
+    ),
+)
+def delete_veredicto(
+    audit_id: UUID, veredicto_id: UUID, db: Session = Depends(get_tenant_db)
+):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    verificar_padre(
+        obtener_o_404(
+            crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
+        ),
+        audit_id,
+        campo="audit_id",
+    )
+    borrar_o_404(
+        crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
+    )
+
+
+@router.get(
+    "/{audit_id}/procesos/{veredicto_id}",
+    response_model=VeredictoDeProcesoRead,
+    tags=["business-logic"],
+    summary="Ver el veredicto de un proceso",
+    description="La fila escrita por el auditor, sin los conteos derivados.",
+)
+def get_veredicto(
+    audit_id: UUID, veredicto_id: UUID, db: Session = Depends(get_tenant_db)
+):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    return verificar_padre(
+        obtener_o_404(
+            crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
+        ),
+        audit_id,
+        campo="audit_id",
     )

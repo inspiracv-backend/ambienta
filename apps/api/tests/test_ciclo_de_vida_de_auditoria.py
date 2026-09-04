@@ -100,8 +100,8 @@ def _crear_auditoria(cliente, planta: str) -> str:
             "title": "Auditoria de prueba",
             "audit_type": "internal",
             "scope": "Alcance de prueba",
-            "planned_start_date": str(hoy),
-            "planned_end_date": str(hoy + timedelta(days=2)),
+            "planned_start": str(hoy),
+            "planned_end": str(hoy + timedelta(days=2)),
         },
     )
     assert respuesta.status_code == 201, respuesta.text

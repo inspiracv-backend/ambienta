@@ -53,6 +53,9 @@ class AuditUpdate(BaseModel):
 class AuditItemCreate(BaseModel):
     audit_id: UUID
     article_compliance_id: UUID | None = None
+    #: El proceso auditado. Opcional: un requisito general del sistema
+    #: de gestion no pertenece a ninguno.
+    process_id: UUID | None = None
     sequence: int
     question: str
     #: **Faltaba, y por eso `notes` se perdia en silencio.** Arreglar solo el
@@ -67,6 +70,7 @@ class AuditItemRead(OrmBase):
     tenant_id: UUID
     audit_id: UUID
     article_compliance_id: UUID | None
+    process_id: UUID | None
     sequence: int
     question: str
     result: str
@@ -85,6 +89,9 @@ class AuditItemUpdate(BaseModel):
     notes: str | None = None
     auditor_user_id: UUID | None = None
     article_compliance_id: UUID | None = None
+    #: El proceso auditado. Opcional: un requisito general del sistema
+    #: de gestion no pertenece a ninguno.
+    process_id: UUID | None = None
     #: `assessed_at` **se quito del cuerpo a proposito.** La marca de cuando se
     #: respondio la pone el servidor: aceptarla permitiria fechar una respuesta
     #: cuando conviniera, y esa fecha es justo lo que revisa un certificador
@@ -350,6 +357,10 @@ class AuditItemCreateAnidado(BaseModel):
     question: str
     sequence: int | None = None
     article_compliance_id: UUID | None = None
+    #: A que proceso pertenece la pregunta. **Opcional a proposito**: un
+    #: requisito general del sistema de gestion no es de ningun proceso, y
+    #: forzarlo a uno inventaria una pertenencia. El informe los cuenta aparte.
+    process_id: UUID | None = None
     notes: str | None = None
     auditor_user_id: UUID | None = None
 
@@ -432,3 +443,109 @@ class MetodologiaUpdate(BaseModel):
 class MetodologiaRead(MetodologiaBase, OrmBase):
     id: UUID
     tenant_id: UUID
+
+
+# ── El informe de auditoria (RF-101, #42) ────────────────────────────────
+
+
+CLASIFICACIONES_DE_PROCESO = (
+    "conforme",
+    "conforme_con_observaciones",
+    "no_conforme",
+    "no_auditado",
+)
+
+
+class VeredictoDeProcesoBase(BaseModel):
+    """Lo que el auditor escribe sobre un proceso. Lo derivable no va aca."""
+
+    process_id: UUID
+    classification: Literal[
+        "conforme", "conforme_con_observaciones", "no_conforme", "no_auditado"
+    ]
+    conclusion: str | None = None
+    #: Que tuvo a la vista. Va escrito y no derivado porque "el registro de
+    #: calibracion de marzo" no esta en ninguna tabla.
+    evidence_reviewed: str | None = None
+
+
+class VeredictoDeProcesoCreateAnidado(VeredictoDeProcesoBase):
+    """Lo que viaja en el cuerpo. **Sin `audit_id`, que sale de la URL.**
+
+    Aceptarlo del cuerpo dejaria crear un veredicto bajo `/audits/{A}/procesos`
+    y guardarlo en la auditoria B: la jerarquia de la URL seria decorativa.
+    Misma separacion que `AuditItemCreateAnidado`.
+    """
+
+
+class VeredictoDeProcesoCreate(VeredictoDeProcesoBase):
+    """La forma completa, que es la que llega al CRUD."""
+
+    audit_id: UUID
+
+
+class VeredictoDeProcesoUpdate(BaseModel):
+    classification: (
+        Literal["conforme", "conforme_con_observaciones", "no_conforme", "no_auditado"]
+        | None
+    ) = None
+    conclusion: str | None = None
+    evidence_reviewed: str | None = None
+
+
+class VeredictoDeProcesoRead(VeredictoDeProcesoBase, OrmBase):
+    id: UUID
+    audit_id: UUID
+    tenant_id: UUID
+
+
+class FilaDeLaMatriz(BaseModel):
+    """Una fila del informe. **Mezcla derivado y escrito**, y conviene saber cual.
+
+    `clausulas_auditadas`, `items*` y `hallazgos` se calculan al pedir el
+    informe; `clasificacion`, `conclusion` y `evidencia_revisada` las escribio
+    el auditor. Guardar los conteos seria la forma mas corta de que el informe y
+    el sistema digan cosas distintas.
+    """
+
+    proceso_id: str
+    proceso_nombre: str
+    clausulas_auditadas: list[str]
+    items: int
+    items_conformes: int
+    items_no_conformes: int
+    hallazgos: list[str]
+    #: `no_auditado` cuando el auditor no dejo veredicto. **Es un valor, no una
+    #: ausencia**: "no lo miramos" es informacion para el dueno del proceso.
+    clasificacion: str
+    conclusion: str | None
+    evidencia_revisada: str | None
+
+
+class ResumenDelInforme(BaseModel):
+    procesos_auditados: int
+    #: Preguntas que no son de ningun proceso: requisitos generales del sistema
+    #: de gestion. Van aparte y no repartidas.
+    items_sin_proceso: int
+    no_conformidades: int
+    observaciones: int
+    oportunidades_de_mejora: int
+    #: `null` cuando no se evaluo ni una pregunta — **no 0 %**. Mismo criterio
+    #: que `CoberturaDeAuditoria.porcentaje`.
+    conformidad: float | None
+
+
+class InformeDeAuditoria(BaseModel):
+    audit_id: str
+    codigo: str
+    titulo: str
+    estado: str
+    resumen: ResumenDelInforme
+    matriz: list[FilaDeLaMatriz]
+    #: `null` en tres casos que **no son cero**: no hay auditoria anterior, la
+    #: anterior no dejo hallazgos, o no esta cerrada. Un 0 % ahi se leeria como
+    #: "no cerraron nada", que es una acusacion.
+    tasa_de_cierre_del_ciclo_anterior: float | None
+    #: Cual de los tres casos. Sin esto, el `null` obliga a adivinar.
+    motivo_sin_tasa: str | None
+    auditoria_anterior_id: str | None
