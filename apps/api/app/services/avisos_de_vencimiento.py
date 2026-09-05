@@ -58,7 +58,9 @@ from sqlalchemy.orm import Session
 from ..models.catalog import RetcSystem
 from ..models.notifications import Notification, NotificationRule
 from ..models.obligations import DeclarationTemplate, Obligation
-from ..models.organization import Country, Facility, Tenant, User
+from ..models.organization import Facility, User
+from .husos import HUSO_POR_DEFECTO as _HUSO_POR_DEFECTO
+from .husos import huso_de as _huso_de
 from . import plantillas_correo
 from .declaracion import urgencia
 
@@ -81,27 +83,14 @@ VENTANAS_POR_DEFECTO = (15, 7, 3, 1)
 #: el texto de respaldo para siempre, sin ningun error.
 EVENTO = "obligation_due"
 
-#: Huso al que se cae si la empresa no tiene pais con huso declarado.
+#: Reexportados desde `husos.py`, que es donde viven ahora.
 #:
-#: Chile porque es el mercado del producto, pero **no da igual**: es el huso el
-#: que decide en que dia del calendario cae un vencimiento, y con el equivocado
-#: el aviso sale un dia antes o un dia despues.
-HUSO_POR_DEFECTO = "America/Santiago"
-
-
-def huso_de(db: Session, tenant_id: UUID) -> str:
-    """El huso horario de la empresa, via el pais al que pertenece.
-
-    `countries.default_timezone` tiene cinco paises distintos, asi que esto no
-    es una constante disfrazada: la misma obligacion a las 23:59 cae en dias
-    distintos para una empresa chilena y una mexicana.
-    """
-    nombre = db.scalar(
-        select(Country.default_timezone)
-        .join(Tenant, Tenant.country_id == Country.id)
-        .where(Tenant.id == tenant_id)
-    )
-    return nombre or HUSO_POR_DEFECTO
+#: **Se movieron porque el mismo error aparecio dos veces el mismo dia**: aca
+#: con la banda de +-12 h del cron, y en `gestor.py` comparando la fecha de fin
+#: de un contrato contra `date.today()`. Dos copias de "en que dia vive esta
+#: empresa" es una que se queda vieja.
+HUSO_POR_DEFECTO = _HUSO_POR_DEFECTO
+huso_de = _huso_de
 
 
 @dataclass

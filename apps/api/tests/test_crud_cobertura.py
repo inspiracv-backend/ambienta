@@ -48,6 +48,11 @@ SUFIJOS_DE_ACCION = (
     # Lo que si es un recurso con CRUD completo es el veredicto por proceso
     # (`/procesos`), que es la parte que el auditor escribe.
     "/informe",
+    # La cartera de un gestor **es la lectura de `contracts` desde el otro
+    # lado**: no se crea ni se borra un "cliente" — se firma o se termina un
+    # contrato, y eso ya tiene su CRUD en `/contracts/`. Dos caminos para
+    # escribir la misma relacion serian dos formas de dejarla incoherente.
+    "/clientes",
     # Tampoco un recurso: lo que vence son la inscripcion del equipo y la
     # certificacion de su operador, y las dos se editan en su propia ficha.
     # Esto es la consulta que las junta.

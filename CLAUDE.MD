@@ -749,6 +749,69 @@ Y una prueba mia fallo por una premisa falsa: **el seed tiene una auditoria
 interna cerrada** (`AUD-2026-001`, 2026-06-01), asi que "sin ciclo anterior" no
 era cierto. El mensaje de fallo apuntaba al codigo y el error era de la prueba.
 
+**Un Gestor ya puede trabajar sobre sus clientes, y RLS no se toco.** Medido el
+4-sep antes de empezar: `EcoGestion` es `tenant_type = 'manager'`, tiene el
+contrato `ECOG-2026-001` con Minera Andes, y al entrar veia un sistema vacio —
+`/obligations/` devolvia **0 filas** y no existia **ni una ruta** que nombrara a
+un cliente o a un sub-tenant. El modelo sabia quien administra a quien y no
+habia ningun camino para actuar sobre ello. `parent_tenant_id` sigue con cero
+filas.
+
+Lo que se agrego es deliberadamente poco: `GET /gestor/clientes` y la cabecera
+**`X-Cliente-Id`**, que vale en cualquier endpoint. El resto de la API ya
+funcionaba; lo unico que faltaba era **poder declarar el otro tenant**.
+
+**La tentacion era ampliar la politica de RLS** —"o el tenant es cliente de mi
+gestor"— y habria sido la peor decision del proyecto: RLS no es la segunda
+barrera sino la unica (§4), y esa condicion hay que mantenerla correcta en 38
+tablas a la vez. Un error ahi no da una pantalla vacia: da una fuga. La barrera
+se queda donde estaba y delante se pone una puerta con llave (`deps.tenant_efectivo`).
+
+Cuatro cosas que conviene saber:
+
+- **Actuando por un cliente, el gestor NO ve lo suyo.** No es una vista
+  combinada, y no debe serlo: mezclar dos empresas en una consulta es justo lo
+  que RLS existe para impedir.
+- **La llave se comprueba en cada peticion**, no al entrar. Un contrato se
+  suspende, vence o se termina; si viviera en el token, revocarlo no haria nada
+  hasta que expire. Misma leccion que el acceso de invitado.
+- **Vale `active` y dentro de sus fechas.** Las dos cosas: un contrato al que se
+  le paso la fecha sin que nadie lo marcara `expired` sigue diciendo `active`. El
+  estado es una decision, la fecha es un hecho.
+- **Los dos rechazos se ven iguales.** Sin contrato y con contrato ajeno
+  responden el mismo 403 con el mismo texto: distinguirlos convertiria la
+  cabecera en un oraculo para averiguar con quien trabaja otro gestor.
+
+**Y una mutacion sobrevivio, en la guarda que mas importa.** Al desconectar
+`es_gestor` las quince pruebas seguian en verde: el unico caso negativo —una
+empresa normal suplantando al gestor— tambien lo frena la *otra* puerta, porque
+no hay contrato en esa direccion. **Las dos guardas estaban tapadas por la misma
+prueba y una se podia quitar sin que nada avisara.** La prueba nueva le quita el
+tipo `manager` a la empresa **dejando el contrato intacto**, que es lo unico que
+las separa.
+
+**Y una fecha de calendario no se puede medir en horas: van tres veces.** El
+4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
+archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al
+generador, que tenia razon:
+
+| lo que decia la prueba | lo que significa |
+|---|---|
+| `now() + timedelta(days=7)` | 168 horas |
+| `now() + interval '7 days'` | 168 horas, en la zona de la sesion (UTC) |
+| `now() + make_interval(days => 7)` | idem |
+
+**Chile cambia de hora el primer sabado de septiembre**, asi que esa semana 168
+horas caen en el dia siguiente al que una persona llama "en una semana". Las
+pruebas ahora arman la fecha por calendario, a mediodia local — lejos de las dos
+medianoches.
+
+De ahi tambien `app/services/husos.py`: `date.today()` no es "hoy", es "hoy donde
+corre este proceso". La base va en UTC y el host en hora de Chile, asi que
+pasadas las 20:00 estan en dias distintos — y con el reloj equivocado un contrato
+vencido ayer seguia habilitando acceso durante esas horas. `countries` tiene
+**cinco husos**, asi que no es una constante disfrazada.
+
 **El puente hacia el almacenamiento existe desde el 27-ago, y no guarda nada
 en disco local.** El CHECK de `document_versions.storage_provider` son cuatro
 —`s3`, `backblaze`, `google_drive`, `onedrive`— y **no hay opcion local ni de

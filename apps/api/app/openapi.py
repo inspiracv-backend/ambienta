@@ -216,6 +216,22 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "gestor",
+        "description": (
+            "La cartera de un **Gestor**: las empresas que administra por "
+            "contrato (RF-65 a RF-67).\n\n"
+            "Para leer o escribir los datos de una de ellas se manda la "
+            "cabecera **`X-Cliente-Id`** con su identificador, en cualquier "
+            "endpoint de la API. La peticion corre entonces como esa "
+            "empresa: **no es una vista combinada**, el gestor deja de ver "
+            "lo suyo mientras actua por su cliente.\n\n"
+            "La llave es un contrato `active` y dentro de sus fechas, y "
+            "**se comprueba en cada peticion**: suspenderlo o terminarlo "
+            "corta el acceso de inmediato, sin esperar a que expire "
+            "ninguna sesion."
+        ),
+    },
+    {
         "name": "catalogos-de-mejora",
         "description": (
             "Los catalogos con que **cada empresa** clasifica sus hallazgos "
@@ -382,6 +398,7 @@ _RESPUESTA_422 = {
 # frase — eso se deriva del metodo y de la forma de la ruta.
 _RECURSOS: dict[str, tuple[str, str]] = {
     "action-plans": ("el plan de accion", "los planes de accion"),
+    "gestor": ("la cartera del gestor", "la cartera del gestor"),
     "catalogos-de-mejora": (
         "el catalogo del registro de mejora",
         "los catalogos del registro de mejora",
