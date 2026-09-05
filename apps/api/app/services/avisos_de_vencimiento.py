@@ -50,14 +50,17 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import Date, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.catalog import RetcSystem
 from ..models.notifications import Notification, NotificationRule
 from ..models.obligations import DeclarationTemplate, Obligation
 from ..models.organization import Facility, User
+from .husos import HUSO_POR_DEFECTO as _HUSO_POR_DEFECTO
+from .husos import huso_de as _huso_de
 from . import plantillas_correo
 from .declaracion import urgencia
 
@@ -80,12 +83,14 @@ VENTANAS_POR_DEFECTO = (15, 7, 3, 1)
 #: el texto de respaldo para siempre, sin ningun error.
 EVENTO = "obligation_due"
 
-#: Margen a cada lado del dia exacto.
+#: Reexportados desde `husos.py`, que es donde viven ahora.
 #:
-#: Doce horas y no cero: el cron corre a una hora fija y el vencimiento cae a
-#: cualquier hora. Sin margen, un vencimiento a las 09:00 nunca cae exactamente
-#: a N dias del momento en que corre el cron y **no se avisaria jamas**.
-MARGEN = timedelta(hours=12)
+#: **Se movieron porque el mismo error aparecio dos veces el mismo dia**: aca
+#: con la banda de +-12 h del cron, y en `gestor.py` comparando la fecha de fin
+#: de un contrato contra `date.today()`. Dos copias de "en que dia vive esta
+#: empresa" es una que se queda vieja.
+HUSO_POR_DEFECTO = _HUSO_POR_DEFECTO
+huso_de = _huso_de
 
 
 @dataclass
@@ -271,10 +276,34 @@ def generar(
     """Crea los avisos que correspondan hoy, **sin repetir los de ayer**."""
     ahora = ahora or datetime.now(timezone.utc)
     ventanas = ventanas if ventanas is not None else ventanas_de(db, tenant_id)
+    huso = huso_de(db, tenant_id)
+    hoy = ahora.astimezone(ZoneInfo(huso)).date()
     r = Resultado(ventanas=ventanas)
 
     for dias in ventanas:
-        objetivo = ahora + timedelta(days=dias)
+        # **Se comparan fechas, no instantes**, y eso es el arreglo del 4-sep.
+        #
+        # Antes esto era una banda de +-12 h alrededor de `ahora + N dias`. Un
+        # plazo legal vence a las 23:59 del dia, o sea a las 02:59 UTC del
+        # siguiente, y el cron esta configurado a las 07:00: entre los dos hay
+        # 17 h. Fuera de la banda. Medido el 4-sep, con el cron a las 07:00 y
+        # una obligacion que vence a las 23:59:
+        #
+        # | hora del cron | avisos, en cualquier ventana |
+        # |---|---|
+        # | 07:00 (la configurada) | **0** |
+        # | 12:00, 18:00, 23:00 | 2 |
+        #
+        # O sea que tal como esta desplegado el sistema **no habria avisado
+        # nunca**, y la banda de 12 h se veia como una precaucion razonable.
+        # Doce horas cubren medio dia; el que quedaba afuera era justo el de la
+        # mañana.
+        #
+        # Un margen mas ancho no es el arreglo: correrlo a 24 h haria que un
+        # mismo vencimiento cayera en dos ventanas contiguas. Lo que una persona
+        # quiere decir con "avisar 15 dias antes" es **un dia del calendario**,
+        # no un intervalo de horas, y por eso se compara asi.
+        objetivo = hoy + timedelta(days=dias)
 
         obligaciones = db.scalars(
             select(Obligation).where(
@@ -282,8 +311,7 @@ def generar(
                 # No se avisa de lo ya resuelto. `submitted` si entra: se
                 # presento pero todavia no la aceptan, y el plazo corre igual.
                 Obligation.status.not_in(["accepted", "closed"]),
-                Obligation.due_at >= objetivo - MARGEN,
-                Obligation.due_at <= objetivo + MARGEN,
+                cast(func.timezone(huso, Obligation.due_at), Date) == objetivo,
                 Obligation.deleted_at.is_(None),
             )
         ).all()

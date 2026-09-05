@@ -611,6 +611,207 @@ verificar en Resend— **no se detecta hasta el primer envio**, que sin esto ser
 el primer aviso de vencimiento de un cliente. Y "aceptado por Resend" no es
 "entregado": si no llega, el problema esta en SPF/DKIM.
 
+**El cron de avisos estaba configurado a la unica hora a la que no avisaba.**
+Medido el 4-sep. `generar()` buscaba los vencimientos dentro de una banda de
+**±12 h** alrededor de `ahora + N dias`. Un plazo legal vence a las **23:59**, y
+`HORA_AVISOS` vale **07**: entre los dos hay 17 horas, o sea fuera de la banda.
+
+| hora del cron | avisos, en cualquiera de las cuatro ventanas |
+|---|---|
+| **07:00 — la configurada** | **0** |
+| 12:00, 18:00, 23:00 | 2 |
+
+Desplegado tal cual, un sistema cuya unica funcion es avisar de vencimientos
+**no habria avisado nunca**, y la corrida habria informado "0 avisos nuevos" —
+identico a lo que informa un dia en que de verdad no vence nada. Doce horas
+parecen una precaucion razonable y cubren medio dia; el medio que quedaba afuera
+era el de la mañana, que es justo cuando uno quiere que salga.
+
+Ahora se comparan **fechas del calendario en el huso de la empresa**
+(`countries.default_timezone`, cinco husos distintos) y no instantes: "avisar 15
+dias antes" quiere decir un dia, no un intervalo de horas. Ensanchar el margen a
+24 h no era el arreglo — haria que un mismo vencimiento cayera en dos ventanas
+contiguas y la persona recibiera dos correos por lo mismo.
+`test_hora_del_cron_de_avisos.py` barre las cuatro ventanas por cuatro horas del
+dia, porque **una sola prueba a mediodia pasa con el codigo roto**.
+
+**Y los vencimientos del seed eran fechas fijas, asi que la demostracion se
+vencia sola.** El mas cercano quedaba a 27 dias — fuera de las ventanas
+15/7/3/1 — asi que el cron corria y no generaba nada; unos meses mas y las cinco
+obligaciones quedan en el pasado. Ademas `OBL-REP-NFU-2026` decia `overdue` con
+fecha futura: el estado era verdadero el dia que se escribio.
+
+Ahora `db/02_seed.sql` las siembra relativas a `CURRENT_DATE` conservando las
+distancias que tenian entre si, y `sembrar_demo` **reancla una base que ya
+existe** —02_seed corre una sola vez, al crear el volumen—. La mas cercana entra
+en la ventana de 15 y baja a 7, 3 y 1 los dias siguientes, asi que la
+demostracion produce avisos nuevos varias veces y no uno solo.
+
+**Para verlo en local:**
+
+```bash
+docker compose exec api python -m app.tareas.sembrar_demo   # reancla los vencimientos
+docker compose run --rm avisos                              # corre el cron una vez
+```
+
+El servicio `avisos` del compose de desarrollo va detras de un `profile`, asi
+que `docker compose up -d` levanta lo mismo de siempre. **No recibe
+`RESEND_API_KEY` a proposito:** los usuarios sembrados tienen correos reales y
+los avisos escalan a los administradores, asi que correrlo "para ver como se
+ven" mandaria correo de verdad a esa gente. Las notificaciones in-app se
+entregan igual —que es lo que se quiere mirar— y los correos quedan encolados.
+
+**Los catalogos del registro de mejora son de cada empresa desde el 4-sep, y
+el CHECK de la severidad sigue donde estaba.** La escala era
+`minor | major | critical`: la misma para todos y solo en ingles, mientras el
+cliente dice `Alta` y `Mayor` y el siguiente dira otra cosa (#41, RF-100,
+decision S-14). `db/25` agrega `improvement_severities` —etiqueta, orden y
+**dias para cerrar**— y `improvement_methodologies`.
+
+Tres cosas que conviene saber antes de tocarlo:
+
+- **El catalogo se monta ENCIMA del CHECK, no lo reemplaza.** Cambiar
+  `nonconformities.severity` por una clave foranea es un paso aparte y mas
+  riesgoso: hay filas escritas, el frontend traduce esos tres valores en
+  `CRITICIDAD_POR_SEVERITY`, y la escala definitiva es una de las tres
+  decisiones abiertas (#57). Son dos barreras: la de la base admite los tres de
+  siempre, la de la empresa es mas estrecha.
+- **Los plazos nacen en NULL a proposito.** Sembrar 60/30/15 seria inventarle el
+  compromiso a la empresa, y un plazo falso en cumplimiento produce una fecha
+  limite que nadie acordo — la empresa cree que va a tiempo. Mismo criterio que
+  la `periodicidad` vacia de `retc_systems`. Mientras este vacio, `due_date` se
+  sigue pidiendo a mano; en cuanto la empresa lo declara, el sistema la calcula.
+  Y eso es lo que hace que el catalogo no sea decorativo: **`due_date` existia
+  desde el principio y nadie la calculaba**.
+- **`POST /tenants/` tambien los siembra**, porque el `CROSS JOIN tenants` de la
+  migracion corre una sola vez — la leccion de `22_crm.sql`, que dejo sin etapas
+  a toda empresa creada despues. Una prueba **lee el archivo SQL** y exige que
+  las dos listas coincidan.
+
+Lo que NO entra: los plazos **por etapa** del design. Las etapas tipadas no
+existen todavia —`improvement_stages` sigue siendo JSONB provisorio y su modelo
+depende de #57— y una tabla de configuracion para algo que nadie lee es el
+patron que este repositorio ya conoce de sobra.
+
+**Y una leccion sobre el guardian de las dos listas:** su primera version
+comparaba con una expresion regular y **perdio una fila en silencio**. El nombre
+sembrado es `Diagrama de Ishikawa (causa-efecto)` y los parentesis del nombre se
+leyeron como el fin del registro. Esta vez fallo del lado util; si hubiera
+faltado del otro, la prueba habria pasado verde comparando dos listas
+incompletas. Ahora recorre caracter por caracter respetando comillas.
+
+**El informe de auditoria existe desde el 4-sep, y lo que faltaba no era el
+endpoint: `audit_items` no tenia proceso.** El design de RF-101 dice que las tres
+primeras columnas de la matriz "son derivables", y no lo eran — no habia de
+donde. Una auditoria sabia que preguntas hizo y que hallazgos salieron, y **no a
+que proceso pertenecia cada pregunta**, asi que no podia decir como quedo
+ninguno. El dueno de un proceso no lee la lista de hallazgos de toda la planta;
+lee su fila.
+
+`db/26` agrega `audit_items.process_id` —**nulable**, porque un requisito general
+del sistema de gestion no es de ningun proceso y forzarlo inventaria una
+pertenencia— y `audit_process_results` con lo que **escribe el auditor**:
+clasificacion, conclusion y evidencia revisada.
+
+**Los conteos no se guardan.** Se derivan al pedir `GET /audits/{id}/informe`.
+Guardarlos seria mas rapido de leer y es la forma mas corta de que el informe y
+el sistema digan cosas distintas — y el que miente es siempre el guardado,
+porque el otro se actualiza solo.
+
+**Y aca el error del cero volvia a estar servido, tres veces.** Es el que este
+repositorio ya cometio cuatro veces (`normSemaforo(0)`, el tablero con las
+plantas sin evaluar, la cobertura, los reportes):
+
+| situacion | el cero se leeria como | lo que devuelve |
+|---|---|---|
+| Auditoria sin nada evaluado | "cumple 0 %" | `conformidad: null` |
+| Proceso sin veredicto | "no conforme" | `no_auditado`, explicito |
+| Ciclo anterior sin hallazgos | "no cerraron nada" | `null` + `motivo_sin_tasa` |
+
+El tercero es el peor: un 0 % de tasa de cierre es una **acusacion**, y los tres
+casos que lo producirian —no hay auditoria anterior, la anterior no encontro
+nada, la anterior sigue abierta— no son ninguno un incumplimiento. Por eso el
+informe dice ademas **cual de los tres es**.
+
+**Dos trampas que aparecieron construyendolo, las dos de la misma familia:**
+un campo que la API **descarta en silencio**.
+
+1. `POST /audits/` acepta `planned_start_date` y lo tira: el campo es
+   `planned_start`. Mis sondas y una prueba propia lo mandaban mal y pasaban
+   igual, dejando todas las auditorias con `planned_start` en NULL — y la tasa
+   de cierre depende de esa fecha para saber cual es la anterior.
+2. El alta anidada de un item **rebota por `AuditItemCreate`**, asi que un campo
+   que ese schema no declare desaparece aunque el anidado si lo tenga. Es lo que
+   pasaba con `process_id`: la peticion respondia 201 y el proceso no se
+   guardaba.
+
+Y una prueba mia fallo por una premisa falsa: **el seed tiene una auditoria
+interna cerrada** (`AUD-2026-001`, 2026-06-01), asi que "sin ciclo anterior" no
+era cierto. El mensaje de fallo apuntaba al codigo y el error era de la prueba.
+
+**Un Gestor ya puede trabajar sobre sus clientes, y RLS no se toco.** Medido el
+4-sep antes de empezar: `EcoGestion` es `tenant_type = 'manager'`, tiene el
+contrato `ECOG-2026-001` con Minera Andes, y al entrar veia un sistema vacio —
+`/obligations/` devolvia **0 filas** y no existia **ni una ruta** que nombrara a
+un cliente o a un sub-tenant. El modelo sabia quien administra a quien y no
+habia ningun camino para actuar sobre ello. `parent_tenant_id` sigue con cero
+filas.
+
+Lo que se agrego es deliberadamente poco: `GET /gestor/clientes` y la cabecera
+**`X-Cliente-Id`**, que vale en cualquier endpoint. El resto de la API ya
+funcionaba; lo unico que faltaba era **poder declarar el otro tenant**.
+
+**La tentacion era ampliar la politica de RLS** —"o el tenant es cliente de mi
+gestor"— y habria sido la peor decision del proyecto: RLS no es la segunda
+barrera sino la unica (§4), y esa condicion hay que mantenerla correcta en 38
+tablas a la vez. Un error ahi no da una pantalla vacia: da una fuga. La barrera
+se queda donde estaba y delante se pone una puerta con llave (`deps.tenant_efectivo`).
+
+Cuatro cosas que conviene saber:
+
+- **Actuando por un cliente, el gestor NO ve lo suyo.** No es una vista
+  combinada, y no debe serlo: mezclar dos empresas en una consulta es justo lo
+  que RLS existe para impedir.
+- **La llave se comprueba en cada peticion**, no al entrar. Un contrato se
+  suspende, vence o se termina; si viviera en el token, revocarlo no haria nada
+  hasta que expire. Misma leccion que el acceso de invitado.
+- **Vale `active` y dentro de sus fechas.** Las dos cosas: un contrato al que se
+  le paso la fecha sin que nadie lo marcara `expired` sigue diciendo `active`. El
+  estado es una decision, la fecha es un hecho.
+- **Los dos rechazos se ven iguales.** Sin contrato y con contrato ajeno
+  responden el mismo 403 con el mismo texto: distinguirlos convertiria la
+  cabecera en un oraculo para averiguar con quien trabaja otro gestor.
+
+**Y una mutacion sobrevivio, en la guarda que mas importa.** Al desconectar
+`es_gestor` las quince pruebas seguian en verde: el unico caso negativo —una
+empresa normal suplantando al gestor— tambien lo frena la *otra* puerta, porque
+no hay contrato en esa direccion. **Las dos guardas estaban tapadas por la misma
+prueba y una se podia quitar sin que nada avisara.** La prueba nueva le quita el
+tipo `manager` a la empresa **dejando el contrato intacto**, que es lo unico que
+las separa.
+
+**Y una fecha de calendario no se puede medir en horas: van tres veces.** El
+4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
+archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al
+generador, que tenia razon:
+
+| lo que decia la prueba | lo que significa |
+|---|---|
+| `now() + timedelta(days=7)` | 168 horas |
+| `now() + interval '7 days'` | 168 horas, en la zona de la sesion (UTC) |
+| `now() + make_interval(days => 7)` | idem |
+
+**Chile cambia de hora el primer sabado de septiembre**, asi que esa semana 168
+horas caen en el dia siguiente al que una persona llama "en una semana". Las
+pruebas ahora arman la fecha por calendario, a mediodia local — lejos de las dos
+medianoches.
+
+De ahi tambien `app/services/husos.py`: `date.today()` no es "hoy", es "hoy donde
+corre este proceso". La base va en UTC y el host en hora de Chile, asi que
+pasadas las 20:00 estan en dias distintos — y con el reloj equivocado un contrato
+vencido ayer seguia habilitando acceso durante esas horas. `countries` tiene
+**cinco husos**, asi que no es una constante disfrazada.
+
 **El puente hacia el almacenamiento existe desde el 27-ago, y no guarda nada
 en disco local.** El CHECK de `document_versions.storage_provider` son cuatro
 —`s3`, `backblaze`, `google_drive`, `onedrive`— y **no hay opcion local ni de

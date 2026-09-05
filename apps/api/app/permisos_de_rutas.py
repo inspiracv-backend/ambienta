@@ -49,6 +49,12 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
     # `manager.read` y `manager.write` los tienen hoy `admin_empresa` y
     # `servicio_lectura`, que es justo quien usa un CRM.
     "crm": "manager",
+    # La cartera de un Gestor es su vista del modulo de Gestores, asi que
+    # reutiliza `manager` por el mismo motivo que el CRM: un permiso nuevo sin
+    # rol que lo conceda es un 403 para todos, y "la pantalla no carga" no se
+    # parece en nada a la causa. `manager.read` ya lo tienen `admin_empresa` y
+    # `servicio_lectura`.
+    "gestor": "manager",
     "declarations": "obligation",
     "departments": "company_profile",
     "documents": "document",
