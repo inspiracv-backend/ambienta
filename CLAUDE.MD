@@ -1169,12 +1169,40 @@ y evaluaba 33— y dejaba 226 filas **sin planta asignada**. El tablero compara
 por instalacion, asi que una evaluacion sin planta existe en la base y es
 invisible en la pantalla.
 
+**Hay detectores para las clases de defecto que este repositorio ya sufrio.**
+`herramientas/auditar.py`, sin dependencias y en segundos:
+
+| detector | la clase que caza |
+|---|---|
+| endpoints que el frontend nunca llama | el CRM: 28 operaciones, la interfaz llamaba a 2 |
+| funciones de servicio sin llamador | `bcn.sincronizar()`, `control_documental.py` |
+| frontend que importa `mocks/` | las tres pantallas ISO leyendo datos de ejemplo |
+| fechas de calendario medidas en horas | la banda de ±12 h del cron, `date.today()` |
+| columnas que ninguna respuesta expone | el ciclo de vida documental, invisible |
+
+**Entrega candidatos, no acusaciones.** Hay endpoints que legitimamente solo
+consume una tarea o un webhook. El juicio lo pone una persona; lo que la
+herramienta aporta es no tener que acordarse de mirar.
+
+**Cada detector declara casos verificados a mano y se niega a informar si no los
+reproduce** — la regla de "los medidores tambien mienten", aplicada a si mismo.
+Ademas declara lo que **no** debe marcar: la primera version del detector de
+huerfanas marcaba 29 y **veinte eran falsas**, porque excluia el propio archivo
+de la busqueda y toda funcion auxiliar usada por su vecina salia como huerfana.
+Se cazo porque `tasa_de_cierre()` la llama `construir()` veinte lineas mas abajo.
+
+Y por que existe esto y no una flota de agentes: se intento primero con quince
+en paralelo. **Gastaron 4,4 millones de tokens en seis minutos y devolvieron
+cero** por un limite de gasto. Casi todo lo que se les pedia no necesitaba
+criterio, necesitaba `grep`.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
 ## Verificacion
 
 ```bash
+python herramientas/auditar.py          # los detectores de las clases de defecto ya sufridas
 npm run spec:check                      # los 4 artefactos de cada cambio
 cd apps/api && python -m pytest         # 1053 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
 cd apps/web && npx vitest run           # 633 pruebas, 55 archivos
