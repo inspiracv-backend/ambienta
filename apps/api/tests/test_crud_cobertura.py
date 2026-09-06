@@ -46,6 +46,13 @@ SUFIJOS_DE_ACCION = (
     # — se le asigna a alguien o se le renueva la certificacion, y entonces
     # sale solo de la lista. Mismo caso que `/significant-untreated`.
     "/sin-operador",
+    # El historial de presentaciones es **de solo lectura por diseño**: cada
+    # fila la escribe `services/declaracion.py` al presentar, aceptar o
+    # rechazar. Un `POST` aparte permitiria inventar una presentacion que nunca
+    # ocurrio —con su fecha, su version y su autor— y eso es justo el dato que
+    # se discute ante un fiscalizador. El CRUD generico sigue en
+    # `/declarations/` para quien tenga que corregir a mano.
+    "/presentaciones",
     # El informe es una **vista derivada**, no un recurso (RF-101): todos sus
     # conteos se calculan al pedirlo. Guardarlo para poder "crearlo" y
     # "borrarlo" seria justamente el error que evita — un informe guardado y el

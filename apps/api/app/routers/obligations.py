@@ -7,8 +7,15 @@ from ..crud.obligations import crud_obligation, crud_task
 from ..deps import get_tenant_db, get_tenant_id
 from ..crud.compliance import crud_article_compliance, crud_matrix_norm
 from ._paginacion import Pagina, paginacion, recortar
-from ._comun import borrar_o_404, obtener_o_404, validar_visible
+from ._comun import (
+    borrar_o_404,
+    listar_por_padre,
+    obtener_o_404,
+    validar_visible,
+)
+from ..models.obligations import DeclarationSubmission
 from ..schemas.obligations import (
+    DeclarationSubmissionRead,
     AprobarDeclaracion,
     ObligationConUrgencia,
     ObligationCreate,
@@ -435,3 +442,29 @@ def delete_task(task_id: UUID, db: Session = Depends(get_tenant_db)):
 @router.get("/tasks/{task_id}", response_model=TaskRead)
 def get_task(task_id: UUID, db: Session = Depends(get_tenant_db)):
     return obtener_o_404(crud_task, db, task_id, recurso="Task")
+
+
+@router.get(
+    "/{obligation_id}/presentaciones",
+    response_model=list[DeclarationSubmissionRead],
+    tags=["business-logic"],
+    summary="Historial de presentaciones de una declaracion",
+    description=(
+        "Cada intento de presentar esta declaracion, **con su propio folio**, "
+        "de la mas reciente a la primera.\n\n"
+        "La obligacion guarda un solo `external_receipt`: el ultimo. Una "
+        "declaracion que se rechaza y se vuelve a presentar produce dos folios, "
+        "y con una sola columna el primero se pierde al escribir el segundo — "
+        "sin ningun error. Y el folio **es el comprobante**: lo unico que la "
+        "empresa puede mostrarle a un fiscalizador para sostener que declaro.\n\n"
+        "**Puede venir vacia y eso no es un fallo.** Las declaraciones que ya "
+        "estaban presentadas antes de que existiera este historial no tienen "
+        "fila: fabricarles una seria inventar una fecha, una version y un autor "
+        "que nadie registro."
+    ),
+)
+def presentaciones(obligation_id: UUID, db: Session = Depends(get_tenant_db)):
+    obtener_o_404(crud_obligation, db, obligation_id, recurso="Obligation")
+    return listar_por_padre(
+        DeclarationSubmission, db, obligation_id, campo="obligation_id"
+    )
