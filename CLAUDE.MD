@@ -1169,6 +1169,59 @@ y evaluaba 33— y dejaba 226 filas **sin planta asignada**. El tablero compara
 por instalacion, asi que una evaluacion sin planta existe en la base y es
 invisible en la pantalla.
 
+**La epica ISO 14001 (#28) esta cerrada desde el 6-sep, y a la API no le
+faltaba nada.** Cuatro de las cinco tareas abiertas ya estaban escritas en
+`services/iso14001.py` — significancia (#44), vinculo aspecto→riesgo (#49),
+vencimientos a 30 dias (#47) y equipos sin operador habilitado (#48). Lo que
+faltaba era **exponer una y que la interfaz llamara a las cuatro**.
+
+`equipos_sin_operador_habilitado()` llevaba escrita y probada desde el 12-ago
+sin un solo endpoint. Mismo patron que `bcn.sincronizar()`.
+
+**Tres defectos que aparecieron al conectarlo, ninguno de los cuales fallaba:**
+
+1. **El endpoint nuevo quedo ensombrecido.** Puesto al final del router,
+   `/equipment/{id}` se lo comio y respondia 422 leyendo `sin-operador` como
+   UUID. Es un error de **orden de lineas**, invisible leyendo la funcion.
+   `test_vistas_derivadas_iso.py` lo fija para las tres rutas fijas.
+2. **El `useMemo` del store no listaba `derivadas` en sus dependencias**, asi
+   que servia para siempre el primer valor —`null`— y las cuatro vistas no
+   aparecian nunca.
+3. **El efecto borraba las derivadas al perder el tenant un instante.** Medido
+   con una traza: la sesion pasa por `null`, se llenan, y **vuelve a pasar por
+   `null`** y se vaciaban. El efecto de las matrices nunca borro nada al perder
+   el tenant; esa asimetria era todo el defecto.
+
+**Las derivadas se piden en un efecto aparte del de las matrices**, y esa
+separacion es deliberada: en el mismo `Promise.all`, un fallo en una vista
+secundaria dejaria aspectos, riesgos y equipos en blanco y la pantalla diria
+"esta empresa no tiene aspectos".
+
+**`PanelDeAtencion` existe por el estado vacio, no por la lista.** Tres estados
+que se ven casi iguales y solo uno significa "todo bien":
+
+| estado | significa | muestra |
+|---|---|---|
+| `null` | la consulta no volvio | "Comprobando…" |
+| error | no se pudo preguntar | el motivo, en alerta |
+| `[]` | se pregunto y no hay nada | el vacio, en verde |
+
+Y **el contador no se dibuja mientras no se sabe**: un `0` junto al titulo es la
+afirmacion mas fuerte de la pantalla.
+
+**La semilla de QA (#50) siembra los dos lados de cada panel.** Antes los tres
+salian siempre en el mismo estado —los 3 aspectos sin tratar, cero equipos en
+incumplimiento— y **un panel que solo se sabe ver vacio no esta revisado**. Ahora
+`sembrar_demo` enlaza un aspecto significativo a un riesgo y crea dos equipos
+`[QA]`, uno por cada motivo de incumplimiento. El prefijo no es decoracion: un
+equipo inventado sin marcar, en un modulo que se exporta a un auditor, se lee
+como un equipo de la empresa.
+
+Y al mutarla aparecio que **la base ya exigia la coherencia**: el CHECK
+`ck_risks_origen_aspecto` impide que un riesgo apunte a un aspecto y declare otro
+origen. Poner `origin` en la semilla no era cosmetico — sin eso el `INSERT`
+habria fallado.
+
 **Hay detectores para las clases de defecto que este repositorio ya sufrio.**
 `herramientas/auditar.py`, sin dependencias y en segundos:
 
