@@ -41,6 +41,11 @@ SUFIJOS_DE_ACCION = (
     # los que **nadie enlazo un riesgo** (ISO 14001 §6.1.4). No se crea ni se
     # borra un "aspecto sin tratar" — se trata, y entonces sale solo.
     "/significant-untreated",
+    # Tampoco un recurso: son los equipos en operacion que hoy nadie puede
+    # operar legalmente (#48). No se crea ni se borra un "equipo sin operador"
+    # — se le asigna a alguien o se le renueva la certificacion, y entonces
+    # sale solo de la lista. Mismo caso que `/significant-untreated`.
+    "/sin-operador",
     # El informe es una **vista derivada**, no un recurso (RF-101): todos sus
     # conteos se calculan al pedirlo. Guardarlo para poder "crearlo" y
     # "borrarlo" seria justamente el error que evita — un informe guardado y el
