@@ -11,7 +11,37 @@ import { TaskDetailModal } from '@/components/organisms/TaskDetailModal';
 import { mensajeDeError } from '@/lib/api-client';
 import { getUserName } from '@/lib/get-user-name';
 import { useObligations } from '@/lib/obligations-store';
+import { usarPresentaciones } from '@/lib/usar-presentaciones';
 import type { ObligationDetailViewProps } from './ObligationDetailView.types';
+
+/**
+ * El estado de una presentacion, traducido al semaforo compartido.
+ *
+ * **Manda la base**, igual que en `lib/iso-vocabulario.ts`: el CHECK de
+ * `declaration_submissions.status` admite siete valores y este mapa cubre los
+ * que el flujo produce hoy. Lo que no reconoce cae en `parcial` y **se muestra
+ * crudo** en la etiqueta, en vez de esconderse tras un guion: un valor feo se
+ * arregla, uno escondido no.
+ */
+const ESTADO_DE_PRESENTACION: Record<string, 'cumple' | 'parcial' | 'no_cumple'> = {
+  submitted: 'parcial',
+  accepted: 'cumple',
+  rejected: 'no_cumple',
+  rectified: 'parcial',
+  draft: 'parcial',
+  ready: 'parcial',
+  validation_error: 'no_cumple',
+};
+
+const ETIQUETA_DE_PRESENTACION: Record<string, string> = {
+  submitted: 'Presentada',
+  accepted: 'Aceptada',
+  rejected: 'Rechazada',
+  rectified: 'Rectificada',
+  draft: 'Borrador',
+  ready: 'Lista',
+  validation_error: 'Con errores',
+};
 
 function formatFecha(iso: string) {
   return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -33,6 +63,13 @@ export function ObligationDetailView({ obligation: obligationProp, responsableOp
   const [enCurso, setEnCurso] = useState(false);
   const [folio, setFolio] = useState('');
   const [motivo, setMotivo] = useState('');
+  // Se revalida con el estado y el folio: presentar agrega una fila,
+  // aceptar y rechazar cierran la ultima. Sin esto la pantalla mostraria
+  // el historial de antes de la accion que el usuario acaba de hacer.
+  const { presentaciones, error: errorHistorial } = usarPresentaciones(
+    obligation.id,
+    `${obligation.estado}|${obligation.folio ?? ''}`,
+  );
   const today = new Date().toISOString().slice(0, 10);
 
   /**
@@ -217,6 +254,85 @@ export function ObligationDetailView({ obligation: obligationProp, responsableOp
           <p role="alert" className="mt-3 rounded-lg bg-semaforo-no-cumple-bg px-3 py-2 text-sm text-semaforo-no-cumple">
             {errorFlujo}
           </p>
+        )}
+      </div>
+
+      {/* El historial de presentaciones (#21).
+
+          La obligacion guarda **un solo** folio: el ultimo. Una declaracion
+          rechazada y vuelta a presentar produce dos, y con una sola columna el
+          primero se pierde al escribir el segundo — sin ningun error. Y el
+          folio es lo unico que la empresa puede mostrarle a un fiscalizador
+          para sostener que declaro. */}
+      <div className="rounded-card border border-slate-200 bg-white p-6">
+        <h2 className="text-sm font-semibold text-slate-900">Historial de presentaciones</h2>
+        <p className="mt-0.5 text-sm text-slate-500">
+          Cada intento con su propio folio, del mas reciente al primero.
+        </p>
+
+        {errorHistorial ? (
+          <p role="alert" className="mt-4 text-sm text-semaforo-no-cumple">
+            No se pudo consultar el historial: {errorHistorial}
+          </p>
+        ) : presentaciones === null ? (
+          <p role="status" className="mt-4 text-sm text-slate-400">
+            Comprobando…
+          </p>
+        ) : presentaciones.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-500">
+            {/*
+              **El caso incomodo, y hay que decirlo.** Una declaracion ya
+              aceptada con el historial vacio parece perdida de datos, y no lo
+              es: las que se presentaron antes de que existiera este registro no
+              tienen filas. Fabricarselas seria inventar una fecha, una version
+              y un autor — los tres falsos, y justo el dato que se discute ante
+              un fiscalizador.
+            */}
+            {['draft', 'open', 'in_progress'].includes(obligation.estadoDeclaracion ?? 'draft') ? (
+              'Todavia no se ha presentado.'
+            ) : (
+              <>
+                Sin presentaciones registradas.{' '}
+                <span className="text-slate-400">
+                  Esta declaracion se presento antes de que el sistema llevara
+                  este historial, asi que no hay filas anteriores. El folio de
+                  arriba sigue siendo valido.
+                </span>
+              </>
+            )}
+          </p>
+        ) : (
+          <ol className="mt-4 flex flex-col divide-y divide-slate-100">
+            {presentaciones.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0">
+                <span className="font-medium tabular-nums text-slate-900">v{p.versionNo}</span>
+                <StatusBadge
+                  status={ESTADO_DE_PRESENTACION[p.estado] ?? 'parcial'}
+                  label={ETIQUETA_DE_PRESENTACION[p.estado] ?? p.estado}
+                />
+                {p.presentadaEl && (
+                  <span className="text-slate-500">{formatFecha(p.presentadaEl)}</span>
+                )}
+                <span className="text-slate-700">
+                  {/*
+                    Un intento sin folio no es un error: se presento y el portal
+                    todavia no respondio. Decirlo asi evita que se lea como un
+                    dato que se perdio.
+                  */}
+                  {p.folio ? (
+                    <>Folio <span className="font-medium">{p.folio}</span></>
+                  ) : (
+                    <span className="text-slate-400">Sin folio todavia</span>
+                  )}
+                </span>
+                {p.motivoRechazo && (
+                  <span className="w-full text-semaforo-no-cumple">
+                    Rechazada: {p.motivoRechazo}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
         )}
       </div>
 
