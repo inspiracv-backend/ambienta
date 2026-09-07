@@ -79,6 +79,13 @@ def documento(cliente):
     did = r.json()["id"]
     yield did
     cliente.headers["X-Tenant-Id"] = EMPRESA_A
+    # **Los vinculos primero.** Borrar el documento es logico y no se lleva sus
+    # `entity_documents`, asi que cada corrida dejaba filas apuntando a normas y
+    # procesos del seed. Se descubrio construyendo la linea de tiempo (#75): una
+    # prueba que necesitaba un registro sin historia encontro 16 adjuntos
+    # inventados colgando de una norma del catalogo.
+    for v in cliente.get(f"/api/v1/documents/{did}/entities").json():
+        cliente.delete(f"/api/v1/documents/{did}/entities/{v['id']}")
     cliente.delete(f"/api/v1/documents/{did}")
 
 

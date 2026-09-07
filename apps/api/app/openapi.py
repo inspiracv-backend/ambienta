@@ -287,6 +287,15 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "historial",
+        "description": (
+            "La historia de un registro (RF-113): su actividad, su "
+            "conversacion y sus adjuntos en una sola secuencia. Declara que "
+            "fuentes la componen y cuales faltan — hoy falta el correo, que "
+            "todavia no se captura."
+        ),
+    },
+    {
         "name": "comentarios",
         "description": (
             "La conversacion sobre cualquier registro (RF-111, RF-112). Un "

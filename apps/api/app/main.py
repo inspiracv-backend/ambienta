@@ -30,6 +30,7 @@ from .services.auditoria_automatica import instalar as instalar_auditoria
 from .routers import (
     acceso_invitado,
     comentarios,
+    historial,
     audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
     crm,
     gestor,
@@ -177,6 +178,9 @@ app.include_router(iso14001.router, prefix=api_v1_prefix)
 # el registro ve su conversacion; lo que si se comprueba en cada peticion es el
 # anclaje, que es lo que RLS puede sostener.
 app.include_router(comentarios.router, prefix=api_v1_prefix)
+# Misma razon que `comentarios`: el permiso sale del cuerpo y no del camino,
+# y la comprobacion vive en el handler.
+app.include_router(historial.router, prefix=api_v1_prefix)
 app.include_router(notifications.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(support.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(system.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])

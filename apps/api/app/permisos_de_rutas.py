@@ -77,6 +77,12 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
 #: No es una lista de conveniencia: cada entrada es una decision, y el test
 #: exige que ninguna se quede sin explicar.
 SIN_GUARDA_DE_PERMISO: dict[str, str] = {
+    "historial": (
+        "igual que `comentarios`: el permiso sale del cuerpo de la consulta y "
+        "no del camino. Leer la historia de una auditoria exige `audit.read` y "
+        "la de una obligacion `obligation.read`, resuelto con el mismo mapa "
+        "que valida el anclaje. La comprobacion vive en el handler"
+    ),
     "comentarios": (
         "no lleva la guarda **derivada de la ruta**, y si lleva guarda. El "
         "permiso sale del cuerpo y no del camino: una sola ruta cubre trece "
