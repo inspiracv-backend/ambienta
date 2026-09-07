@@ -13,6 +13,7 @@ import { getUserName } from '@/lib/get-user-name';
 import { useObligations } from '@/lib/obligations-store';
 import { usarPresentaciones } from '@/lib/usar-presentaciones';
 import { usarDocumentosVinculados } from '@/lib/usar-documentos-vinculados';
+import { HiloDeComentarios } from '@/components/molecules/HiloDeComentarios';
 import type { ObligationDetailViewProps } from './ObligationDetailView.types';
 
 /**
@@ -269,6 +270,14 @@ export function ObligationDetailView({ obligation: obligationProp, responsableOp
           primero se pierde al escribir el segundo — sin ningun error. Y el
           folio es lo unico que la empresa puede mostrarle a un fiscalizador
           para sostener que declaro. */}
+      {/* La conversacion sobre esta declaracion (RF-111, #74).
+
+          El cliente lo nombro directo: la informacion se maneja por correo y se
+          pierde. Lo que se pierde no es el dato —ese esta en la base— sino **por
+          que se decidio lo que se decidio**: quien dijo que la evidencia servia,
+          que se acordo cuando el plazo se corrio. */}
+      <HiloDeComentarios entityType="obligation" entityId={obligation.id} />
+
       {/* El respaldo documental (RF-108, #73).
 
           La pregunta de un fiscalizador tiene esta forma: senala un requisito y

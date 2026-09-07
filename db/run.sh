@@ -53,6 +53,7 @@ run "$DIR/24_datos_por_tipo_de_registro.sql"
 run "$DIR/25_catalogos_de_mejora.sql"
 run "$DIR/26_informe_por_proceso.sql"
 run "$DIR/27_vinculos_de_documentos.sql"
+run "$DIR/28_comentarios.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"

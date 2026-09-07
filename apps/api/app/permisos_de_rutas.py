@@ -77,6 +77,18 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
 #: No es una lista de conveniencia: cada entrada es una decision, y el test
 #: exige que ninguna se quede sin explicar.
 SIN_GUARDA_DE_PERMISO: dict[str, str] = {
+    "comentarios": (
+        "no lleva la guarda **derivada de la ruta**, y si lleva guarda. El "
+        "permiso sale del cuerpo y no del camino: una sola ruta cubre trece "
+        "entidades, y comentar sobre una auditoria exige `audit.write` "
+        "mientras que sobre una obligacion exige `obligation.write`. La "
+        "comprobacion vive en `routers/comentarios.py::_exigir`, que resuelve "
+        "la familia con el MISMO mapa que valida el anclaje — un tercer "
+        "diccionario con las mismas trece claves seria un tercer sitio del "
+        "que desincronizarse. Hay una prueba que le quita las escrituras a un "
+        "rol y exige el 403, para que esta excepcion no se convierta en una "
+        "ruta sin permisos"
+    ),
     "catalog": (
         "catalogo compartido sin `tenant_id`. Leer es informacion de trabajo "
         "para cualquiera; escribir ya exige Admin Global, que es una barrera "

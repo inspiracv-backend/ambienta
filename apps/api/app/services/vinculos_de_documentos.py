@@ -37,7 +37,7 @@ comprobar" es una puerta abierta con forma de descuido.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -58,21 +58,46 @@ from ..models.organization import Contract, Process
 #: distintas dejarian un tipo que la base acepta y la aplicacion no sabe
 #: comprobar —o al reves, uno que se comprueba y la base rechaza al escribir,
 #: con un 500 en vez de un mensaje.
-ANCLAJES: dict[str, type[Any]] = {
-    "article_compliance": ArticleCompliance,
-    "obligation": Obligation,
-    "task": Task,
-    "action_plan": ActionPlan,
-    "audit": Audit,
-    "nonconformity": Nonconformity,
-    "contract": Contract,
-    "environmental_aspect": EnvironmentalAspect,
-    "risk_opportunity": RiskOpportunity,
-    "regulated_equipment": RegulatedEquipment,
-    "declaration_submission": DeclarationSubmission,
+class Anclaje(NamedTuple):
+    """A que apunta un `entity_type`, y con que permiso se toca.
+
+    **La familia va aca y no en un mapa aparte** porque un tercer diccionario
+    con las mismas trece claves es un tercer sitio del que desincronizarse. La
+    prueba que compara con el CHECK del SQL vale para los tres usos.
+    """
+
+    modelo: type[Any]
+    #: La familia de `app/permisos_de_rutas.py`. El permiso efectivo es
+    #: `<familia>.read` o `<familia>.write` segun lo que se haga.
+    #:
+    #: **No se invento una familia `comment`.** Un permiso nuevo que ningun rol
+    #: concede es un 403 para todos, y el sintoma —"no puedo comentar"— no se
+    #: parece a la causa. Se reusa la del registro sobre el que se comenta, que
+    #: ademas es lo correcto: comentar sobre una auditoria es trabajo de
+    #: auditoria, no una capacidad aparte.
+    familia: str
+
+
+ANCLAJES: dict[str, Anclaje] = {
+    "article_compliance": Anclaje(ArticleCompliance, "legal_matrix"),
+    "obligation": Anclaje(Obligation, "obligation"),
+    "task": Anclaje(Task, "task"),
+    "action_plan": Anclaje(ActionPlan, "action_plan"),
+    "audit": Anclaje(Audit, "audit"),
+    "nonconformity": Anclaje(Nonconformity, "nonconformity"),
+    "contract": Anclaje(Contract, "manager"),
+    "environmental_aspect": Anclaje(EnvironmentalAspect, "environmental_aspect"),
+    "risk_opportunity": Anclaje(RiskOpportunity, "risk_opportunity"),
+    "regulated_equipment": Anclaje(RegulatedEquipment, "equipment"),
+    "declaration_submission": Anclaje(DeclarationSubmission, "obligation"),
     # RF-108 nombra cuatro anclajes y estos dos no estaban.
-    "legal_norm": LegalNorm,
-    "process": Process,
+    #
+    # `legal_norm` usa `legal_matrix`: la norma es catalogo global —`catalog`
+    # seria su familia natural— pero `catalog.write` es de Admin Global, y
+    # colgarle un procedimiento propio a una norma es trabajo de la empresa
+    # sobre SU matriz, no una edicion del catalogo de nadie.
+    "legal_norm": Anclaje(LegalNorm, "legal_matrix"),
+    "process": Anclaje(Process, "company_profile"),
 }
 
 # **`legal_norm` es catalogo global y por eso funciona sin nada especial.**
@@ -102,8 +127,8 @@ def comprobar_anclaje(db: Session, entity_type: str, entity_id: UUID) -> None:
     cero por RLS. Ese es el unico filtro por empresa que existe en el sistema
     (CLAUDE.md §4) y este servicio no inventa otro.
     """
-    modelo = ANCLAJES.get(entity_type)
-    if modelo is None:
+    anclaje = ANCLAJES.get(entity_type)
+    if anclaje is None:
         # No se deja pasar. Un tipo sin modelo es o un error de escritura —que
         # el CHECK de la base rechazaria despues, con un 500 en vez de un
         # mensaje— o una entidad que alguien agrego al CHECK y olvido aca.
@@ -112,6 +137,7 @@ def comprobar_anclaje(db: Session, entity_type: str, entity_id: UUID) -> None:
             detail=f"entity_type '{entity_type}' no es un anclaje conocido.",
         )
 
+    modelo = anclaje.modelo
     condiciones = [modelo.id == entity_id]
     if hasattr(modelo, "deleted_at"):
         # Un registro retirado no puede recibir respaldo nuevo. El vinculo que
@@ -123,3 +149,19 @@ def comprobar_anclaje(db: Session, entity_type: str, entity_id: UUID) -> None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=NO_VISIBLE
         )
+
+
+def familia_de(entity_type: str) -> str:
+    """La familia de permisos del registro. Levanta 422 si el tipo no existe.
+
+    La usa el router de comentarios: comentar sobre una auditoria exige
+    `audit.write`, no un permiso propio. Sin esto, el rol `servicio_lectura`
+    —que solo tiene lecturas— podria escribir comentarios en cualquier ficha.
+    """
+    anclaje = ANCLAJES.get(entity_type)
+    if anclaje is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"entity_type '{entity_type}' no es un anclaje conocido.",
+        )
+    return anclaje.familia

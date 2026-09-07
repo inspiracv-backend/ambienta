@@ -287,6 +287,15 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "comentarios",
+        "description": (
+            "La conversacion sobre cualquier registro (RF-111, RF-112). Un "
+            "solo camino para las trece entidades comentables: `entity_type` "
+            "dice sobre que se comenta, y el permiso que exige sale de ahi. "
+            "Los hilos son de un nivel y las menciones notifican."
+        ),
+    },
+    {
         "name": "notifications",
         "description": "Avisos, sus plantillas y las reglas que los disparan.",
     },

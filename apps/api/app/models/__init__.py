@@ -37,6 +37,7 @@ from .obligations import (
     ObligationTemplate,
     Task,
 )
+from .comentarios import Comment, CommentMention
 from .documents import (
     Document,
     DocumentVersion,
@@ -99,6 +100,8 @@ __all__ = [
     "ChatbotConversation", "ChatbotMessage",
     # System
     "IntegrationAccount", "AuditLog",
+    # Colaboracion (RF-111, RF-112)
+    "Comment", "CommentMention",
     # ISO 14001
     "EnvironmentalAspect", "RiskOpportunity",
     "RegulatedEquipment", "EquipmentOperator",
