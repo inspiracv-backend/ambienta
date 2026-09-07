@@ -1,6 +1,6 @@
 # Plan de cierre de la versión 1.0
 
-**Actualizado el 4-sep-2026.**
+**Actualizado el 7-sep-2026.**
 
 ## Qué es esto, y qué no
 
@@ -17,8 +17,12 @@ lo cite como si fuera el documento firmado.
 
 ## Dónde vamos
 
-**Semana 2.** La semana 1 se cerró con el CRM usable y la épica de
-notificaciones. La 2 va por el bloque C.
+**Semana 2, y el bloque C ya está cerrado.** La semana 1 terminó con el CRM
+usable y la épica de notificaciones. La 2 se llevó C, la épica ISO 14001 (#28) y
+el historial de presentaciones, que no estaba en el plan y hacía falta: la tabla
+`declaration_submissions` existía desde el principio **sin un solo escritor**.
+
+Quedan **D, E y F**, y de esos el único grande es D.
 
 | Bloque | Qué | Estado |
 |---|---|---|
@@ -29,7 +33,9 @@ notificaciones. La 2 va por el bloque C.
 | **B3** | Las 5 etapas con responsable (#38, #43) | **Bloqueado** en la decisión #57 |
 | **B4** | Catálogos por empresa (#41, RF-100) | Cerrado |
 | **B5** | Informe con matriz por proceso (#42, RF-101) | Cerrado |
-| **C** | Gestores, sub-tenancy y contratos (#59–65) | **En curso** |
+| **C** | Gestores, sub-tenancy y contratos (#59–65) | Cerrado — el gestor veía un sistema vacío: 0 filas y ninguna ruta que nombrara a un cliente |
+| **ISO** | Épica #28: aspectos, riesgos, equipos | Cerrado el 6-sep — a la API no le faltaba nada, faltaba **llamarla** |
+| **RF-31** | Historial de presentaciones | Cerrado el 7-sep — `declaration_submissions` tenía CRUD completo y cero escritores |
 | **D** | Normativa propia: parseo de ISO y RCA | Pendiente |
 | **E** | Información documentada y colaboración (#73–76) | Pendiente |
 | **F** | Archivar los specs y recorrer el sistema entero | Pendiente |
@@ -80,5 +86,11 @@ cd apps/api
 DATABASE_URL=postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta python -m pytest
 ```
 
-Al 4-sep: **1214 pruebas de API en verde**, 12 se saltan (las que salen a
-internet). El frontend y el esquema, en `CLAUDE.md` § Verificación.
+Al 7-sep: **653 pruebas del frontend en verde** sobre 58 archivos, y el
+`tsc --noEmit` limpio. La suite de la API se midió por última vez el 4-sep en
+**1214 en verde** con 12 saltadas (las que salen a internet); hoy no se pudo
+correr porque Docker no levantó, así que ese número **es de hace tres días** y
+conviene volver a medirlo antes de citarlo.
+
+El auditor (`python herramientas/auditar.py`) baja de 27 a 26 endpoints sin
+llamador. El frontend y el esquema, en `CLAUDE.md` § Verificación.
