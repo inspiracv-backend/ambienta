@@ -127,7 +127,8 @@ jobs:
                    21_significancia_del_aspecto 22_crm 23_normativa_transversal \
                    24_datos_por_tipo_de_registro \
                    25_catalogos_de_mejora \
-                   26_informe_por_proceso; do
+                   26_informe_por_proceso \
+                   27_vinculos_de_documentos; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"

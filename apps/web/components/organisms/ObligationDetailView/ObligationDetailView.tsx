@@ -12,6 +12,7 @@ import { mensajeDeError } from '@/lib/api-client';
 import { getUserName } from '@/lib/get-user-name';
 import { useObligations } from '@/lib/obligations-store';
 import { usarPresentaciones } from '@/lib/usar-presentaciones';
+import { usarDocumentosVinculados } from '@/lib/usar-documentos-vinculados';
 import type { ObligationDetailViewProps } from './ObligationDetailView.types';
 
 /**
@@ -66,6 +67,10 @@ export function ObligationDetailView({ obligation: obligationProp, responsableOp
   // Se revalida con el estado y el folio: presentar agrega una fila,
   // aceptar y rechazar cierran la ultima. Sin esto la pantalla mostraria
   // el historial de antes de la accion que el usuario acaba de hacer.
+  const { documentos, error: errorRespaldo } = usarDocumentosVinculados(
+    'obligation',
+    obligation.id,
+  );
   const { presentaciones, error: errorHistorial } = usarPresentaciones(
     obligation.id,
     `${obligation.estado}|${obligation.folio ?? ''}`,
@@ -264,6 +269,52 @@ export function ObligationDetailView({ obligation: obligationProp, responsableOp
           primero se pierde al escribir el segundo — sin ningun error. Y el
           folio es lo unico que la empresa puede mostrarle a un fiscalizador
           para sostener que declaro. */}
+      {/* El respaldo documental (RF-108, #73).
+
+          La pregunta de un fiscalizador tiene esta forma: senala un requisito y
+          pide la evidencia. Hasta hoy `entity_documents` existia con CRUD
+          completo, cero filas y **ningun archivo del frontend que la nombrara**,
+          y solo se podia consultar al reves — desde el documento hacia lo que
+          respalda, que no contesta esa pregunta. */}
+      <div className="rounded-card border border-slate-200 bg-white p-6">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold text-slate-900">Respaldo documental</h2>
+          {/* **El contador no se dibuja mientras no se sabe.** Un «0» junto al
+              titulo es la afirmacion mas fuerte del panel: dice que este
+              requisito no tiene con que sostenerse. */}
+          {documentos !== null && !errorRespaldo && (
+            <span className="text-xs tabular-nums text-slate-500">
+              {documentos.length} {documentos.length === 1 ? 'documento' : 'documentos'}
+            </span>
+          )}
+        </div>
+
+        {errorRespaldo ? (
+          <p role="alert" className="mt-4 text-sm text-semaforo-no-cumple">
+            No se pudo consultar el respaldo: {errorRespaldo}
+          </p>
+        ) : documentos === null ? (
+          <p role="status" className="mt-4 text-sm text-slate-400">
+            Comprobando…
+          </p>
+        ) : documentos.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-500">
+            Ningun documento controlado respalda esta declaracion todavia.
+          </p>
+        ) : (
+          <ul className="mt-4 flex flex-col divide-y divide-slate-100">
+            {documentos.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0">
+                {/* El codigo primero: es lo que se cita en una auditoria. */}
+                <span className="font-medium text-slate-900">{d.codigo ?? 'Sin codigo'}</span>
+                <span className="text-slate-700">{d.titulo}</span>
+                <span className="text-xs uppercase tracking-wide text-slate-400">{d.tipo}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="rounded-card border border-slate-200 bg-white p-6">
         <h2 className="text-sm font-semibold text-slate-900">Historial de presentaciones</h2>
         <p className="mt-0.5 text-sm text-slate-500">
