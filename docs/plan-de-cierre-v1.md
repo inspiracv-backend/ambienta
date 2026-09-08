@@ -1,6 +1,6 @@
 # Plan de cierre de la versión 1.0
 
-**Actualizado el 7-sep-2026.**
+**Actualizado el 7-sep-2026 (segunda vez ese día).**
 
 ## Qué es esto, y qué no
 
@@ -22,7 +22,10 @@ usable y la épica de notificaciones. La 2 se llevó C, la épica ISO 14001 (#28
 el historial de presentaciones, que no estaba en el plan y hacía falta: la tabla
 `declaration_submissions` existía desde el principio **sin un solo escritor**.
 
-Quedan **D, E y F**, y de esos el único grande es D.
+Queda **D** —el único grande— y **F**. El bloque E se cerró entero el 7-sep:
+vinculación transversal (#73), comentarios y menciones (#74), línea de tiempo
+(#75) y buscador (#76). Los cuatro empezaron con el mismo hallazgo: la tabla
+o el componente ya existían y **nadie los llamaba**.
 
 | Bloque | Qué | Estado |
 |---|---|---|
@@ -37,7 +40,7 @@ Quedan **D, E y F**, y de esos el único grande es D.
 | **ISO** | Épica #28: aspectos, riesgos, equipos | Cerrado el 6-sep — a la API no le faltaba nada, faltaba **llamarla** |
 | **RF-31** | Historial de presentaciones | Cerrado el 7-sep — `declaration_submissions` tenía CRUD completo y cero escritores |
 | **D** | Normativa propia: parseo de ISO y RCA | Pendiente |
-| **E** | Información documentada y colaboración (#73–76) | Pendiente |
+| **E** | Información documentada y colaboración (#73–76) | **Cerrado** — y los cuatro empezaron igual: el modelo estaba y nadie lo llamaba |
 | **F** | Archivar los specs y recorrer el sistema entero | Pendiente |
 
 ## Lo que bloquea, y a quién le toca
