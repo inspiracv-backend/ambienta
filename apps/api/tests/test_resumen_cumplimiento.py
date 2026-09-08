@@ -24,6 +24,9 @@ URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta",
 )
+from ._catalogo import como_catalogo
+
+
 TENANT = uuid.UUID("a0000000-0000-0000-0000-000000000001")
 
 #: Mismo motivo que en `test_sincronizar_matriz`: `uq_matrices_periodo` choca
@@ -68,25 +71,34 @@ def _articulos(db: Session, cuantos: int):
     """
     fila = db.execute(
         text(
-            "SELECT norm_id, id FROM legal_norm_versions "
-            "WHERE is_current AND deleted_at IS NULL LIMIT 1"
+            "SELECT v.norm_id, v.id FROM legal_norm_versions v "
+            "JOIN legal_norms n ON n.id = v.norm_id "
+            # Solo catalogo PUBLICO: desde `db/29` una empresa puede
+            # tener normas propias, y el articulado de prueba se
+            # siembra sin tenant declarado — que no las ve.
+            "WHERE n.tenant_id IS NULL AND v.is_current "
+            "  AND v.deleted_at IS NULL LIMIT 1"
         )
     ).first()
     if fila is None:
         pytest.skip("Sin versiones de norma vigentes en el catalogo")
     norm_id, version_id = fila
 
-    arts = [
-        db.execute(
-            text(
-                "INSERT INTO legal_articles "
-                "(norm_version_id, article_number, content, display_order) "
-                "VALUES (:v, :n, 'Articulo de prueba', :o) RETURNING id"
-            ),
-            {"v": version_id, "n": f"P-{uuid.uuid4().hex[:8]}", "o": 9000 + i},
-        ).scalar_one()
-        for i in range(cuantos)
-    ]
+    # Sin tenant declarado: es articulado **publico**, y desde `db/29` una
+    # sesion con empresa no puede escribir el catalogo. En produccion lo escribe
+    # la sincronizacion de la BCN, que corre sin tenant. Ver `tests/_catalogo.py`.
+    with como_catalogo(db, TENANT):
+        arts = [
+            db.execute(
+                text(
+                    "INSERT INTO legal_articles "
+                    "(norm_version_id, article_number, content, display_order) "
+                    "VALUES (:v, :n, 'Articulo de prueba', :o) RETURNING id"
+                ),
+                {"v": version_id, "n": f"P-{uuid.uuid4().hex[:8]}", "o": 9000 + i},
+            ).scalar_one()
+            for i in range(cuantos)
+        ]
     return norm_id, version_id, arts
 
 

@@ -76,6 +76,44 @@ class Detector:
         return "; ".join(problemas) if problemas else None
 
 
+def _sin_comentarios(texto: str) -> str:
+    """Vacia lo que va despues de un `#`, conservando las lineas.
+
+    Se usa para no contar como uso lo que en realidad es una explicacion de por
+    que algo NO se usa. Ver el detector de fechas.
+
+    **Respeta las comillas**: un `#` dentro de una cadena no abre un comentario,
+    y cortar ahi partiria expresiones como `f"{x}#{y}"`. Es la misma leccion que
+    el guardian de las dos listas del registro de mejora, que la primera vez uso
+    una expresion regular y perdio una fila por unos parentesis.
+
+    No intenta entender los docstrings: una cadena triple con `date.today()`
+    adentro sigue contando. Es deliberado — el detector entrega candidatos, y un
+    ejemplo en un docstring merece una mirada.
+    """
+    salida = []
+    for linea in texto.splitlines():
+        comilla = None
+        corte = len(linea)
+        i = 0
+        while i < len(linea):
+            c = linea[i]
+            if comilla:
+                if c == "\\":
+                    i += 2
+                    continue
+                if c == comilla:
+                    comilla = None
+            elif c in "\"'":
+                comilla = c
+            elif c == "#":
+                corte = i
+                break
+            i += 1
+        salida.append(linea[:corte])
+    return "\n".join(salida)
+
+
 def _archivos(raiz: Path, patron: str, excluir: tuple[str, ...] = ()) -> list[Path]:
     salida = []
     for p in raiz.rglob(patron):
@@ -272,6 +310,17 @@ def fechas_en_horas() -> Detector:
         # la empresa.
         casos_conocidos=["avisos_de_vencimiento.py date.today()"],
     )
+    # **Los comentarios no cuentan, y esto no es cosmetico.**
+    #
+    # El detector leia el archivo entero, asi que un comentario que explica *por
+    # que no* usar `date.today()` sumaba al conteo igual que usarlo. Se cazo
+    # solo: al documentar en `normativa_propia.py` la razon para preferir
+    # `hoy_de`, el numero **subio** de 24 a 26 en vez de bajar.
+    #
+    # Un medidor que castiga explicar entrena a no explicar, y este repositorio
+    # apuesta lo contrario. La linea se conserva entera —solo se vacia lo que
+    # va despues de un `#`— para que los numeros de linea sigan siendo los del
+    # archivo y el hallazgo se pueda ir a mirar.
     patrones = [
         (r"\bdate\.today\(\)", "date.today()"),
         (r"\bdatetime\.now\(\)(?!\s*\.astimezone)", "datetime.now() sin huso"),
@@ -282,7 +331,7 @@ def fechas_en_horas() -> Detector:
     for archivo in _archivos(API, "*.py"):
         if "tareas" not in str(archivo) and "services" not in str(archivo) and "routers" not in str(archivo):
             continue
-        texto = archivo.read_text(encoding="utf-8", errors="replace")
+        texto = _sin_comentarios(archivo.read_text(encoding="utf-8", errors="replace"))
         for patron, etiqueta in patrones:
             for m in re.finditer(patron, texto):
                 linea = texto[: m.start()].count("\n") + 1

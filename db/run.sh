@@ -54,6 +54,7 @@ run "$DIR/25_catalogos_de_mejora.sql"
 run "$DIR/26_informe_por_proceso.sql"
 run "$DIR/27_vinculos_de_documentos.sql"
 run "$DIR/28_comentarios.sql"
+run "$DIR/29_normativa_propia.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"

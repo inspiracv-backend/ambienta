@@ -30,6 +30,7 @@ from .services.auditoria_automatica import instalar as instalar_auditoria
 from .routers import (
     acceso_invitado,
     buscador,
+    normativa_propia,
     comentarios,
     historial,
     audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
@@ -185,6 +186,11 @@ app.include_router(historial.router, prefix=api_v1_prefix)
 # Mismo motivo que `comentarios` e `historial`: el permiso depende de QUE se
 # encuentra, no del camino. Aca ademas decide **que se busca**.
 app.include_router(buscador.router, prefix=api_v1_prefix)
+# Bajo el prefijo "/compliance", asi que hereda la familia "legal_matrix" de la
+# guarda derivada de la ruta: cargar la RCA de la empresa es trabajo de su
+# matriz legal, no del catalogo compartido — que ademas es global y se lee sin
+# tenant declarado.
+app.include_router(normativa_propia.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(notifications.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(support.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(system.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
