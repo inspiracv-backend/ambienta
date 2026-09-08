@@ -287,6 +287,15 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "buscador",
+        "description": (
+            "Busqueda transversal sobre documentos, comentarios y registros "
+            "(RF-114). Usa la configuracion de texto `spanish`, asi que "
+            "**ignora los acentos**: `emision` encuentra `EMISION` con tilde. "
+            "Solo devuelve lo que quien busca puede leer."
+        ),
+    },
+    {
         "name": "historial",
         "description": (
             "La historia de un registro (RF-113): su actividad, su "

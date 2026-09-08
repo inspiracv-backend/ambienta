@@ -77,6 +77,15 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
 #: No es una lista de conveniencia: cada entrada es una decision, y el test
 #: exige que ninguna se quede sin explicar.
 SIN_GUARDA_DE_PERMISO: dict[str, str] = {
+    "buscar": (
+        "el permiso decide QUE se busca, no si se puede buscar. Una guarda "
+        "derivada de la ruta exigiria un permiso unico para todo el "
+        "buscador; lo correcto es lo contrario: cada resultado se filtra "
+        "por el `<familia>.read` de SU tipo, con el mismo mapa que valida "
+        "el anclaje. Sin eso el buscador seria un oraculo — alguien sin "
+        "`audit.read` se enteraria de los titulos de las auditorias "
+        "escribiendo una palabra en una caja. Hay una prueba que lo fija"
+    ),
     "historial": (
         "igual que `comentarios`: el permiso sale del cuerpo de la consulta y "
         "no del camino. Leer la historia de una auditoria exige `audit.read` y "
