@@ -92,6 +92,7 @@ SUFIJOS_DE_ACCION = (
 
 # Recurso -> por que no tiene el CRUD entero. El motivo es la parte importante.
 SIN_CRUD_COMPLETO = {
+    "/catalog/norms/versions": "el historial de versiones de una norma es de SOLO LECTURA, como todo el catalogo: las versiones las escribe la sincronizacion desde la BCN. Crear una a mano seria inventar que un texto legal rigio en un periodo, y borrarla destruiria la respuesta a con que redaccion se evaluo el cumplimiento entonces — que es justo lo que revisa una auditoria",
     "/compliance/normativa-propia/articulos": "solo se agregan. Editar un considerando ya cargado cambia el texto contra el que la matriz se evaluo, sin dejar rastro de cual era; borrarlo destruye la evidencia de lo que se reviso mientras rigio. Lo que corresponde es cargar la version nueva de la norma, que el modelo si soporta",
     "/compliance/normativa-propia": "no lleva editar ni borrar todavia, y es deliberado: una RCA que la empresa cargo y despues edito deja la matriz evaluada contra un texto que ya no es el que se cargo, sin rastro de cual era. Corregirla es cargar la version nueva —el modelo las tiene— y esa es la operacion que corresponde. Borrarla destruiria la evidencia de lo que se evaluo mientras rigio, igual que en el control documental",
     "/buscar": "es una consulta, no un recurso: no hay nada que crear, editar ni borrar. Devuelve punteros a filas que viven en otras tablas, cada una con su propio CRUD",

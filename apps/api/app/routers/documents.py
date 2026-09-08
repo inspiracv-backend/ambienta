@@ -1,6 +1,7 @@
+from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -40,8 +41,44 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 @router.get("/", response_model=list[DocumentRead])
-def list_documents(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
-    return recortar(respuesta, crud_document.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
+def list_documents(
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    updated_since: datetime | None = Query(
+        None,
+        description=(
+            "Devuelve solo lo modificado **despues** de esta fecha y hora. "
+            "Para sincronizacion incremental."
+        ),
+    ),
+    db: Session = Depends(get_tenant_db),
+):
+    """Los documentos de la empresa.
+
+    `updated_since` compara con `>` estricto, igual que en el catalogo: el
+    corte se guarda del `updated_at` maximo que se vio, no del reloj de quien
+    llama. Ver `routers/catalog.py::list_norms`.
+    """
+    if updated_since is None:
+        return recortar(
+            respuesta,
+            crud_document.get_multi(db, skip=pagina.skip, limit=pagina.pedir),
+            pagina,
+        )
+
+    filas = db.scalars(
+        select(Document)
+        .where(
+            Document.deleted_at.is_(None),
+            Document.updated_at > updated_since,
+        )
+        # Orden estable: sin el, paginar sobre un filtro puede repetir o saltar
+        # filas y nadie lo nota hasta que falta un documento.
+        .order_by(Document.updated_at, Document.id)
+        .offset(pagina.skip)
+        .limit(pagina.pedir)
+    ).all()
+    return recortar(respuesta, list(filas), pagina)
 
 
 @router.get(
@@ -433,7 +470,14 @@ def pedir_enlace_de_descarga(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         )
 
-    return EnlaceDeDescarga(url=enlace.url, expires_in=enlace.expira_en)
+    # El checksum viaja con el enlace y no en otra llamada: entre dos
+    # peticiones alguien puede publicar una revision nueva, y quien descargue
+    # validaria el archivo contra el hash de otro texto.
+    return EnlaceDeDescarga(
+        url=enlace.url,
+        expires_in=enlace.expira_en,
+        checksum_sha256=version.checksum_sha256,
+    )
 
 
 def _proxima_version(db: Session, document_id: UUID) -> int:

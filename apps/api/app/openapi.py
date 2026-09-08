@@ -719,6 +719,85 @@ def _describir(ruta: str, metodo: str) -> tuple[str, str] | None:
     return titulo[0].upper() + titulo[1:], detalle
 
 
+#: Las cabeceras que emite `routers/_paginacion.py::recortar`.
+#:
+#: **Se derivan, no se escriben endpoint por endpoint.** Son unas 60 rutas
+#: paginadas: declararlas a mano es una decision que se puede olvidar, y
+#: olvidarla no falla — solo deja el contrato mintiendo sobre como paginar.
+#: Mismo criterio que las respuestas de error.
+CABECERAS_DE_PAGINA = {
+    "X-Has-More": {
+        "description": (
+            "`true` si quedaron filas fuera de esta pagina. Es lo que permite "
+            "saber si hay que pedir la siguiente **sin adivinar** comparando "
+            "el largo del arreglo contra el limite."
+        ),
+        "schema": {"type": "string", "enum": ["true", "false"]},
+    },
+    "X-Page-Limit": {
+        "description": (
+            "El tope que se aplico de verdad. No siempre es el `limit` que se "
+            "pidio: la API lo acota, y sin esta cabecera un cliente que pida "
+            "1000 y reciba 200 no puede distinguir 'se acabaron las filas' de "
+            "'me recortaron la pagina'."
+        ),
+        "schema": {"type": "integer"},
+    },
+}
+
+
+def _declarar_cabeceras_de_pagina(operacion: dict, respuestas: dict) -> None:
+    """Declara `X-Has-More` y `X-Page-Limit` donde la operacion pagina.
+
+    Se detecta por los parametros `skip`/`limit`, que es lo que pone
+    `Depends(paginacion)`: preguntar por la ruta seria una lista que mantener.
+    """
+    nombres = {
+        param.get("name")
+        for param in operacion.get("parameters", [])
+        if isinstance(param, dict)
+    }
+    if not {"skip", "limit"} <= nombres:
+        return
+    exitosa = respuestas.get("200")
+    if not isinstance(exitosa, dict):
+        return
+    exitosa.setdefault("headers", {}).update(CABECERAS_DE_PAGINA)
+
+
+#: Lo que el contrato NO decia sobre `X-Tenant-Id`.
+#:
+#: Aparecia como un header opcional mas, y con Clerk configurado **se ignora
+#: por completo**: un token de una empresa con `X-Tenant-Id` de otra sigue
+#: devolviendo los datos de la primera. Un integrador podia creer
+#: razonablemente que era el selector de empresa.
+#:
+#: No cambia ningun comportamiento — hace que el contrato diga lo que el
+#: sistema ya hace.
+NOTA_TENANT = (
+    "**Respaldo de desarrollo, no el mecanismo de produccion.** Solo se lee "
+    "cuando la API arranca SIN `CLERK_JWKS_URL`. Con Clerk configurado esta "
+    "cabecera se ignora por completo y la empresa sale del claim `tenant_id` "
+    "del JWT firmado: un token de una empresa con `X-Tenant-Id` de otra "
+    "devuelve los datos de la primera."
+)
+
+
+def _aclarar_cabecera_de_empresa(esquema: dict) -> None:
+    """Reescribe la descripcion de `X-Tenant-Id` en cada operacion que la declare."""
+    for metodos in esquema.get("paths", {}).values():
+        for operacion in metodos.values():
+            if not isinstance(operacion, dict):
+                continue
+            for param in operacion.get("parameters", []):
+                if not isinstance(param, dict):
+                    continue
+                if param.get("in") == "header" and str(
+                    param.get("name", "")
+                ).lower() == "x-tenant-id":
+                    param["description"] = NOTA_TENANT
+
+
 def construir_esquema(app: FastAPI) -> dict:
     """Genera el OpenAPI y le agrega lo que FastAPI no puede inferir.
 
@@ -748,6 +827,8 @@ def construir_esquema(app: FastAPI) -> dict:
         "DetalleError"
     ] = _ESQUEMA_ERROR
 
+    _aclarar_cabecera_de_empresa(esquema)
+
     por_defecto = _summaries_por_defecto(app)
 
     for ruta, metodos in esquema["paths"].items():
@@ -761,6 +842,7 @@ def construir_esquema(app: FastAPI) -> dict:
                 respuestas.setdefault("404", _RESPUESTA_404)
             if operacion.get("requestBody"):
                 respuestas["422"] = _RESPUESTA_422
+            _declarar_cabeceras_de_pagina(operacion, respuestas)
 
             # El texto derivado no pisa al escrito a mano: si alguien se tomo
             # el trabajo de explicar un endpoint, sabe mas que esta regla.
