@@ -63,6 +63,22 @@ def db():
         pytest.skip(f"Sin base de datos disponible: {exc}")
     tx = conexion.begin()
     s = Session(bind=conexion, join_transaction_mode="create_savepoint")
+
+    # **La cola arranca vacia, y hace falta decirlo.**
+    #
+    # Varias pruebas de aca afirman que el transporte **no se llamo ni una vez**,
+    # y `despachar()` toma lo que este encolado, no solo lo que creo la prueba.
+    # Mientras el cron de avisos no generaba nada esa cola estaba siempre vacia
+    # y no se notaba. Desde que genera —y correrlo es ahora el paso documentado
+    # para demostrar el sistema en local— cualquiera que lo haya corrido veia
+    # tres fallos que decian "SALIO un correo de una empresa hacia otra": la
+    # acusacion mas alarmante posible, causada por un dato de su propia base.
+    #
+    # El borrado vive dentro de la transaccion de la prueba, que se revierte
+    # entera al terminar: no se pierde ningun aviso real.
+    s.execute(text("DELETE FROM notifications WHERE status IN ('queued', 'retrying')"))
+    s.flush()
+
     try:
         yield s
     finally:

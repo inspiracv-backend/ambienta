@@ -90,7 +90,9 @@ def _obligacion(db: Session, *, dias: int, con_responsable: bool) -> Obligation:
     oid = db.execute(
         text(
             "INSERT INTO obligations (tenant_id, code, title, status, due_at, owner_user_id) "
-            "VALUES (:t, :c, :ti, 'open', now() + make_interval(days => :d), :u) "
+            "VALUES (:t, :c, :ti, 'open', "
+            "(((now() AT TIME ZONE 'America/Santiago')::date + :d) "
+            "+ time '12:00') AT TIME ZONE 'America/Santiago', :u) "
             "RETURNING id"
         ),
         {
@@ -109,6 +111,23 @@ def _obligacion(db: Session, *, dias: int, con_responsable: bool) -> Obligation:
 #: se creaba el in-app, asi que **la tuberia de correo no tenia nada que
 #: enviar**: se podia configurar Resend entero y no salia un solo mensaje.
 CANALES = ("in_app", "email")
+
+
+#: ## Por que las fechas se arman por CALENDARIO y no sumando horas
+#:
+#: Estas pruebas decian `now() + interval '7 days'`, que en Postgres suma horas
+#: sobre un `timestamptz` con la zona de la sesion —UTC en el contenedor—. El
+#: generador compara **fechas del calendario en el huso de la empresa**, que es
+#: lo que significa "avisar 7 dias antes".
+#:
+#: Los dos coinciden casi todo el año. **Chile cambia de hora el primer sabado
+#: de septiembre**, y esa semana 168 horas caen en el dia siguiente al que una
+#: persona llamaria "en una semana": cuatro pruebas de este archivo y dos de
+#: `test_declaracion.py` fallaron el 4-sep por eso, todas diciendo "no se genero
+#: el aviso" — o sea acusando al generador, que tenia razon.
+#:
+#: Es la misma leccion que la banda de +-12 h que el generador tenia antes: una
+#: fecha de calendario no se puede medir en horas.
 
 
 def _avisos_de(db: Session, obligacion_id, canal: str = "in_app") -> int:
@@ -186,7 +205,7 @@ class TestNoDuplica:
 
         # Se mueve el vencimiento para que caiga en la otra ventana.
         db.execute(
-            text("UPDATE obligations SET due_at = now() + interval '15 days' WHERE id = :i"),
+            text("UPDATE obligations SET due_at = (((now() AT TIME ZONE 'America/Santiago')::date + 15) + time '12:00') AT TIME ZONE 'America/Santiago' WHERE id = :i"),
             {"i": obl.id},
         )
         generar(db, EMPRESA_A, ventanas=(15,))
@@ -431,7 +450,7 @@ class TestQueNoSeAvisa:
         obl = _obligacion(db, dias=7, con_responsable=True)
         db.execute(
             text(
-                "UPDATE obligations SET due_at = now() + interval '7 days' "
+                "UPDATE obligations SET due_at = (((now() AT TIME ZONE 'America/Santiago')::date + 7) + time '12:00') AT TIME ZONE 'America/Santiago' "
                 "- interval '8 hours' WHERE id = :i"
             ),
             {"i": obl.id},
@@ -509,7 +528,7 @@ class TestPorLaApi:
             oid = c.execute(
                 text(
                     "INSERT INTO obligations (tenant_id, code, title, status, due_at, owner_user_id) "
-                    "VALUES (:t, :c, 'Prueba de la API', 'open', now() + interval '7 days', :u) "
+                    "VALUES (:t, :c, 'Prueba de la API', 'open', (((now() AT TIME ZONE 'America/Santiago')::date + 7) + time '12:00') AT TIME ZONE 'America/Santiago', :u) "
                     "RETURNING id"
                 ),
                 {"t": str(EMPRESA_A), "c": codigo, "u": persona},

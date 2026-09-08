@@ -3,11 +3,13 @@ from uuid import UUID as PyUUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -69,6 +71,13 @@ class AuditItem(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     )
     article_compliance_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("article_compliance.id")
+    )
+    #: A que proceso pertenece esta pregunta. **Nulable a proposito**: una
+    #: auditoria tiene requisitos generales del sistema de gestion que no son
+    #: de ningun proceso, y forzarlos a uno inventaria una pertenencia. El
+    #: informe los cuenta aparte en vez de esconderlos en una fila cualquiera.
+    process_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("processes.id")
     )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
@@ -142,9 +151,22 @@ class Nonconformity(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     root_cause_answers: Mapped[list] = mapped_column(
         JSONB, nullable=False, server_default="[]"
     )
+    #: Con que metodologia del catalogo de la empresa se analizo la causa.
+    #: `root_cause_answers` guarda las respuestas y no como se llego a ellas, y
+    #: las de un Ishikawa no se leen igual que las de un 5 porques.
+    root_cause_methodology_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("improvement_methodologies.id")
+    )
     improvement_stages: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
+    #: Solo para `salida_no_conforme` (ISO 9001 8.7). La base exige SKU y lote
+    #: cuando el tipo lo pide, y que no aparezca en otro tipo.
+    product_data: Mapped[dict | None] = mapped_column(JSONB)
+    #: Solo para `reclamo` (ISO 9001 9.1.2). Exige cliente y canal.
+    complaint_data: Mapped[dict | None] = mapped_column(JSONB)
+    #: Para `riesgo` y `oportunidad` (6.1): el registro del que salio.
+    risk_opportunity_id: Mapped[PyUUID | None] = mapped_column(UUID(as_uuid=True))
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -222,4 +244,77 @@ class EntityStatusHistory(Base, TenantMixin):
     reason: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default="{}"
+    )
+
+
+class AuditProcessResult(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """La fila de la matriz por proceso que **escribe el auditor** (RF-101).
+
+    Lo derivable no vive aca a proposito: las clausulas auditadas, los hallazgos
+    y los conteos salen de los items y de los registros de mejora cada vez que
+    se pide el informe. Guardar un conteo escrito a mano es la forma mas rapida
+    de que el informe y el sistema digan cosas distintas, y el que miente es
+    siempre el guardado.
+    """
+
+    __tablename__ = "audit_process_results"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    audit_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("audits.id"), nullable=False
+    )
+    process_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("processes.id"), nullable=False
+    )
+    classification: Mapped[str] = mapped_column(String(40), nullable=False)
+    conclusion: Mapped[str | None] = mapped_column(Text)
+    #: Que tuvo a la vista el auditor. Va escrito y no derivado porque "el
+    #: registro de calibracion de marzo" no esta en ninguna tabla.
+    evidence_reviewed: Mapped[str | None] = mapped_column(Text)
+
+
+class ImprovementSeverity(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """Un nivel de la escala de severidad de esta empresa (RF-100).
+
+    **Se monta encima del CHECK de `nonconformities.severity`, no lo
+    reemplaza.** El `code` es el valor que se escribe en esa columna; lo que la
+    empresa configura es como se llama, en que orden va y en cuantos dias se
+    cierra un hallazgo de ese nivel.
+    """
+
+    __tablename__ = "improvement_severities"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    rank: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    #: **NULL significa que la empresa no declaro plazo**, y entonces nadie
+    #: calcula `due_date`. No es lo mismo que cero, que la base rechaza: cero
+    #: dias es un plazo imposible, no la ausencia de uno.
+    days_to_close: Mapped[int | None] = mapped_column(SmallInteger)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+
+
+class ImprovementMethodology(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """Una metodologia de analisis de causa de esta empresa (RF-100, RF-35)."""
+
+    __tablename__ = "improvement_methodologies"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    #: **La forma decide que datos exige el analisis.** La empresa le pone el
+    #: nombre que quiera; la forma tiene que ser una de las que el sistema sabe
+    #: pedir y mostrar.
+    shape: Mapped[str] = mapped_column(String(30), nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
     )

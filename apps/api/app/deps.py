@@ -200,9 +200,107 @@ def volver_a_declarar(db: Session) -> None:
     declarar(db, contexto["tenant_id"])
 
 
-def get_tenant_db(
+#: Cabecera con la que un Gestor pide correr como uno de sus clientes (#59, #65).
+#:
+#: **No es una preferencia: es una peticion que se verifica.** Sin contrato
+#: activo, la peticion se rechaza; no se cae de vuelta al tenant propio. Caer
+#: hacia atras en silencio seria lo peor de los dos mundos — quien creyo estar
+#: mirando a su cliente estaria mirando sus propios datos, y las dos pantallas
+#: se ven iguales.
+CABECERA_DE_CLIENTE = "X-Cliente-Id"
+
+
+def tenant_efectivo(
     request: Request,
     tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+) -> UUID:
+    """El tenant bajo el que corre esta peticion.
+
+    Normalmente el de la sesion. Si viene `X-Cliente-Id` **y** hay un contrato
+    activo que lo habilite, el del cliente.
+
+    ## Por que aca y no ampliando RLS
+
+    La politica de las 38 tablas es `tenant_id = current_tenant_id()`, y RLS no
+    es la segunda barrera sino la unica (CLAUDE.md §4). Ampliarla a "o el tenant
+    es cliente de mi gestor" seria una condicion mas que mantener correcta en 38
+    lugares, y un error ahi no da una pantalla vacia: da una fuga.
+
+    Asi la barrera se queda **exactamente** donde estaba. Lo que se agrega es una
+    puerta con llave delante: el gestor declara otro tenant, y para eso hay que
+    comprobar el contrato.
+
+    ## Actuando por un cliente, el gestor NO ve lo suyo
+
+    No es una vista combinada, y no debe serlo: una consulta que mezclara dos
+    empresas es justo lo que RLS existe para impedir. El gestor corre como su
+    cliente, entero, o como el mismo.
+
+    ## Se comprueba en cada peticion
+
+    Un contrato se suspende, vence o se termina. Si esto se resolviera al entrar
+    y viajara en el token, revocar el acceso no haria nada hasta que el token
+    expire. Misma leccion que el acceso de invitado.
+    """
+    crudo = request.headers.get(CABECERA_DE_CLIENTE)
+    if not crudo:
+        return tenant_id
+
+    try:
+        cliente_id = UUID(crudo)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{CABECERA_DE_CLIENTE} no es un identificador valido.",
+        ) from None
+
+    if cliente_id == tenant_id:
+        # Pedir actuar por uno mismo no es un error: es un no-op, y tratarlo
+        # como error obligaria al frontend a limpiar la cabecera al volver a su
+        # propia cuenta.
+        return tenant_id
+
+    from .services import gestor as svc_gestor
+
+    # **Hay que declarar el tenant del gestor antes de leer `contracts`.**
+    #
+    # `get_db` tiene la barrera —usa `ambienta_app`— pero no declara empresa, y
+    # `contracts` lleva `tenant_id` y RLS: sin declarar, la consulta devuelve
+    # **cero filas** y la comprobacion concluye "no hay contrato vigente". Falla
+    # cerrado, que es lo correcto, y **falla en silencio**: el gestor recibe un
+    # 403 identico al de un contrato revocado y nada dice que el problema era
+    # que nadie declaro la empresa. Es exactamente la trampa de CLAUDE.md §4, y
+    # costo una corrida de pruebas.
+    #
+    # Se declara el del **gestor**, no el del cliente: la llave es su contrato,
+    # y leerlo con el contexto del cliente seria pedirle permiso al cliente para
+    # entrar a su propia casa.
+    declarar(db, tenant_id)
+
+    try:
+        svc_gestor.comprobar_puede_actuar(db, tenant_id, cliente_id)
+    except svc_gestor.NoEsGestor as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from None
+    except svc_gestor.SinContratoVigente as exc:
+        # 403 y no 404: el mismo codigo y el mismo mensaje que si el contrato no
+        # existiera. Distinguirlos convertiria esta cabecera en un oraculo para
+        # averiguar con quien trabaja otro gestor.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from None
+
+    # Queda anotado para el registro de actividades: sin esto, una accion que
+    # el gestor hace sobre su cliente es indistinguible de una del cliente.
+    request.state.gestor_id = str(tenant_id)
+    return cliente_id
+
+
+def get_tenant_db(
+    request: Request,
+    tenant_id: UUID = Depends(tenant_efectivo),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Generator[Session, None, None]:
@@ -230,6 +328,10 @@ def get_tenant_db(
         "clerk_id": user.user_id or None,
         "ip": request.client.host if request.client else None,
         "ruta": f"{request.method} {request.url.path}",
+        # **Quien actuo por cuenta de quien.** Sin esto, una accion que el
+        # gestor hace sobre su cliente queda en el registro indistinguible de
+        # una del propio cliente, y es exactamente lo que un auditor pregunta.
+        "actuado_por": getattr(request.state, "gestor_id", None),
     }
     try:
         yield db

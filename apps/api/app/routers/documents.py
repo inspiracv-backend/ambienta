@@ -11,9 +11,10 @@ from ..crud.documents import (
 )
 from ..auth import CurrentUser
 from ..deps import get_current_user, get_tenant_db, get_tenant_id
-from ..models.documents import DocumentVersion, EntityDocument
+from ..models.documents import Document, DocumentVersion, EntityDocument
 from ..models.organization import User
 from ..services import control_documental as cd
+from ..services import vinculos_de_documentos as vinculos
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, listar_por_padre, obtener_o_404, verificar_padre
 from ..schemas.documents import (
@@ -41,6 +42,51 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 @router.get("/", response_model=list[DocumentRead])
 def list_documents(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
     return recortar(respuesta, crud_document.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
+
+
+@router.get(
+    "/vinculados",
+    response_model=list[DocumentRead],
+    summary="Documentos que respaldan un registro",
+)
+def documentos_de_una_entidad(
+    entity_type: str,
+    entity_id: UUID,
+    db: Session = Depends(get_tenant_db),
+):
+    """Que documentos respaldan este registro (RF-108).
+
+    **Es el sentido que la gente usa.** Nadie abre un documento para averiguar
+    que respalda: se abre la obligacion —o la auditoria, o el articulo
+    evaluado— y se pregunta con que se sostiene. La pregunta de un fiscalizador
+    tiene esa forma: senala un requisito y pide la evidencia.
+
+    Una ruta y no trece. La alternativa era `GET /obligations/{id}/documentos`
+    y su equivalente en cada router: la misma consulta escrita trece veces, y
+    trece lugares donde olvidar la comprobacion de visibilidad el dia que se
+    agregue el catorce.
+
+    Se comprueba el anclaje **antes de consultar**, con el mismo servicio que
+    la escritura: sin eso, preguntar por un id ajeno devolveria una lista vacia
+    —que se lee como "no tiene documentos"— en vez de decir que ese registro no
+    es de esta empresa.
+    """
+    vinculos.comprobar_anclaje(db, entity_type, entity_id)
+    filas = db.scalars(
+        select(EntityDocument).where(
+            EntityDocument.entity_type == entity_type,
+            EntityDocument.entity_id == entity_id,
+            EntityDocument.deleted_at.is_(None),
+        )
+    ).all()
+    if not filas:
+        return []
+    return db.scalars(
+        select(Document).where(
+            Document.id.in_([f.document_id for f in filas]),
+            Document.deleted_at.is_(None),
+        )
+    ).all()
 
 
 @router.get("/{document_id}", response_model=DocumentRead)
@@ -128,6 +174,11 @@ def create_entity_document(
     la URL podria decir un documento y la fila apuntar a otro.
     """
     obtener_o_404(crud_document, db, document_id, recurso="Document")
+    # **Sin esto se escribia un respaldo inventado.** `entity_id` es
+    # polimorfico, asi que no tiene clave foranea y nada lo miraba: medido el
+    # 7-sep, tanto un id al azar como una obligacion real de otra empresa
+    # respondian 201 y dejaban la fila escrita.
+    vinculos.comprobar_anclaje(db, data.entity_type, data.entity_id)
     datos = data.model_dump()
     datos["document_id"] = document_id
     obj = crud_entity_document.create(
@@ -143,6 +194,14 @@ def update_entity_document(
 ):
     obj = obtener_o_404(crud_entity_document, db, vinculo_id, recurso="EntityDocument")
     verificar_padre(obj, document_id, campo="document_id")
+    # **Aca NO va una comprobacion de anclaje, y conviene decir por que.** La
+    # puerta trasera del PATCH es el patron que este repositorio ya sufrio con
+    # las etapas del CRM, asi que la primera version de esto la traia. Es
+    # codigo muerto: `EntityDocumentUpdate` no declara `entity_type` ni
+    # `entity_id` —a proposito, y su docstring lo explica— asi que un vinculo
+    # no se puede mover a otra entidad. Una guarda para un caso imposible no
+    # protege de nada y hace creer que si. Si algun dia esos campos se abren,
+    # el anclaje hay que comprobarlo aqui tambien.
     obj = crud_entity_document.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj

@@ -41,6 +41,30 @@ SUFIJOS_DE_ACCION = (
     # los que **nadie enlazo un riesgo** (ISO 14001 §6.1.4). No se crea ni se
     # borra un "aspecto sin tratar" — se trata, y entonces sale solo.
     "/significant-untreated",
+    # Tampoco un recurso: son los equipos en operacion que hoy nadie puede
+    # operar legalmente (#48). No se crea ni se borra un "equipo sin operador"
+    # — se le asigna a alguien o se le renueva la certificacion, y entonces
+    # sale solo de la lista. Mismo caso que `/significant-untreated`.
+    "/sin-operador",
+    # El historial de presentaciones es **de solo lectura por diseño**: cada
+    # fila la escribe `services/declaracion.py` al presentar, aceptar o
+    # rechazar. Un `POST` aparte permitiria inventar una presentacion que nunca
+    # ocurrio —con su fecha, su version y su autor— y eso es justo el dato que
+    # se discute ante un fiscalizador. El CRUD generico sigue en
+    # `/declarations/` para quien tenga que corregir a mano.
+    "/presentaciones",
+    # El informe es una **vista derivada**, no un recurso (RF-101): todos sus
+    # conteos se calculan al pedirlo. Guardarlo para poder "crearlo" y
+    # "borrarlo" seria justamente el error que evita — un informe guardado y el
+    # sistema diciendo cosas distintas, y el que miente es siempre el guardado.
+    # Lo que si es un recurso con CRUD completo es el veredicto por proceso
+    # (`/procesos`), que es la parte que el auditor escribe.
+    "/informe",
+    # La cartera de un gestor **es la lectura de `contracts` desde el otro
+    # lado**: no se crea ni se borra un "cliente" — se firma o se termina un
+    # contrato, y eso ya tiene su CRUD en `/contracts/`. Dos caminos para
+    # escribir la misma relacion serian dos formas de dejarla incoherente.
+    "/clientes",
     # Tampoco un recurso: lo que vence son la inscripcion del equipo y la
     # certificacion de su operador, y las dos se editan en su propia ficha.
     # Esto es la consulta que las junta.
@@ -68,6 +92,10 @@ SUFIJOS_DE_ACCION = (
 
 # Recurso -> por que no tiene el CRUD entero. El motivo es la parte importante.
 SIN_CRUD_COMPLETO = {
+    "/buscar": "es una consulta, no un recurso: no hay nada que crear, editar ni borrar. Devuelve punteros a filas que viven en otras tablas, cada una con su propio CRUD",
+    "/historial": "es una vista, no un recurso: la historia se DERIVA de tres tablas que ya tienen su propio CRUD (`audit_log`, `comments`, `entity_documents`). Un POST aca escribiria un hecho que no ocurrio — y el registro de actividades en particular tiene `REVOKE UPDATE, DELETE` sobre `ambienta_app` a proposito: un rastro que la aplicacion puede editar no sirve como rastro",
+    "/comentarios": "falta leer UNO por id, y no hace falta: la unidad es el hilo. Un comentario suelto, sin lo que se dijo antes y lo que se contesto despues, no le sirve a ninguna pantalla — y en una discusion sobre si una evidencia cumple, leer una frase fuera de su hilo es como se entiende al reves lo que alguien dijo. `GET /comentarios/?entity_type=&entity_id=` devuelve la conversacion entera con las respuestas debajo de su raiz",
+    "/documents/vinculados": "no es un recurso: es el sentido inverso de la consulta de vinculos (RF-108). El vinculo se crea, edita y borra en `/documents/{id}/entities`, que si tiene su CRUD entero; esta ruta contesta la otra pregunta —que documentos respaldan este registro— que es la que hace un fiscalizador. Darle POST seria un segundo camino para escribir la misma fila, y dos caminos que mantener coherentes es como se llega a que uno compruebe el anclaje y el otro no",
     "/permissions": "es el catalogo de permisos que la API sabe verificar: la lista de capacidades que el sistema define, no datos de una empresa. Crearlos o borrarlos desde la API seria inventar permisos que ninguna guarda consulta — el codigo tiene que existir tambien en el codigo, no solo en la tabla. Crecen con una migracion, cuando se agrega una capacidad. Lo que si se administra es a quien se le conceden, y eso vive en `/users/{id}/permissions`",
     "/me/clave-local": "no es un recurso, es una accion sobre la propia cuenta: fijar la clave local. La clave la guarda Clerk, asi que aca no hay fila que leer ni editar; volver a fijarla es llamar de nuevo al mismo POST",
     "/catalog/retc-systems": "es el catalogo de portales del Estado: se consulta, no se administra desde la API. Crearlos o editarlos a mano invitaria a inventar sistemas, y el problema real es el contrario — la lista viene de una resolucion y hay que poder rastrear de donde salio cada fila (columna `fuente`). Se siembra con migracion, como el resto del catalogo normativo",

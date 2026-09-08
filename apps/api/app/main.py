@@ -29,8 +29,12 @@ from .openapi import DESCRIPCION, TAGS_METADATA, construir_esquema
 from .services.auditoria_automatica import instalar as instalar_auditoria
 from .routers import (
     acceso_invitado,
+    buscador,
+    comentarios,
+    historial,
     audits, catalog, compliance, contratos, dashboard, declaraciones, departments,
     crm,
+    gestor,
     documents,
     facilities,
     identidad,
@@ -167,7 +171,20 @@ app.include_router(
 )
 app.include_router(documents.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(crm.router, prefix=api_v1_prefix)
+app.include_router(gestor.router, prefix=api_v1_prefix)
 app.include_router(iso14001.router, prefix=api_v1_prefix)
+# Sin `exigir_permiso_de_la_ruta`: la guarda deriva el permiso del nombre del
+# recurso, y `comentarios` no es un recurso de negocio con permisos propios —
+# se comenta sobre trece entidades distintas, cada una con los suyos. Quien ve
+# el registro ve su conversacion; lo que si se comprueba en cada peticion es el
+# anclaje, que es lo que RLS puede sostener.
+app.include_router(comentarios.router, prefix=api_v1_prefix)
+# Misma razon que `comentarios`: el permiso sale del cuerpo y no del camino,
+# y la comprobacion vive en el handler.
+app.include_router(historial.router, prefix=api_v1_prefix)
+# Mismo motivo que `comentarios` e `historial`: el permiso depende de QUE se
+# encuentra, no del camino. Aca ademas decide **que se busca**.
+app.include_router(buscador.router, prefix=api_v1_prefix)
 app.include_router(notifications.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(support.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 app.include_router(system.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])

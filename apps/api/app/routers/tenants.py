@@ -20,6 +20,7 @@ from ..crud.organization import crud_tenant
 from ..deps import declarar, exigir_admin_global, get_current_user, get_db
 from ..models.organization import User
 from ..schemas.organization import TenantCreate, TenantRead, TenantUpdate
+from ..services import catalogos_de_mejora as svc_catalogos
 from ..services import crm as svc_crm
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
@@ -98,15 +99,22 @@ def create_tenant(
     que todavia no vende, y el primer trato responde 409. Se siembra aca para
     que no dependa de cuando nacio la empresa.
 
-    Se declara el tenant antes de sembrar porque `crm_stages` **si** lleva RLS:
-    esta sesion es `get_db` —sin empresa declarada— y el `INSERT` no pasaria el
-    `WITH CHECK` de la politica. Va en la **misma transaccion** que el alta: una
-    empresa a medias, creada pero sin pipeline, es justo el estado que esto
-    existe para evitar.
+    **Y con los catalogos del registro de mejora** (RF-100), por exactamente el
+    mismo motivo: `db/25_catalogos_de_mejora.sql` tambien siembra con un
+    `CROSS JOIN tenants`. Sin esto, una empresa nueva no tendria ningun nivel de
+    severidad activo y registrar un hallazgo respondera 409 — otra forma de
+    quedar inservible sin que nada falle.
+
+    Se declara el tenant antes de sembrar porque `crm_stages` y los dos
+    catalogos **si** llevan RLS: esta sesion es `get_db` —sin empresa
+    declarada— y el `INSERT` no pasaria el `WITH CHECK` de la politica. Va en la
+    **misma transaccion** que el alta: una empresa a medias, creada pero sin
+    pipeline ni catalogos, es justo el estado que esto existe para evitar.
     """
     obj = crud_tenant.create(db, obj_in=data)
     declarar(db, obj.id)
     svc_crm.sembrar_etapas_por_defecto(db, obj.id)
+    svc_catalogos.sembrar_por_defecto(db, obj.id)
     db.commit()
     db.refresh(obj)
     return obj

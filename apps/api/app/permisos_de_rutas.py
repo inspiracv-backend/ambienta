@@ -49,6 +49,12 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
     # `manager.read` y `manager.write` los tienen hoy `admin_empresa` y
     # `servicio_lectura`, que es justo quien usa un CRM.
     "crm": "manager",
+    # La cartera de un Gestor es su vista del modulo de Gestores, asi que
+    # reutiliza `manager` por el mismo motivo que el CRM: un permiso nuevo sin
+    # rol que lo conceda es un 403 para todos, y "la pantalla no carga" no se
+    # parece en nada a la causa. `manager.read` ya lo tienen `admin_empresa` y
+    # `servicio_lectura`.
+    "gestor": "manager",
     "declarations": "obligation",
     "departments": "company_profile",
     "documents": "document",
@@ -71,6 +77,33 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
 #: No es una lista de conveniencia: cada entrada es una decision, y el test
 #: exige que ninguna se quede sin explicar.
 SIN_GUARDA_DE_PERMISO: dict[str, str] = {
+    "buscar": (
+        "el permiso decide QUE se busca, no si se puede buscar. Una guarda "
+        "derivada de la ruta exigiria un permiso unico para todo el "
+        "buscador; lo correcto es lo contrario: cada resultado se filtra "
+        "por el `<familia>.read` de SU tipo, con el mismo mapa que valida "
+        "el anclaje. Sin eso el buscador seria un oraculo — alguien sin "
+        "`audit.read` se enteraria de los titulos de las auditorias "
+        "escribiendo una palabra en una caja. Hay una prueba que lo fija"
+    ),
+    "historial": (
+        "igual que `comentarios`: el permiso sale del cuerpo de la consulta y "
+        "no del camino. Leer la historia de una auditoria exige `audit.read` y "
+        "la de una obligacion `obligation.read`, resuelto con el mismo mapa "
+        "que valida el anclaje. La comprobacion vive en el handler"
+    ),
+    "comentarios": (
+        "no lleva la guarda **derivada de la ruta**, y si lleva guarda. El "
+        "permiso sale del cuerpo y no del camino: una sola ruta cubre trece "
+        "entidades, y comentar sobre una auditoria exige `audit.write` "
+        "mientras que sobre una obligacion exige `obligation.write`. La "
+        "comprobacion vive en `routers/comentarios.py::_exigir`, que resuelve "
+        "la familia con el MISMO mapa que valida el anclaje — un tercer "
+        "diccionario con las mismas trece claves seria un tercer sitio del "
+        "que desincronizarse. Hay una prueba que le quita las escrituras a un "
+        "rol y exige el 403, para que esta excepcion no se convierta en una "
+        "ruta sin permisos"
+    ),
     "catalog": (
         "catalogo compartido sin `tenant_id`. Leer es informacion de trabajo "
         "para cualquiera; escribir ya exige Admin Global, que es una barrera "

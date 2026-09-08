@@ -216,6 +216,34 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "gestor",
+        "description": (
+            "La cartera de un **Gestor**: las empresas que administra por "
+            "contrato (RF-65 a RF-67).\n\n"
+            "Para leer o escribir los datos de una de ellas se manda la "
+            "cabecera **`X-Cliente-Id`** con su identificador, en cualquier "
+            "endpoint de la API. La peticion corre entonces como esa "
+            "empresa: **no es una vista combinada**, el gestor deja de ver "
+            "lo suyo mientras actua por su cliente.\n\n"
+            "La llave es un contrato `active` y dentro de sus fechas, y "
+            "**se comprueba en cada peticion**: suspenderlo o terminarlo "
+            "corta el acceso de inmediato, sin esperar a que expire "
+            "ninguna sesion."
+        ),
+    },
+    {
+        "name": "catalogos-de-mejora",
+        "description": (
+            "Los catalogos con que **cada empresa** clasifica sus hallazgos "
+            "(RF-100): la escala de severidad, con su etiqueta, su orden y los "
+            "dias para cerrar, y las metodologias de analisis de causa. "
+            "La escala era un CHECK igual para todos y solo en ingles; el "
+            "catalogo se monta encima, no lo reemplaza. `days_to_close` en "
+            "`null` significa que la empresa **no declaro plazo**, y entonces "
+            "nadie calcula la fecha limite del hallazgo."
+        ),
+    },
+    {
         "name": "action-plans",
         "description": (
             "Planes de accion. Nacen de una no conformidad o de un hallazgo "
@@ -256,6 +284,33 @@ TAGS_METADATA: list[dict[str, Any]] = [
         "description": (
             "Documentos y evidencia, con versionado. La evidencia se asocia "
             "a la entidad que la respalda, no al reves."
+        ),
+    },
+    {
+        "name": "buscador",
+        "description": (
+            "Busqueda transversal sobre documentos, comentarios y registros "
+            "(RF-114). Usa la configuracion de texto `spanish`, asi que "
+            "**ignora los acentos**: `emision` encuentra `EMISION` con tilde. "
+            "Solo devuelve lo que quien busca puede leer."
+        ),
+    },
+    {
+        "name": "historial",
+        "description": (
+            "La historia de un registro (RF-113): su actividad, su "
+            "conversacion y sus adjuntos en una sola secuencia. Declara que "
+            "fuentes la componen y cuales faltan — hoy falta el correo, que "
+            "todavia no se captura."
+        ),
+    },
+    {
+        "name": "comentarios",
+        "description": (
+            "La conversacion sobre cualquier registro (RF-111, RF-112). Un "
+            "solo camino para las trece entidades comentables: `entity_type` "
+            "dice sobre que se comenta, y el permiso que exige sale de ahi. "
+            "Los hilos son de un nivel y las menciones notifican."
         ),
     },
     {
@@ -370,6 +425,11 @@ _RESPUESTA_422 = {
 # frase — eso se deriva del metodo y de la forma de la ruta.
 _RECURSOS: dict[str, tuple[str, str]] = {
     "action-plans": ("el plan de accion", "los planes de accion"),
+    "gestor": ("la cartera del gestor", "la cartera del gestor"),
+    "catalogos-de-mejora": (
+        "el catalogo del registro de mejora",
+        "los catalogos del registro de mejora",
+    ),
     "article-compliance": ("el cumplimiento del articulo", "el cumplimiento por articulo"),
     "articles": ("el articulo", "los articulos"),
     "aspects": ("el aspecto ambiental", "los aspectos ambientales"),

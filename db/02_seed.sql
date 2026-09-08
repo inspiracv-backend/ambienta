@@ -428,6 +428,25 @@ INSERT INTO obligation_templates (id, country_id, code, name, authority, frequen
    '{"type": "quarterly", "day": 15}', 15)
 ON CONFLICT (id) DO NOTHING;
 
+-- **Los vencimientos son relativos a hoy, no fechas fijas.**
+--
+-- Estaban escritos como '2026-09-30 23:59:00-03' y compania, y eso envejece: el
+-- 4-sep-2026 el vencimiento mas cercano quedaba a 27 dias, o sea **fuera de las
+-- cuatro ventanas de aviso** (15/7/3/1). El cron de avisos corria sobre esta
+-- base y no generaba nada. Unos meses mas y las cinco quedan en el pasado: la
+-- demostracion de vencimientos deja de existir sin que nada falle.
+--
+-- Se conservan las distancias que tenian entre si —el ancla se pone a 15 dias y
+-- el resto guarda su separacion original— asi que las relaciones que el autor
+-- construyo (que semestre vence antes que cual) siguen valiendo. Lo unico que
+-- se mueve es "hoy".
+--
+-- Efecto buscado: la mas cercana entra hoy en la ventana de 15 y va bajando a 7,
+-- 3 y 1 los dias siguientes, asi que la demostracion produce avisos nuevos
+-- varias veces y no una sola.
+--
+-- Ojo: esto corre **al crear la base**. Una base que ya existe se reancla con
+-- `python -m app.tareas.sembrar_demo`.
 INSERT INTO obligations (id, tenant_id, template_id, matrix_norm_id, facility_id, code, title, period_start, period_end, due_at, status, owner_user_id) VALUES
   ('a0000021-0000-0000-0000-000000000001',
    'a0000000-0000-0000-0000-000000000001',
@@ -435,7 +454,7 @@ INSERT INTO obligations (id, tenant_id, template_id, matrix_norm_id, facility_id
    'a0000011-0000-0000-0000-000000000005',
    'b0000000-0000-0000-0000-000000000001',
    'OBL-RETC-2026', 'Declaración RETC 2026',
-   '2026-01-01', '2026-12-31', '2027-03-31 23:59:00-03',
+   '2026-01-01', '2026-12-31', ((CURRENT_DATE + 197) + TIME '23:59') AT TIME ZONE 'America/Santiago',
    'in_progress', 'd0000000-0000-0000-0000-000000000002'),
 
   ('a0000021-0000-0000-0000-000000000002',
@@ -444,7 +463,7 @@ INSERT INTO obligations (id, tenant_id, template_id, matrix_norm_id, facility_id
    'a0000011-0000-0000-0000-000000000002',
    'b0000000-0000-0000-0000-000000000001',
    'OBL-SIDREP-2026S1', 'Declaración SIDREP 1er Semestre 2026',
-   '2026-01-01', '2026-06-30', '2026-07-15 23:59:00-03',
+   '2026-01-01', '2026-06-30', ((CURRENT_DATE -  62) + TIME '23:59') AT TIME ZONE 'America/Santiago',
    'submitted', 'd0000000-0000-0000-0000-000000000002'),
 
   ('a0000021-0000-0000-0000-000000000003',
@@ -453,7 +472,7 @@ INSERT INTO obligations (id, tenant_id, template_id, matrix_norm_id, facility_id
    'a0000011-0000-0000-0000-000000000002',
    'b0000000-0000-0000-0000-000000000001',
    'OBL-SIDREP-2026S2', 'Declaración SIDREP 2do Semestre 2026',
-   '2026-07-01', '2026-12-31', '2027-01-15 23:59:00-03',
+   '2026-07-01', '2026-12-31', ((CURRENT_DATE + 122) + TIME '23:59') AT TIME ZONE 'America/Santiago',
    'draft', 'd0000000-0000-0000-0000-000000000002'),
 
   ('a0000021-0000-0000-0000-000000000004',
@@ -462,7 +481,7 @@ INSERT INTO obligations (id, tenant_id, template_id, matrix_norm_id, facility_id
    'a0000011-0000-0000-0000-000000000004',
    'b0000000-0000-0000-0000-000000000001',
    'OBL-DS90-2026Q3', 'Monitoreo RILes Q3 2026',
-   '2026-07-01', '2026-09-30', '2026-10-15 23:59:00-03',
+   '2026-07-01', '2026-09-30', ((CURRENT_DATE +  30) + TIME '23:59') AT TIME ZONE 'America/Santiago',
    'open', 'd0000000-0000-0000-0000-000000000003'),
 
   ('a0000021-0000-0000-0000-000000000005',
@@ -470,8 +489,11 @@ INSERT INTO obligations (id, tenant_id, template_id, matrix_norm_id, facility_id
    NULL, 'a0000011-0000-0000-0000-000000000003',
    'b0000000-0000-0000-0000-000000000001',
    'OBL-REP-NFU-2026', 'Plan de gestión NFU (Ley REP)',
-   '2026-01-01', '2026-12-31', '2026-09-30 23:59:00-03',
-   'overdue', 'd0000000-0000-0000-0000-000000000002')
+   '2026-01-01', '2026-12-31', ((CURRENT_DATE +  15) + TIME '23:59') AT TIME ZONE 'America/Santiago',
+   -- `open` y no `overdue`: vence en 15 dias. El estado anterior contradecia
+   -- a su propia fecha desde el momento en que la fecha dejo de estar en el
+   -- pasado, y se veia en pantalla como una obligacion vencida que no lo esta.
+   'open', 'd0000000-0000-0000-0000-000000000002')
 ON CONFLICT (id) DO NOTHING;
 
 -- Tareas asociadas a obligaciones
