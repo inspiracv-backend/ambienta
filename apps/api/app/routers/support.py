@@ -146,22 +146,93 @@ def create_conversation(
     return obj
 
 
-@router.get("/chatbot/{conversation_id}/messages", response_model=list[ChatbotMessageRead])
+@router.get(
+    "/chatbot/{conversation_id}/messages",
+    response_model=list[ChatbotMessageRead],
+    summary="Los mensajes de una conversacion, en orden",
+)
 def list_chatbot_messages(conversation_id: UUID, db: Session = Depends(get_tenant_db)):
+    """El hilo completo, del mas antiguo al mas nuevo.
+
+    ## El `ORDER BY` no es cosmetico: en un chat el orden ES la conversacion
+
+    Esta consulta no tenia ninguno. Sin `ORDER BY`, Postgres devuelve las filas
+    como quiera —en la practica, el orden fisico del heap— y **un `UPDATE`
+    mueve la fila al final**. O sea que el `PATCH` que existe justamente para
+    agregarle las citas a un mensaje lo mandaba al final del hilo: la respuesta
+    quedaba despues de la pregunta que vino tres turnos mas tarde.
+
+    Para el servicio de IA eso no es un detalle de presentacion. De aca sale el
+    contexto que se le manda al modelo, y un historial barajado le hace
+    contestar otra cosa — sin ningun error a la vista. Es el mismo defecto que
+    ya estaba documentado en `/catalog/norms` ("sin `ORDER BY` la paginacion se
+    rompe en silencio"), aca sobre el dato que da sentido al modulo.
+
+    Se desempata por `id` —`BIGSERIAL`, o sea orden de insercion— porque dos
+    mensajes escritos en la misma transaccion comparten `created_at`. Misma
+    leccion que los usuarios del seed.
+
+    Y una conversacion que no existe responde **404**, no una lista vacia: para
+    quien indexa, `[]` se lee como "esta conversacion no tiene mensajes", que es
+    una afirmacion distinta.
+    """
     from sqlalchemy import select
+
     from ..models.support import ChatbotMessage
-    stmt = select(ChatbotMessage).where(ChatbotMessage.conversation_id == conversation_id)
+
+    obtener_o_404(
+        crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation"
+    )
+    stmt = (
+        select(ChatbotMessage)
+        .where(ChatbotMessage.conversation_id == conversation_id)
+        .order_by(ChatbotMessage.created_at, ChatbotMessage.id)
+    )
     return list(db.scalars(stmt).all())
 
 
-@router.post("/chatbot/{conversation_id}/messages", response_model=ChatbotMessageRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/chatbot/{conversation_id}/messages",
+    response_model=ChatbotMessageRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Guardar un mensaje de la conversacion",
+)
 def create_chatbot_message(
     conversation_id: UUID,
     data: ChatbotMessageCreate,
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    """Escribe un turno del hilo, con sus citas si las tiene.
+
+    **La conversacion se comprueba antes de escribir**, y era el unico endpoint
+    anidado de este router que no lo hacia. Sin eso pasaban dos cosas, ninguna
+    con el codigo correcto:
+
+    | lo que se manda | antes | ahora |
+    |---|---|---|
+    | una conversacion inexistente | **500** — revienta la clave foranea | 404 |
+    | la conversacion de otra empresa | **201**, y la fila quedaba escrita | 404 |
+
+    El segundo es el conocido: **las claves foraneas no pasan por RLS**
+    (CLAUDE.md §4), asi que la restriccion solo exige que la fila exista, no que
+    sea de esta empresa. El mensaje quedaba con el `tenant_id` propio colgando
+    de un hilo ajeno — invisible para las dos empresas y contando en los
+    conteos de una.
+
+    El 500 es el que mas duele en una integracion: un servicio que reintenta
+    ante un 5xx reintenta para siempre algo que nunca va a funcionar.
+
+    `conversation_id` sale de la **ruta**, no del cuerpo. El esquema tambien lo
+    declara —lo pide el contrato— pero si los dos discrepan manda la URL: es
+    donde el recurso ya se comprobo.
+    """
     from ..models.support import ChatbotMessage
+
+    obtener_o_404(
+        crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation"
+    )
+
     msg_data = data.model_dump(exclude_unset=True)
     msg_data["conversation_id"] = conversation_id
     obj = ChatbotMessage(**msg_data, tenant_id=tenant_id)
