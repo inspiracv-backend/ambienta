@@ -72,6 +72,48 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
     "roles": "role.manage",
 }
 
+#: Lo que un Admin Global **si** puede escribir.
+#:
+#: CLAUDE.md §4 lo declara como regla no negociable —*"Admin Global NO puede
+#: editar contenido de tenants"*— y el spec de RBAC tiene su escenario: *"un
+#: administrador global intenta modificar una obligacion de una empresa; el
+#: sistema lo rechaza, aunque pueda ver la empresa para administrarla"*.
+#:
+#: **La regla existia escrita en dos lugares y no la aplicaba ninguno.** Medido
+#: el 10-sep: `users.tenant_id` es `NOT NULL`, asi que un `platform_admin`
+#: pertenece a una empresa y su sesion la declara — RLS lo deja escribir ahi
+#: como cualquiera.
+#:
+#: Estas dos raices son **su** superficie: dar de alta empresas y administrar
+#: cuentas. `catalog` no esta porque ya no pasa por esta guarda y sus
+#: escrituras exigen `exigir_admin_global` por su cuenta.
+#:
+#: **El limite es discutible y por eso vive en una constante.** Si manana el
+#: Admin Global tiene que poder tocar `facilities` para dar de alta una planta
+#: durante el onboarding, se agrega aca y se entiende por que.
+RAICES_DE_PLATAFORMA: frozenset[str] = frozenset({"tenants", "users"})
+
+#: Metodos que no escriben. Un Admin Global **lee** todo: necesita ver la
+#: empresa para administrarla, y el escenario del spec lo dice explicito.
+METODOS_DE_LECTURA: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def escritura_vedada_al_admin_global(camino: str, metodo: str) -> bool:
+    """Si esta operacion le esta prohibida al rol de plataforma.
+
+    Se compara por la **raiz de la ruta**, igual que `permiso_requerido`: la
+    plantilla (`/api/v1/obligations/{id}`), no la URL concreta.
+    """
+    if metodo.upper() in METODOS_DE_LECTURA:
+        return False
+    if not camino.startswith("/api/v1/"):
+        return False
+    partes = [p for p in camino[len("/api/v1/") :].split("/") if p]
+    if not partes:
+        return False
+    return partes[0] not in RAICES_DE_PLATAFORMA
+
+
 #: Rutas que **no** pasan por esta guarda, con el motivo.
 #:
 #: No es una lista de conveniencia: cada entrada es una decision, y el test

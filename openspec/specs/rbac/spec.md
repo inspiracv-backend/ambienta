@@ -1,5 +1,8 @@
-## ADDED Requirements
+# rbac Specification
 
+## Purpose
+TBD - created by archiving change sistema-actores-roles-rbac. Update Purpose after archive.
+## Requirements
 ### Requirement: El permiso efectivo combina rol y excepción individual
 El sistema SHALL resolver qué puede hacer un usuario uniendo los permisos de sus roles vigentes con las concesiones o denegaciones asignadas a él en particular, y SHALL hacer que una denegación explícita gane sobre cualquier concesión.
 
@@ -49,9 +52,19 @@ Que exista un contrato no basta: el acceso tiene que ser un permiso concreto, au
 - **WHEN** se revoca la concesión
 - **THEN** deja de ver los datos de inmediato
 
-#### Scenario: El sub-tenant es una empresa real
-- **WHEN** una consultora crea un cliente a partir de un contrato
-- **THEN** ese cliente queda aislado como cualquier otra empresa, no como una partición dentro de la consultora
+#### Scenario: El cliente de una consultora es una empresa real
+- **GIVEN** un contrato entre una consultora y su cliente
+- **THEN** el cliente es una empresa con su propio aislamiento, no una partición dentro de la consultora
+- **AND** la consultora sólo la alcanza declarándola explícitamente en cada petición
+
+**El escenario decía "una consultora crea un cliente" y eso se corrigió el
+10-sep.** Crear la empresa es hoy del Admin Global, y que la consultora pueda
+darla de alta ella misma es **RF-65 (#59)**, que sigue abierto — es un requisito
+propio y no un detalle de éste, que trata del *acceso*.
+
+Lo que sí se verificó, que es la garantía que importa: `parent_tenant_id` tiene
+**cero filas**, así que ningún cliente existe como partición; los dos tenants
+del sistema son empresas completas con su propia política de RLS.
 
 ### Requirement: Acceso de cliente invitado acotado y temporal
 El sistema SHALL permitir que un tercero acceda con credenciales generadas para él, limitadas a crear y seguir sus solicitudes, y SHALL hacer que esas credenciales caduquen.
@@ -70,3 +83,4 @@ El sistema SHALL impedir que el rol de plataforma modifique contenido de negocio
 #### Scenario: Intento de edición desde plataforma
 - **WHEN** un administrador global intenta modificar una obligación de una empresa
 - **THEN** el sistema lo rechaza, aunque pueda ver la empresa para administrarla
+

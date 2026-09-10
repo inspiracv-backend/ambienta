@@ -2,10 +2,18 @@
 
 **Medido el 10-sep-2026, requisito por requisito contra el código.**
 
+> **Actualizado esa misma tarde: dos ya se archivaron.** Se tomaron las
+> decisiones que los bloqueaban y se implementó lo que faltaba.
+> `integracion-clerk-auth` (Microsoft salió del requisito) y
+> `sistema-actores-roles-rbac` (se implementó el acotamiento por instalación y
+> la guarda del Admin Global). `openspec/specs/` tiene por primera vez
+> `autenticacion` y `rbac`: **14 requisitos que describen lo que el sistema
+> hace**. Quedan siete.
+
 ## El resultado, primero
 
-**Cero de nueve.** Y no por burocracia: cada uno tiene al menos un requisito que
-el sistema no cumple.
+**Cero de nueve** el día de la auditoría. Y no por burocracia: cada uno tenía al
+menos un requisito que el sistema no cumplía.
 
 Esto contradice lo que decía el plan de cierre esa misma mañana —que siete se
 podían archivar ya— y esa afirmación era mía. Salió de mirar la tabla de estado
@@ -15,8 +23,8 @@ existe para arreglar**, cometido al planificar el bloque F.
 | Cambio | Reqs | Veredicto | Qué lo bloquea |
 |---|---|---|---|
 | `credenciales-de-acceso` | 3 | **Casi** | Los tres están implementados; **un escenario describe otro flujo** del que se construyó |
-| `sistema-actores-roles-rbac` | 6 | No — 2 | El acotamiento de un rol a una planta **no se aplica**; no hay guarda que impida al Admin Global escribir datos de una empresa |
-| `integracion-clerk-auth` | 8 | No — 1 | **Microsoft SSO**, que está fuera de la 1.0 por decisión |
+| ~~`sistema-actores-roles-rbac`~~ | 6 | **Archivado** | Se implementó el acotamiento (`app/alcance.py`) y la guarda del Admin Global |
+| ~~`integracion-clerk-auth`~~ | 8 | **Archivado** | Microsoft salió del requisito; los 8 verificados contra el código |
 | `acceso-por-sso` | 3 | No — 1 | El mismo requisito de Microsoft |
 | `ingesta-normativa-bcn` | 4 | No — 2 | Las relaciones entre normas y la bitácora de sincronización: **tabla, modelo y schema existen; nadie escribe y nadie expone** |
 | `matrices-ambientales-iso-14001` | 7 | No — 1 | La bandera de reversibilidad no existe — probablemente sobra el requisito |

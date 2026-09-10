@@ -206,7 +206,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Auth — Microsoft SSO | **Sin configurar.** Exige registro en Entra ID, y ahi el tipo de cuenta tiene que ser *cualquier directorio + cuentas personales*: con "solo este directorio" ningun cliente puede entrar |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **85 %.** 33 de 39 acciones llegan a la base. **El 74 % anterior estaba mal en las dos direcciones**: decia 29 y eran 30 —`users.updatePermisos` ya estaba conectada desde que se hizo la pantalla de permisos— y tres de las "bloqueadas" habian dejado de estarlo al cerrar otros bloques, sin que nadie releyera la tabla. Las 6 que quedan tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
-| RBAC | **Funciona por permiso; NO por alcance.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, rol `servicio_lectura`, y **la pantalla existe** —`/usuarios` abre `PermisosUsuarioModal` y `RolDePermisosModal`, que llaman a `GET /permissions` y a `PUT\|DELETE /users/{id}/permissions/{codigo}`—. La linea "falta la pantalla de administracion" sobrevivio anos a la pantalla que la desmiente. **Lo que NO funciona es acotar un rol a una planta** — ver abajo |
+| RBAC | **Completo desde el 10-sep, alcance incluido.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers, rol `servicio_lectura`, pantalla en `/usuarios`, **acotamiento por instalacion aplicado** (`app/alcance.py`) y **el Admin Global ya no edita contenido de una empresa**. Los dos ultimos eran reglas escritas en este archivo y en el spec que no aplicaba nadie. Es el primer modulo cuyo spec vivo existe: `openspec/specs/rbac/spec.md`, 6 requisitos |
 | Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas sincronizar-bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
@@ -228,29 +228,49 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | worker | **No existe como servicio, a proposito.** El trabajo en segundo plano vive en `apps/api/app/tareas/` y lo dispara cron. Ver `apps/worker/README.md` |
 | ai-service | Sin implementar |
 
-**Acotar un rol a una planta no acota nada, y el sistema dice que si.**
-Medido el 10-sep por la API. `user_roles.facility_id` y `department_id` existen,
-`alcance_del_usuario()` los resuelve, y `/me` los devuelve en `instalaciones`,
-`departamentos` y `acotado` — o sea que la pantalla puede mostrar "acotado a
-Planta Calama" con toda confianza.
+**Acotar un rol a una planta ya acota, y hasta el 10-sep no acotaba nada.**
+`user_roles.facility_id` y `department_id` existen desde el principio,
+`alcance_del_usuario()` los resuelve y `/me` los devuelve — o sea que la
+pantalla mostraba "acotado a Planta Calama" con toda confianza. Y esa funcion
+tenia **un solo llamador: `/me`, que lo informaba**. Medido por la API con el rol
+acotado a una planta: devolvia **172 filas de las otras dos**.
 
-**`alcance_del_usuario()` tiene UN solo llamador: `/me`.** Nada filtra por el.
-Con el rol acotado a una sola planta:
+No era una fuga entre empresas —RLS es la unica barrera entre tenants y sigue
+firme— pero el acotamiento *dentro* de la empresa era decorativo, y eso se
+promete en una venta y se contesta en una auditoria de accesos.
 
-| lo que devuelve `GET /compliance/article-compliance` | filas |
-|---|---|
-| de su planta | 92 |
-| **de las otras dos** | **172** |
+**Se aplica en `CRUDBase._visibles()`**, junto al filtro de borrado logico y por
+el mismo motivo que dejo escrito ese archivo: los recursos de la API son
+instancias directas de `CRUDBase`, asi que repartir el filtro por veinte routers
+serian veinte lugares donde olvidarlo — y olvidarlo no falla, devuelve de mas.
+Ver `app/alcance.py`. Tres reglas que conviene no invertir:
 
-**No es una fuga entre empresas** —RLS sigue siendo la unica barrera y sigue
-firme—: es que el acotamiento *dentro* de la empresa es decorativo. El dano es
-que se puede prometer en una venta ("el encargado de Calama solo ve Calama") y
-en una auditoria de accesos.
+1. **Sin acotamiento no se filtra nada.** Vacio es "toda la empresa", no
+   "ninguna planta" — confundirlo deja a los administradores viendo una pantalla
+   en blanco, que es lo que el docstring de `/me` ya advertia.
+2. **Una fila sin instalacion se ve igual.** `facility_id IS NULL` no es "de
+   otra planta": **36 de las 41 obligaciones del seed** son de la empresa
+   entera, y esconderlas le ocultaria a un encargado de planta lo que tambien le
+   aplica.
+3. **Escribir fuera del alcance responde 403.** Filtrar solo la lectura seria de
+   las guardas que hacen creer que protegen: una fila creada en la planta ajena
+   existe, cuenta en sus totales y es invisible para quien la escribio. Es la
+   leccion del `PATCH` que se saltaba la comprobacion de las etapas del CRM.
 
-Es el requisito "El alcance de un rol puede acotarse" del cambio
-`sistema-actores-roles-rbac`, y por eso ese cambio **no se puede archivar**.
-`test_alcance_de_rol.py` fija el estado real y **debe fallar** el dia que se
-implemente — igual que las pruebas del catalogo RETC incompleto.
+**Y el Admin Global ya no edita contenido de una empresa.** §4 lo declara entre
+las reglas no negociables y el spec de RBAC tiene su escenario, y **no lo
+aplicaba nada**: `users.tenant_id` es NOT NULL, asi que un `platform_admin`
+pertenece a una empresa y su sesion la declara. La guarda vive en
+`exigir_permiso_de_la_ruta` y el limite en una constante,
+`permisos_de_rutas.RAICES_DE_PLATAFORMA` = `{tenants, users}`: dar de alta
+empresas y administrar cuentas. Responde **403 con codigo propio**
+(`plataforma_no_edita_contenido`) y no `permiso_insuficiente` — no le falta un
+permiso que alguien pueda concederle.
+
+**Ojo con probarlo:** las dos guardas viven detras de
+`if not clerk_configured: return user`, y el resto de la suite corre en modo
+desarrollo. Sin `test_admin_global_no_edita.py`, que simula Clerk configurado,
+la guarda estaria escrita, en verde y sin ejecutarse nunca.
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
 leerlo con cuidado porque son dos estados distintos con arreglos opuestos:

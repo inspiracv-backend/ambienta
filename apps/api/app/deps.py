@@ -571,6 +571,14 @@ def exigir_admin_global(
 
 CODIGO_SIN_PERMISO = "permiso_insuficiente"
 
+#: El rechazo al Admin Global que intenta editar contenido de una empresa.
+#:
+#: **Codigo propio y no `permiso_insuficiente`.** No le falta un permiso que
+#: alguien pueda concederle: es que ese rol no hace eso. Con el mismo codigo, la
+#: pantalla mandaria a pedirle un permiso a un administrador que no lo va a
+#: destrabar.
+CODIGO_PLATAFORMA_NO_EDITA = "plataforma_no_edita_contenido"
+
 
 def exigir_permiso(codigo: str):
     """Guarda de permiso para un endpoint (RF-08).
@@ -669,7 +677,10 @@ def exigir_permiso_de_la_ruta(
     if not get_settings().clerk_configured:
         return user
 
-    from .permisos_de_rutas import permiso_requerido
+    from .permisos_de_rutas import (
+        escritura_vedada_al_admin_global,
+        permiso_requerido,
+    )
 
     ruta = request.scope.get("route")
     camino = getattr(ruta, "path", None) or request.url.path
@@ -680,6 +691,33 @@ def exigir_permiso_de_la_ruta(
     from .services.permisos import tiene_permiso
 
     fila = db.scalar(select(User).where(User.clerk_id == user.user_id))
+
+    # **El Admin Global mira y no toca** (CLAUDE.md §4). La regla estaba escrita
+    # ahi y en el spec de RBAC, y no la aplicaba nadie: `users.tenant_id` es NOT
+    # NULL, asi que un `platform_admin` pertenece a una empresa y su sesion la
+    # declara — RLS lo deja escribir como a cualquiera.
+    #
+    # Va **antes** de comprobar el permiso porque no es lo mismo: no le falta un
+    # permiso que alguien pueda concederle, es que ese rol no edita contenido de
+    # un cliente. El mensaje lo dice, en vez de mandarlo a pedir un permiso que
+    # no lo va a destrabar.
+    if (
+        fila is not None
+        and fila.user_type == "platform_admin"
+        and escritura_vedada_al_admin_global(camino, request.method)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "codigo": CODIGO_PLATAFORMA_NO_EDITA,
+                "mensaje": (
+                    "El Admin Global administra empresas y cuentas; no edita el "
+                    "contenido de una empresa."
+                ),
+                "permiso": codigo,
+            },
+        )
+
     if fila is None or not tiene_permiso(db, fila.id, codigo):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
