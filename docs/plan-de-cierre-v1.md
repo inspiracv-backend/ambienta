@@ -141,30 +141,36 @@ Las tres son cortas. Ninguna necesita que yo esté presente.
 Ver §0. Tres conectadas, una que ya estaba, una de regalo, y dos que resultaron
 estar bloqueadas.
 
-### Tanda 2 — el bloque F, y ya no va último
+### Tanda 2 — el bloque F: **auditado el 10-sep, y no se puede archivar nada**
 
-**El argumento para dejarlo al final se cayó solo.** Decía: archivar antes de
-terminar D y B3 significa archivar dos veces. Sigue valiendo para los cambios
-que esos dos bloques van a tocar, y **no** para el resto — y como D y B3 están
-los dos bloqueados en decisiones de terceros, esperar significa no hacerlo.
+**Esto también estaba mal en la versión anterior de este plan, y era mío.** Decía
+que siete de los nueve cambios se podían archivar ya. Salió de mirar la tabla de
+estado del proyecto en vez de los deltas.
 
-Así que se parte en dos:
+Auditados requisito por requisito contra el código: **cero de nueve**. Cada uno
+tiene al menos un requisito que el sistema no cumple. El detalle completo está en
+[`auditoria-de-los-9-cambios.md`](auditoria-de-los-9-cambios.md); lo esencial:
 
-| Ahora | Cuando cierre B3 y D |
+| Cambio | Qué lo bloquea |
 |---|---|
-| `integracion-clerk-auth`, `acceso-por-sso`, `credenciales-de-acceso`, `ingesta-normativa-bcn`, `matrices-ambientales-iso-14001`, `escrituras-de-la-interfaz`, `sistema-actores-roles-rbac` | `hallazgos-auditoria-no-conformidades` (lo toca B3), `modelo-de-tareas-del-plan-de-accion` (depende de #57) |
+| `credenciales-de-acceso` | **Casi**: los tres requisitos están; un escenario describe otro flujo del que se construyó |
+| `sistema-actores-roles-rbac` | El acotamiento de un rol a una planta **no se aplica** |
+| `integracion-clerk-auth` · `acceso-por-sso` | **Microsoft SSO**, que este mismo plan pone fuera de la 1.0 |
+| `ingesta-normativa-bcn` | Relaciones entre normas y bitácora: tabla y modelo existen, **nadie escribe** |
+| `matrices-ambientales-iso-14001` | Una bandera de reversibilidad que probablemente sobra |
+| `escrituras-de-la-interfaz` | Seis campos editables que no se pueden guardar |
+| `hallazgos-…` · `modelo-de-tareas-…` | #57 y #169 |
 
-**Y no es mecánico.** Los contadores de tareas mienten en las dos direcciones,
-así que cada delta hay que verificarlo contra el código antes de fundirlo:
+**Y de paso apareció el hueco que importa por sí mismo**, más allá de archivar:
+`user_roles.facility_id` existe, `alcance_del_usuario()` lo resuelve y `/me` lo
+informa — y **ninguna consulta de negocio filtra por él**. Medido: con el rol
+acotado a una planta, la API devuelve **172 filas de las otras dos**. No es una
+fuga entre empresas —RLS sigue firme— pero se puede prometer en una venta y
+contestar mal en una auditoría de accesos.
 
-| Cambio | Dice | Realidad |
-|---|---|---|
-| `ingesta-normativa-bcn` | 0/36 | El catálogo se alimenta de la BCN desde el 26-ago |
-| `matrices-ambientales-iso-14001` | 18/32 | La épica #28 se cerró el 6-sep |
-| `integracion-clerk-auth` | 100/116 | Auth funciona de punta a punta desde el 10-ago |
-
-Fundir un delta confiando en su checkbox dejaría `specs/` describiendo un
-sistema que no existe — que es exactamente lo que este bloque viene a arreglar.
+Lo que destraba, en orden: decidir sobre **Microsoft SSO** (destraba dos de una),
+confirmar el **escenario de la invitación** (destraba el tercero), y decidir si
+el **acotamiento por planta** entra en la 1.0.
 
 ### Tanda 3 — apenas llegue #57
 

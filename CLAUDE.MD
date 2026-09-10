@@ -206,7 +206,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Auth — Microsoft SSO | **Sin configurar.** Exige registro en Entra ID, y ahi el tipo de cuenta tiene que ser *cualquier directorio + cuentas personales*: con "solo este directorio" ningun cliente puede entrar |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **85 %.** 33 de 39 acciones llegan a la base. **El 74 % anterior estaba mal en las dos direcciones**: decia 29 y eran 30 —`users.updatePermisos` ya estaba conectada desde que se hizo la pantalla de permisos— y tres de las "bloqueadas" habian dejado de estarlo al cerrar otros bloques, sin que nadie releyera la tabla. Las 6 que quedan tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
-| RBAC | **Completo, pantalla incluida.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. **"Falta la pantalla de administracion" era falso**: `/usuarios` abre `PermisosUsuarioModal` y `RolDePermisosModal`, que llaman a `GET /permissions` y a `PUT|DELETE /users/{id}/permissions/{codigo}` con los mismos codigos que verifica la guarda. Esta linea sobrevivio a la pantalla que la desmiente |
+| RBAC | **Funciona por permiso; NO por alcance.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, rol `servicio_lectura`, y **la pantalla existe** —`/usuarios` abre `PermisosUsuarioModal` y `RolDePermisosModal`, que llaman a `GET /permissions` y a `PUT\|DELETE /users/{id}/permissions/{codigo}`—. La linea "falta la pantalla de administracion" sobrevivio anos a la pantalla que la desmiente. **Lo que NO funciona es acotar un rol a una planta** — ver abajo |
 | Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas sincronizar-bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
@@ -227,6 +227,30 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | CRM comercial | **Usable desde el 3-sep, y hasta ese dia no lo era.** La API tiene **28 operaciones** y la interfaz llamaba a **dos** —`/crm/pipeline` y mover de etapa—, en una sola pantalla: el kanban. Se podia mirar el tablero y arrastrar una tarjeta, y nada mas — no dar de alta una empresa, ni un contacto, ni una oportunidad, ni anotar una llamada, ni promover un trato ganado. O sea que las tarjetas del kanban solo podian existir si alguien las creaba por fuera del sistema. Ahora hay cartera (`/crm/empresas`), ficha por empresa con contactos, oportunidades, linea de tiempo, responsables, retiro y promocion a contrato, y configuracion de etapas (`/crm/etapas`). **Y al construirlo aparecio que casi nada del modulo funcionaba**: 26 llamadas con la firma equivocada dejaban en 500 todo lo direccionado por id, incluido mover una tarjeta del kanban — ver abajo |
 | worker | **No existe como servicio, a proposito.** El trabajo en segundo plano vive en `apps/api/app/tareas/` y lo dispara cron. Ver `apps/worker/README.md` |
 | ai-service | Sin implementar |
+
+**Acotar un rol a una planta no acota nada, y el sistema dice que si.**
+Medido el 10-sep por la API. `user_roles.facility_id` y `department_id` existen,
+`alcance_del_usuario()` los resuelve, y `/me` los devuelve en `instalaciones`,
+`departamentos` y `acotado` — o sea que la pantalla puede mostrar "acotado a
+Planta Calama" con toda confianza.
+
+**`alcance_del_usuario()` tiene UN solo llamador: `/me`.** Nada filtra por el.
+Con el rol acotado a una sola planta:
+
+| lo que devuelve `GET /compliance/article-compliance` | filas |
+|---|---|
+| de su planta | 92 |
+| **de las otras dos** | **172** |
+
+**No es una fuga entre empresas** —RLS sigue siendo la unica barrera y sigue
+firme—: es que el acotamiento *dentro* de la empresa es decorativo. El dano es
+que se puede prometer en una venta ("el encargado de Calama solo ve Calama") y
+en una auditoria de accesos.
+
+Es el requisito "El alcance de un rol puede acotarse" del cambio
+`sistema-actores-roles-rbac`, y por eso ese cambio **no se puede archivar**.
+`test_alcance_de_rol.py` fija el estado real y **debe fallar** el dia que se
+implemente — igual que las pruebas del catalogo RETC incompleto.
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
 leerlo con cuidado porque son dos estados distintos con arreglos opuestos:
