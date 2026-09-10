@@ -35,7 +35,13 @@ export function SubTenantsListTable({ subTenants }: SubTenantsListTableProps) {
                 </Link>
               </td>
               <td className="px-4 py-3 text-slate-500">{s.rut}</td>
-              <td className="px-4 py-3 text-slate-500">{s.contactos.length}</td>
+              {/* **«—» y no «0».** La cartera del gestor no trae los contactos
+                  de cada cliente: no hay endpoint que los devuelva desde este
+                  lado. Un `0` afirmaría que ese cliente no tiene a nadie con
+                  quien hablar, que es una cosa distinta de «no lo sabemos». */}
+              <td className="px-4 py-3 text-slate-500">
+                {s.contactos.length > 0 ? s.contactos.length : '—'}
+              </td>
               <td className="px-4 py-3">
                 <StatusBadge status={s.estado === 'activo' ? 'cumple' : 'no_cumple'} />
               </td>

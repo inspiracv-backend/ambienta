@@ -87,6 +87,10 @@ class SinContratoVigente(ErrorDeGestor):
 class ClienteDelGestor:
     tenant_id: str
     legal_name: str
+    #: El RUT del cliente. **La pantalla del gestor tiene una columna para el**,
+    #: y sin este campo salia en blanco — que se lee como "esta empresa no tiene
+    #: RUT" y no como "esta lista no lo trae".
+    rut: str | None
     contract_id: str
     contract_number: str
     contract_status: str
@@ -130,8 +134,10 @@ def cartera(db: Session, manager_id: UUID) -> list[ClienteDelGestor]:
     if not contratos:
         return []
 
-    nombres = {
-        t.id: t.legal_name
+    # Nombre y RUT en la misma consulta: son dos columnas de la misma fila y
+    # pedirlas por separado seria un viaje mas por lo mismo.
+    empresas = {
+        t.id: t
         for t in db.scalars(
             select(Tenant).where(
                 Tenant.id.in_([c.client_tenant_id for c in contratos])
@@ -143,7 +149,18 @@ def cartera(db: Session, manager_id: UUID) -> list[ClienteDelGestor]:
     return [
         ClienteDelGestor(
             tenant_id=str(c.client_tenant_id),
-            legal_name=nombres.get(c.client_tenant_id, "(empresa retirada)"),
+            legal_name=(
+                empresas[c.client_tenant_id].legal_name
+                if c.client_tenant_id in empresas
+                else "(empresa retirada)"
+            ),
+            # `rut_tax_id`, no `rut`: la columna se llama asi porque el modelo
+            # sirve a mas de un pais y en otros no es un RUT.
+            rut=(
+                empresas[c.client_tenant_id].rut_tax_id
+                if c.client_tenant_id in empresas
+                else None
+            ),
             contract_id=str(c.id),
             contract_number=c.contract_number,
             contract_status=c.status,

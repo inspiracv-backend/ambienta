@@ -9,6 +9,9 @@ class ClienteDeLaCartera(BaseModel):
 
     tenant_id: str
     legal_name: str
+    #: `None` si la empresa fue retirada. La pantalla lo muestra como
+    #: desconocido en vez de como vacio.
+    rut: str | None
     contract_id: str
     contract_number: str
     contract_status: str

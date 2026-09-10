@@ -124,6 +124,13 @@ class TestLaCartera:
         assert suyo is not None, f"no esta su cliente: {cartera}"
         assert suyo["legal_name"], "el nombre del cliente no se resolvio"
         assert suyo["puede_actuar"] is True
+        # **El RUT tambien.** La tabla de clientes del gestor tiene una columna
+        # para el, y sin este campo salia en blanco — que se lee como "esta
+        # empresa no tiene RUT", no como "esta lista no lo trae".
+        assert suyo["rut"], (
+            "la cartera no devuelve el RUT del cliente. Ojo: la columna del "
+            "modelo es `rut_tax_id`, no `rut`."
+        )
 
     def test_una_empresa_normal_no_tiene_cartera(self, cliente_http) -> None:
         """403 y no una lista vacia.
