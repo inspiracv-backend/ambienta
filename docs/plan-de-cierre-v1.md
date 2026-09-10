@@ -1,7 +1,9 @@
 # Plan de cierre de la versión 1.0
 
-**Actualizado el 9-sep-2026.** La versión anterior era del 7-sep y quedó
-desactualizada en cuatro puntos, marcados abajo.
+**Actualizado el 10-sep-2026.** La tanda 1 se ejecutó, y al hacerlo **este
+mismo plan resultó tener tres errores**, dos de ellos míos. Están corregidos
+abajo y dichos, no borrados: un plan que se corrige en silencio es la misma
+clase de documento que este archivo existe para evitar.
 
 ## Qué es esto, y qué no
 
@@ -16,13 +18,31 @@ sólo existe en la cabeza de alguien.
 
 ---
 
+## 0. Qué pasó con la tanda 1 (10-sep)
+
+| Ítem | Estado | Lo que apareció |
+|---|---|---|
+| A · `legal-matrix.addNorm` | **Hecho** | Conectar sólo la escritura era medio viaje: `/catalog/norms` no trae la normativa propia, así que la RCA desaparecía al recargar. Y faltaba un endpoint: los considerandos se escribían y **ninguna respuesta devolvía el texto** |
+| B · `gestores.addContrato` | **Hecho** | El RUT del cliente no venía en la cartera y la tabla lo mostraba en blanco; los contactos salían como `0` |
+| C · Pantalla de RBAC | **Ya estaba hecha** | `/usuarios` la abre desde hace tiempo. Tres documentos —éste incluido— decían que faltaba |
+| — · `departamentos.updateTipo` | **Hecho** (no estaba en el plan) | `process_type` se podía **leer y no escribir**: la API respondía 200 y descartaba el campo |
+| F · RF-109 | **Estaba mal clasificado.** Va a bloqueado | El proposal archivado de #73 ya lo decía: *«es una segunda barrera sobre un modelo que hoy no la tiene en ninguna tabla, y merecería su propia decisión»* |
+| D · #72 captura de correos | **Estaba mal clasificado.** Va a bloqueado | No hay análisis funcional para RF-107, y capturar correo entrante necesita un dominio con MX — o sea infraestructura, y desplegar está fuera de la 1.0 |
+
+**Y un defecto de aislamiento que apareció de paso:** `olvidar()` —la función que
+deja una conexión sin empresa declarada— **no hacía nada**. Su `set_config` corría
+en una transacción sin confirmar y el `ROLLBACK` del pool lo revertía. Medido: con
+`olvidar()` y sin `olvidar()` la conexión siguiente veía exactamente lo mismo. La
+prueba que lo cubría usaba un engine propio, así que nunca pasaba por el pool.
+
 ## 1. Lo que cambió desde el 7-sep
 
 | Lo que decía | Lo que es hoy |
 |---|---|
 | "Queda D y F" | El **bloque E está cerrado** (#73–76) y **D está a medias**: el modelo y la API de normativa propia se cerraron el 8-sep |
-| Suite de API: 1214 (medida el 4-sep) | **1338 en verde**, 12 saltadas — medido el 8-sep |
-| 10 escrituras del frontend bloqueadas | **Tres ya no lo están.** Ver §2 |
+| Suite de API: 1214 (medida el 4-sep) | **1352 en verde**, 12 saltadas — medido el 10-sep |
+| Frontend: 653 (7-sep) | **700 en verde**, `tsc --noEmit` limpio — 10-sep |
+| 10 escrituras del frontend bloqueadas | **Cuatro ya no lo están**, y una nunca lo estuvo. Ver §2 |
 | — | El AI Service tiene documento de integración y contrato regenerado (9-sep) |
 
 ### Tres escrituras que el documento cree bloqueadas y ya no lo están
@@ -37,12 +57,13 @@ repite: el trabajo está hecho y nadie volvió a mirar.
 | `gestores.addContrato` | "la sub-tenancy no existe" | **El bloque C la cerró.** `POST /contracts/` y `/gestor/clientes` existen |
 | `users.updatePermisos` | "falta el endpoint que administre las excepciones por usuario" | **El endpoint existe:** `GET`, `PUT` y `DELETE /users/{id}/permissions[/{codigo}]`, con `role.manage` |
 
-O sea que las escrituras conectadas no son 29 de 39 con 10 bloqueadas: son **29
-de 39 con 3 listas para conectar y 7 realmente bloqueadas**.
+**Y `users.updatePermisos` nunca estuvo bloqueada**: la pantalla existe y la
+llama. O sea que el conteo era **30 de 39, no 29** — un número afirmado que
+nadie volvió a medir, citado después como un hecho.
 
-Y la tercera arrastra otra cosa: **la "pantalla de administración de RBAC" que
-figura como faltante es sólo pantalla.** La API está completa y probada. Mismo
-patrón que `bcn.sincronizar()` y `control_documental.py`.
+Con las tres conectadas el 10-sep más `departamentos.updateTipo`: **33 de 39**,
+6 bloqueadas. Ese número no salió de correr el script otra vez, salió de revisar
+las diez una por una contra el código.
 
 ---
 
@@ -50,15 +71,23 @@ patrón que `bcn.sincronizar()` y `control_documental.py`.
 
 ### 2.1 Listo para hacer — no depende de nadie
 
-| # | Qué | Tamaño |
-|---|---|---|
-| A | Conectar `legal-matrix.addNorm` a `/compliance/normativa-propia` | chico |
-| B | Conectar `gestores.addContrato` a `POST /contracts/` | chico |
-| C | Pantalla de administración de RBAC + `users.updatePermisos` | mediano |
-| D | **#72 / RF-107** — captura de correos entrantes al registro | mediano |
-| E | **Bloque F** — archivar los 9 cambios OpenSpec y recorrer el sistema | mediano |
-| F | **RF-109** — permisos de lectura por documento | chico |
-| G | **#52** — portar `01_schema.sql` a migración versionada | mediano, riesgoso |
+**Queda uno.** La tanda 1 se ejecutó el 10-sep y lo demás salió de esta lista,
+en las dos direcciones: tres se hicieron, uno ya estaba hecho, y **dos estaban
+mal clasificados y se fueron a §2.2**.
+
+| # | Qué | Tamaño | Estado |
+|---|---|---|---|
+| A | Conectar `legal-matrix.addNorm` | chico | ✅ 10-sep |
+| B | Conectar `gestores.addContrato` | chico | ✅ 10-sep |
+| C | Pantalla de administración de RBAC | mediano | ✅ **ya estaba hecha** |
+| — | `departamentos.updateTipo` | chico | ✅ 10-sep, no estaba en el plan |
+| **E** | **Bloque F** — archivar los 9 cambios OpenSpec y recorrer el sistema | mediano | **lo único que queda** |
+| G | **#52** — portar `01_schema.sql` a migración versionada | mediano, riesgoso | va después de B3, o no va |
+
+**Y eso cambia el orden de todo el plan.** El bloque F estaba puesto último con
+el argumento de que archivar antes de terminar D y B3 significa archivar dos
+veces. Sigue siendo cierto **para los cambios que D y B3 van a tocar** — y no
+para los otros siete, que están estables desde hace semanas. Ver §3.
 
 ### 2.2 Bloqueado en una decisión de negocio
 
@@ -70,6 +99,8 @@ patrón que `bcn.sincronizar()` y `control_documental.py`.
 | K | Confirmar el catálogo RETC | Los 21 sistemas y su periodicidad. Hoy: 12 sembrados, todos `active = false` |
 | L | Clasificar normativa por sector | **17 de los 21 sectores CIIU están en cero**. No es decisión, es trabajo humano |
 | M | Con qué identidad escribe el AI Service | Token de la persona, o cuenta de servicio con `chatbot.use` |
+| **N** | **RF-109** — permisos de lectura por documento | **Una decisión de modelo.** El proposal archivado de #73 ya lo advertía: *«es una segunda barrera sobre un modelo que hoy no la tiene en ninguna tabla»*. Estaba mal clasificado como «chico» en la versión anterior de este plan |
+| **O** | **#72 / RF-107** — captura de correos entrantes | **Infraestructura y diseño.** No hay análisis funcional para RF-107, y recibir correo exige un dominio con MX — o sea desplegar, que está fuera de la 1.0. Además hay que decidir *cómo* un correo se ata a un registro: dirección con sufijo, token en el asunto, hilo |
 
 ### 2.3 Fuera de la 1.0, a propósito
 
@@ -105,50 +136,26 @@ Por eso el plan empieza pidiendo, no construyendo.
 
 Las tres son cortas. Ninguna necesita que yo esté presente.
 
-### Tanda 1 — mientras tanto, lo que no espera a nadie
+### Tanda 1 — ✅ ejecutada el 10-sep
 
-En este orden, porque va de lo que más desbloquea a lo que menos:
+Ver §0. Tres conectadas, una que ya estaba, una de regalo, y dos que resultaron
+estar bloqueadas.
 
-| Orden | Qué | Por qué acá |
-|---|---|---|
-| 1 | **A + B** — las dos escrituras desbloqueadas | Son chicas y cierran una brecha que el documento reporta mal. Empezar por acá deja el conteo verdadero |
-| 2 | **C** — RBAC: pantalla + `users.updatePermisos` | La API está completa. Es la última pieza de un módulo que hoy figura como "falta la pantalla" desde hace semanas |
-| 3 | **F** — RF-109, permisos por documento | Chico, y cierra la épica #31 salvo por #72 |
-| 4 | **D** — #72, captura de correos | El más grande de la tanda. `/historial` ya lo declara como `fuentes_pendientes`, así que hoy el sistema **dice** que le falta |
+### Tanda 2 — el bloque F, y ya no va último
 
-**No entra en esta tanda: #52** (portar el esquema a migración). Es mecánico
-pero toca la base entera, y hacerlo mientras B3 va a agregar tablas es pedir un
-conflicto. Va después de B3 o no va en la 1.0 — funcionalmente no cambia nada.
+**El argumento para dejarlo al final se cayó solo.** Decía: archivar antes de
+terminar D y B3 significa archivar dos veces. Sigue valiendo para los cambios
+que esos dos bloques van a tocar, y **no** para el resto — y como D y B3 están
+los dos bloqueados en decisiones de terceros, esperar significa no hacerlo.
 
-### Tanda 2 — apenas llegue #57
+Así que se parte en dos:
 
-**Bloque B3** (#38, #43, #40): las 5 etapas con responsable, la migración de
-`improvement_stages` al modelo definitivo, y el aviso por correo al responsable
-de cada etapa con fecha límite.
+| Ahora | Cuando cierre B3 y D |
+|---|---|
+| `integracion-clerk-auth`, `acceso-por-sso`, `credenciales-de-acceso`, `ingesta-normativa-bcn`, `matrices-ambientales-iso-14001`, `escrituras-de-la-interfaz`, `sistema-actores-roles-rbac` | `hallazgos-auditoria-no-conformidades` (lo toca B3), `modelo-de-tareas-del-plan-de-accion` (depende de #57) |
 
-Es el más grande de los que quedan. La migración de JSONB a tabla tipada tiene
-filas escritas, y el frontend traduce los tres valores actuales en
-`CRITICIDAD_POR_SEVERITY`: hay que mover los dos lados a la vez.
-
-### Tanda 3 — apenas lleguen las RCA
-
-**Bloque D**, el parseo. Con 2–3 documentos reales delante, no antes: una RCA
-tiene una estructura que hay que ver para poder parsearla, y escribir el parser
-contra una estructura imaginada es cómo se produce un parser que anda con el
-ejemplo y con nada más.
-
-### Tanda 4 — al final, y sólo al final
-
-**Bloque F.** Dos partes:
-
-1. **Archivar los 9 cambios OpenSpec.** Son 9 deltas de capacidad para fundir en
-   `openspec/specs/`, que hoy tiene 5 specs vivos y 9 cambios archivados.
-2. **Recorrer el sistema entero** con el criterio de §4.
-
-Va último por una razón concreta: **archivar specs antes de terminar D y B3
-significa archivarlos dos veces.** Y no es sólo mecánico — los contadores de
-tareas mienten en las dos direcciones y hay que verificar cada delta contra el
-código antes de fundirlo:
+**Y no es mecánico.** Los contadores de tareas mienten en las dos direcciones,
+así que cada delta hay que verificarlo contra el código antes de fundirlo:
 
 | Cambio | Dice | Realidad |
 |---|---|---|
@@ -156,8 +163,25 @@ código antes de fundirlo:
 | `matrices-ambientales-iso-14001` | 18/32 | La épica #28 se cerró el 6-sep |
 | `integracion-clerk-auth` | 100/116 | Auth funciona de punta a punta desde el 10-ago |
 
-Fundir un delta confiando en su checkbox dejaría `specs/` describiendo un sistema
-que no existe — que es exactamente lo que el bloque F viene a arreglar.
+Fundir un delta confiando en su checkbox dejaría `specs/` describiendo un
+sistema que no existe — que es exactamente lo que este bloque viene a arreglar.
+
+### Tanda 3 — apenas llegue #57
+
+**Bloque B3** (#38, #43, #40): las 5 etapas con responsable, la migración de
+`improvement_stages` al modelo definitivo, y el aviso por correo al responsable
+de cada etapa con fecha límite.
+
+La migración de JSONB a tabla tipada tiene filas escritas, y el frontend traduce
+los tres valores actuales en `CRITICIDAD_POR_SEVERITY`: **hay que mover los dos
+lados a la vez.**
+
+### Tanda 4 — apenas lleguen las RCA
+
+**Bloque D**, el parseo. Con documentos reales delante y no antes: una RCA tiene
+una estructura que hay que ver para poder parsearla, y escribirlo contra una
+estructura supuesta es cómo se produce un parser que anda con el ejemplo y con
+nada más.
 
 ### En paralelo, sin cruzarse
 
@@ -198,9 +222,7 @@ cd apps/web && npx vitest run
 bash db/run.sh --with-tests
 ```
 
-**Medido el 8-sep:** 1338 pruebas de API en verde, 12 saltadas (las que salen a
-internet). El auditor: 26 endpoints sin llamador, 9 funciones de servicio sin
+**Medido el 10-sep:** **1352** pruebas de API en verde, 12 saltadas (las que
+salen a internet); **700** del frontend sobre 65 archivos; `tsc --noEmit`
+limpio. El auditor: 27 endpoints sin llamador, 9 funciones de servicio sin
 llamador, 22 importaciones de datos de ejemplo en el frontend.
-
-**Del 7-sep, sin volver a medir:** 653 pruebas del frontend en verde sobre 58
-archivos, `tsc --noEmit` limpio.
