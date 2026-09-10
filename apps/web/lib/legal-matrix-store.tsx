@@ -20,7 +20,8 @@ interface LegalMatrixContextValue {
     articuloId: string,
     titulo: string,
   ) => Promise<{ id: string; code: string }>;
-  addNorm: (input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) => void;
+  /** `false` si la API rechazó el alta: la lista no se toca y la pantalla lo dice. */
+  addNorm: (input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) => Promise<boolean>;
   setNormPlants: (normId: string, plantIds: string[]) => void;
 }
 
@@ -195,16 +196,38 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         string,
         { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }
       >,
+      /**
+       * De dónde salen los artículos. Por defecto el catálogo público.
+       *
+       * **La normativa propia va por otra ruta a propósito.** Medido el 10-sep:
+       * `/catalog/norms/{id}/articles` sí devuelve hoy el articulado de una RCA
+       * a su dueña, pero **por un efecto de borde** — `get_tenant_db` recibe su
+       * sesión de `get_db` y FastAPI cachea las dependencias por request, así
+       * que en un router con guarda de permisos la ruta «sin empresa» corre con
+       * la empresa declarada. Está documentado en `deps.py::get_db`.
+       *
+       * Apoyarse en eso significaría que el día que el catálogo deje de llevar
+       * esa guarda, las RCAs de la pantalla se quedan sin considerandos y nadie
+       * relaciona una cosa con la otra.
+       */
+      ruta: (id: string) => string = (id) => `/catalog/norms/${id}/articles`,
+      opts?: { tenantId: string },
     ): Promise<Map<string, Articulo[]>> {
       const mapa = new Map<string, Articulo[]>();
       const porNorma = await Promise.all(
-        normas.map((n) =>
-          api
-            .get<Record<string, unknown>[]>(`/catalog/norms/${n.id}/articles`)
+        normas.map((n) => {
+          const url = ruta(String(n.id));
+          // `opts` se omite del todo cuando no hay, en vez de mandar
+          // `undefined`: el catálogo público se sigue pidiendo exactamente
+          // igual que antes de que esta función tuviera dos caminos.
+          const pedido = opts
+            ? api.get<Record<string, unknown>[]>(url, opts)
+            : api.get<Record<string, unknown>[]>(url);
+          return pedido
             .then((filas) => ({ norma: String(n.id), filas }))
             // Una norma sin articulado no puede tumbar la pantalla entera.
-            .catch(() => ({ norma: String(n.id), filas: [] as Record<string, unknown>[] })),
-        ),
+            .catch(() => ({ norma: String(n.id), filas: [] as Record<string, unknown>[] }));
+        }),
       );
       for (const { norma, filas } of porNorma) {
         mapa.set(
@@ -298,15 +321,41 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
       );
     }
 
+    /**
+     * La normativa propia de la empresa: sus RCAs y sus ISO.
+     *
+     * **Va en una llamada aparte porque `/catalog/norms` no la trae.** Esa ruta
+     * responde el catálogo compartido; una RCA es de una empresa (`db/29`), y
+     * sin esto una RCA recién cargada **desaparecía al recargar la pantalla** —
+     * el defecto de medio viaje de ida y vuelta que este repositorio ya sufrió
+     * con `limiteUsuarios`.
+     *
+     * Si falla se devuelve vacío y el catálogo público se muestra igual: un
+     * error acá no puede dejar la matriz legal entera en blanco.
+     */
+    async function propiasDeLaEmpresa(): Promise<Record<string, unknown>[]> {
+      return api
+        .get<Record<string, unknown>[]>('/compliance/normativa-propia/', {
+          tenantId: user!.tenantId,
+        })
+        .catch(() => []);
+    }
+
     Promise.all([
       api.get<Record<string, unknown>[]>('/catalog/norms'),
       plantasPorNorma(),
       // Las normas traen `source_id`, no el codigo. Sin esta lista no hay forma
       // de saber si una norma es de la BCN, una ISO o una RCA de la empresa.
       api.get<Record<string, unknown>[]>('/catalog/sources').catch(() => []),
+      propiasDeLaEmpresa(),
     ])
-      .then(async ([data, porNorma, fuentes]) => {
+      .then(async ([publicas, porNorma, fuentes, propias]) => {
         if (cancelled) return;
+
+        // **Se concatenan y no se mezclan por id.** Las dos listas son
+        // disjuntas por construcción: `listar()` filtra `tenant_id IS NOT NULL`
+        // y el catálogo sólo ve lo público desde una sesión sin empresa.
+        const data = [...publicas, ...propias];
 
         const [evaluaciones, porNormaMatriz] = await Promise.all([
           evaluacionesPorArticulo(),
@@ -322,7 +371,19 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         evaluacionRef.current = ids;
         matrizNormaRef.current = porNormaMatriz;
 
-        const articulosPorNorma = await articulosDeLasNormas(data, evaluaciones);
+        // Cada grupo por su propia ruta: el catálogo público es global y la
+        // normativa propia exige declarar empresa. Ver el parámetro `ruta`.
+        const [articulosPublicos, articulosPropios] = await Promise.all([
+          articulosDeLasNormas(publicas, evaluaciones),
+          articulosDeLasNormas(
+            propias,
+            evaluaciones,
+            (id) => `/compliance/normativa-propia/${id}/articulos`,
+            { tenantId: user.tenantId! },
+          ),
+        ]);
+        const articulosPorNorma = articulosPublicos;
+        articulosPropios.forEach((v, k) => articulosPorNorma.set(k, v));
         if (cancelled) return;
 
         const codigoPorFuente = new Map<string, string>(
@@ -668,37 +729,80 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * **Esto todavía no llega a la base, pero el bloqueo se redujo a la mitad.**
+   * Registra una RCA o una ISO de la empresa. **Ahora sí llega a la base.**
    *
-   * Los dos identificadores que exige `POST /catalog/norms` **ya se pueden
-   * resolver**: `GET /catalog/countries` existe, y `legal_sources` sí tiene
-   * códigos `ISO` y `RCA` (los siembra `db/03_seed_catalogos.sql`), así que
-   * `fuente` mapea directo. La versión anterior de esta nota decía que las
-   * fuentes eran solo organismos —`BCN`, `SMA`, `RETC`— y estaba equivocada.
+   * ## Lo que la desbloqueó, y por qué esta nota decía otra cosa
    *
-   * **El bloqueo real es otro, y es de diseño.** `legal_norms` es un catálogo
-   * global **sin `tenant_id`, a propósito**: su propio comentario en el esquema
-   * dice que la norma es la misma para todos los tenants y que lo que se
-   * registra por empresa es la aplicabilidad y el cumplimiento.
+   * Durante semanas acá decía que el bloqueo era de diseño: `legal_norms` es un
+   * catálogo global **sin `tenant_id`**, así que escribir una RCA ahí publicaba
+   * la resolución de un cliente en el catálogo que ven todos los demás. Era
+   * cierto — y **dejó de serlo el 8-sep**, cuando `db/29` agregó la columna, su
+   * política de RLS y `/compliance/normativa-propia`. La nota se quedó vieja y
+   * nadie volvió a mirarla: el mismo patrón que este repositorio persigue.
    *
-   * Una RCA **no** es la misma para todos: es de una empresa. Dejar que esta
-   * pantalla escriba ahí publicaría la resolución de un cliente en el catálogo
-   * que ven todos los demás. No es un `POST` que falte: hay que decidir dónde
-   * vive la normativa propia de una empresa —columna `tenant_id` en
-   * `legal_norms`, tabla aparte, o solo dentro de `matrix_norms`— y esa
-   * decisión tiene consecuencias sobre RLS.
+   * ## Por qué NO va a `POST /catalog/norms`
+   *
+   * Esa ruta escribe el catálogo compartido y exige Admin Global. Lo que decide
+   * si una norma es propia es **`tenant_id` y nada más**, no la fuente: el
+   * catálogo público tiene una norma archivada bajo la fuente `RCA`
+   * —`RE-574/2019`, sobre reporte al RETC— que es normativa general y no el
+   * permiso de nadie.
+   *
+   * ## Devuelve si se guardó, y no toca la lista si falló
+   *
+   * Pintar la norma antes de saberlo es cómo se produce una pantalla que
+   * confirma un cambio que la base nunca recibió. Es lo mismo que ya pasó con
+   * `limiteUsuarios`, que se "guardaba" y se deshacía al recargar.
    */
-  function addNorm(input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) {
+  async function addNorm(input: {
+    nombre: string;
+    tipoDocumento: TipoDocumento;
+    fuente: 'RCA' | 'ISO';
+    tenantId: string;
+    plantIds: string[];
+  }): Promise<boolean> {
+    let creada: Record<string, unknown>;
+    try {
+      creada = await api.post<Record<string, unknown>>(
+        '/compliance/normativa-propia/',
+        {
+          fuente: input.fuente,
+          // El tipo de la pantalla es el vocabulario del catálogo, en
+          // minúsculas: `Resolucion` -> `resolucion`, `NCh` -> `nch`. Mandarlo
+          // como se ve dejaría dos escrituras distintas del mismo valor.
+          norm_type: input.tipoDocumento.toLowerCase(),
+          title: input.nombre,
+        },
+        { tenantId: input.tenantId },
+      );
+    } catch (error) {
+      mostrarToast({
+        tipo: 'error',
+        mensaje: 'No se pudo registrar el documento',
+        descripcion: mensajeDeError(error),
+      });
+      return false;
+    }
+
     const newNorm: LegalNorm = {
-      id: `norm-${Date.now()}`,
+      id: String(creada.id),
       tenantId: input.tenantId,
-      plantIds: input.plantIds,
+      plantIds: [],
       tipoDocumento: input.tipoDocumento,
       nombre: input.nombre,
       fuente: input.fuente,
+      // **Sin artículos, y eso es verdad.** Una RCA se registra primero y sus
+      // considerandos se cargan después: RF-11 deja la extracción del PDF
+      // fuera, y depende de `ai-service`, que es una carpeta vacía.
       articulos: [],
     };
     setNorms((prev) => [...prev, newNorm]);
+
+    // Las plantas se asignan después del alta porque cuelgan de la norma ya
+    // creada: `setNormPlants` es el mismo camino que usa la edición.
+    if (input.plantIds.length > 0) {
+      setNormPlants(newNorm.id, input.plantIds);
+    }
 
     registrar({
       entidadTipo: 'norma',
@@ -706,12 +810,13 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
       entidadLabel: newNorm.nombre,
       tenantId: input.tenantId,
       accion: 'creado',
-      resumen: `Agregó la norma al catálogo (${input.fuente})`,
+      resumen: `Registró normativa propia de la empresa (${input.fuente})`,
       cambios: [
         { campo: 'Fuente', antes: null, despues: input.fuente },
         { campo: 'Plantas asignadas', antes: null, despues: String(input.plantIds.length) },
       ],
     });
+    return true;
   }
 
   function setNormPlants(normId: string, plantIds: string[]) {

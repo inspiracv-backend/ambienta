@@ -208,6 +208,70 @@ def listar(db: Session, tenant_id: UUID) -> list[LegalNorm]:
     )
 
 
+def articulos_de(db: Session, norma: LegalNorm) -> list[LegalArticle]:
+    """Los considerandos de la version vigente de una norma propia.
+
+    ## Por que un camino propio, y por que NO es el que yo supuse
+
+    La lista de normas propias devuelve un **conteo**, no el texto: se podia
+    escribir un considerando y esa respuesta no lo mostraba. Hasta aca, la
+    clase "columnas que ninguna respuesta expone" del detector.
+
+    Supuse ademas que `GET /catalog/norms/{id}/articles` respondia **404** para
+    una norma propia —esa ruta pide `get_db`, que segun su docstring no declara
+    empresa— y **al medirlo era falso**:
+
+    | quien pregunta | `/catalog/norms/{id}/articles` |
+    |---|---|
+    | la empresa dueña | **200, con el articulado** |
+    | otra empresa | 404 |
+    | `SessionLocal()` pelado, sin request | 0 filas: RLS si lo oculta |
+
+    La causa es una trampa que conviene conocer: **`get_tenant_db` depende de
+    `get_db`** y FastAPI cachea las dependencias por request, asi que en todo
+    router montado con `exigir_permiso_de_la_ruta` —que pide `get_tenant_db`—
+    la ruta que pide `get_db` recibe **esa misma sesion, ya con la empresa
+    declarada**. El catalogo es uno de esos routers.
+
+    O sea que hoy el dueño si puede leer su articulado por `/catalog`, pero
+    **por un efecto de borde, no por diseño**: depende de que otra dependencia
+    del mismo request haya declarado la empresa. Si mañana el catalogo deja de
+    llevar esa guarda, la lectura pasa a 404 y nada avisa.
+
+    Por eso esta funcion existe igual y cuelga de `get_tenant_db` explicito: la
+    normativa propia es de una empresa, y la ruta que la lee tiene que decirlo
+    ella misma.
+
+    Se devuelve la version vigente y no todas: una RCA no tiene historial de
+    versiones —se carga una vez— y si algun dia lo tuviera, la pregunta
+    historica se contesta con `vigente_el`, igual que en el catalogo.
+    """
+    version = db.scalars(
+        select(LegalNormVersion)
+        .where(
+            LegalNormVersion.norm_id == norma.id,
+            LegalNormVersion.is_current.is_(True),
+            LegalNormVersion.deleted_at.is_(None),
+        )
+        .order_by(LegalNormVersion.valid_from.desc())
+    ).first()
+    # Sin version vigente se devuelve vacio y no 404: la norma existe, y la
+    # respuesta correcta es "no tiene articulado", no "no esta".
+    if version is None:
+        return []
+
+    return list(
+        db.scalars(
+            select(LegalArticle)
+            .where(
+                LegalArticle.norm_version_id == version.id,
+                LegalArticle.deleted_at.is_(None),
+            )
+            .order_by(LegalArticle.display_order, LegalArticle.id)
+        ).all()
+    )
+
+
 def agregar_articulo(
     db: Session, *, tenant_id: UUID, norma: LegalNorm, datos: dict
 ) -> LegalArticle:

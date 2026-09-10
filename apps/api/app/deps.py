@@ -21,12 +21,42 @@ _bearer = HTTPBearer(auto_error=False, description="JWT emitido por Clerk")
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Sesion con el rol de la aplicacion, sin tenant declarado.
+    """Sesion con el rol de la aplicacion. **El tenant depende del router.**
 
     Row Level Security **si** se aplica: el rol no puede saltarsela. Sirve para
     el catalogo global y para `tenants`, que no llevan `tenant_id` y por eso no
     tienen policies. Si se usa sobre una tabla de empresa devuelve cero filas —
     falla cerrado, no abierto.
+
+    ## Ojo: "sin tenant declarado" NO es cierto en todos los routers
+
+    Esta linea decia justamente eso y **se midio falsa el 10-sep**.
+    `get_tenant_db` recibe su sesion de esta misma funcion
+    (`db: Session = Depends(get_db)`) y le llama `declarar()`. Como FastAPI
+    **cachea cada dependencia una vez por request**, las dos devuelven el
+    **mismo objeto** dentro de un request.
+
+    Consecuencia: en todo router montado con `exigir_permiso_de_la_ruta` —que
+    pide `get_tenant_db`— un endpoint que pida `get_db` recibe la sesion **con
+    la empresa ya declarada**. Medido sobre `/catalog/norms/{id}/articles`, que
+    pide `get_db`, contra una norma propia de la empresa A:
+
+    | quien pregunta | respuesta |
+    |---|---|
+    | la empresa dueña | **200, con el articulado** |
+    | otra empresa | 404 |
+    | `SessionLocal()` fuera de un request | 0 filas |
+
+    Hoy eso no abre nada: la empresa ve lo publico mas lo suyo, que es menos de
+    lo que este docstring prometia. **El riesgo es al reves**: un endpoint nuevo
+    que use `get_db` para ver filas de todas las empresas —un conteo global, un
+    informe de Admin Global— va a ver solo las de quien llama, sin ningun error.
+    Y si algun dia el catalogo deja de llevar la guarda, las lecturas que hoy
+    andan pasan a 404.
+
+    La regla practica: **el alcance no se deduce de que dependencia se pide,
+    sino de que dependencias corren en ese request.** Para cruzar empresas a
+    proposito existe `get_admin_db`, que lo dice en el nombre.
     """
     db = SessionLocal()
     try:
@@ -165,9 +195,39 @@ def olvidar(db: Session) -> None:
     Solo hace falta despues de `declarar(..., toda_la_sesion=True)`. Sin esto,
     la conexion vuelve al pool con una empresa pegada y la siguiente consulta
     que no declare contexto —el catalogo global, un health check— la hereda.
+
+    ## El `commit` no es opcional, y sin el esta funcion no hacia nada
+
+    Medido el 10-sep sobre el pool real, que es donde corre:
+
+    | secuencia | lo que ve la conexion siguiente |
+    |---|---|
+    | `declarar(toda_la_sesion)` -> `commit` -> `olvidar()` | **la empresa** |
+    | idem, con `commit` despues de `olvidar()` | `None` |
+    | **sin llamar a `olvidar()`** | **la empresa** |
+
+    La primera y la tercera daban lo mismo: **la llamada no cambiaba nada.**
+
+    La causa es que `set_config(..., false)` es de sesion pero se ejecuta dentro
+    de una transaccion, y SQLAlchemy hace `ROLLBACK` al devolver la conexion al
+    pool: eso revierte el `olvidar`. El `declarar` anterior, en cambio, ya habia
+    quedado firme por el `commit` del despachador — que es exactamente el motivo
+    por el que hace falta `toda_la_sesion=True`.
+
+    O sea que las dos mitades del mecanismo se anulaban: la que ensucia
+    sobrevivia al commit y la que limpia no.
+
+    **Por que la prueba que lo cubria pasaba:** `test_olvidar_deja_la_conexion_
+    limpia` usa un engine propio y una conexion dedicada, asi que no hay
+    devolucion al pool ni rollback. Comprobaba el SQL, no el unico escenario en
+    el que esto importa. La prueba nueva va contra `SessionLocal`.
+
+    **Llamarla al final de la unidad de trabajo**, no en medio: el `commit`
+    confirma tambien lo que quede pendiente en la sesion.
     """
     db.execute(text("SELECT set_config('ambienta.tenant_id', '', false)"))
     db.execute(text("RESET ROLE"))
+    db.commit()
 
 def volver_a_declarar(db: Session) -> None:
     """Re-declara el tenant despues de un `commit`, para poder seguir leyendo.

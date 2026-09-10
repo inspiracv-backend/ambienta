@@ -20,6 +20,7 @@ from ..deps import get_tenant_db, get_tenant_id
 from ..models.catalog import LegalArticle, LegalNorm, LegalNormVersion
 from ._comun import obtener_o_404
 from ..crud.catalog import crud_legal_norm
+from ..schemas.catalog import LegalArticleRead
 from ..services import normativa_propia as svc
 
 router = APIRouter(prefix="/compliance/normativa-propia", tags=["compliance"])
@@ -135,6 +136,34 @@ def registrar(
     salida = _armar(db, [norma])[0]
     db.commit()
     return salida
+
+
+@router.get(
+    "/{norma_id}/articulos",
+    response_model=list[LegalArticleRead],
+    summary="Los considerandos de una norma propia",
+)
+def leer_articulos(
+    norma_id: UUID,
+    db: Session = Depends(get_tenant_db),
+):
+    """El articulado de una RCA o una ISO de la empresa.
+
+    La lista de normas propias devuelve un **conteo**, así que la pantalla de
+    S-12 podía decir «3 considerandos» sin que hubiera forma de ver cuáles.
+
+    Hoy el catálogo público también los devuelve al dueño, pero **por un efecto
+    de borde de las dependencias de FastAPI y no por diseño** — está explicado
+    en `services/normativa_propia.py::articulos_de`. Esta ruta cuelga de
+    `get_tenant_db` explícito: la normativa propia es de una empresa, y quien la
+    lee tiene que declararlo.
+
+    Devuelve el mismo esquema que el articulado del catálogo público, a
+    propósito: quien lo consuma no debería necesitar dos mapeos para lo que en
+    la pantalla es la misma lista.
+    """
+    norma = obtener_o_404(crud_legal_norm, db, norma_id, recurso="LegalNorm")
+    return svc.articulos_de(db, norma)
 
 
 @router.post(

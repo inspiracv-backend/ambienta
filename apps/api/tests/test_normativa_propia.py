@@ -294,3 +294,147 @@ class TestElArticuladoPublicoNoSeEdita:
             json={"article_number": "99", "content": "Inventado"},
         )
         assert r.status_code == 422, r.text
+
+
+class TestElArticuladoSeLeeDeVuelta:
+    """`POST .../articulos` existia desde el 8-sep y **ninguna respuesta
+    devolvia el texto**: la lista de normas propias trae un conteo.
+
+    O sea que la pantalla de S-12 podia decir "3 considerandos" sin que hubiera
+    forma de ver cuales. En un modulo que se exporta a un fiscalizador, un
+    numero sin el contenido detras es peor que no tener el dato.
+    """
+
+    def test_devuelve_los_considerandos_que_se_escribieron(self, cliente, rca) -> None:
+        cliente.headers["X-Tenant-Id"] = EMPRESA_A
+        r = cliente.get(
+            f"/api/v1/compliance/normativa-propia/{rca['id']}/articulos"
+        )
+        assert r.status_code == 200, r.text
+        articulos = r.json()
+        assert [a["article_number"] for a in articulos] == ["5.2"]
+        assert "30 l/s" in articulos[0]["content"], (
+            "devolvio la fila pero no su texto: el conteo ya lo daba la lista"
+        )
+        assert articulos[0]["heading"] == "Caudal maximo de captacion"
+
+    def test_el_conteo_de_la_lista_coincide_con_lo_que_devuelve(
+        self, cliente, rca
+    ) -> None:
+        """Dos respuestas sobre lo mismo que no coincidan es como se descubre
+        que una de las dos miente."""
+        cliente.headers["X-Tenant-Id"] = EMPRESA_A
+        cliente.post(
+            f"/api/v1/compliance/normativa-propia/{rca['id']}/articulos",
+            json={"article_number": "5.3", "content": "Monitoreo mensual del estero."},
+        )
+        lista = cliente.get("/api/v1/compliance/normativa-propia/").json()
+        ficha = next(n for n in lista if n["id"] == rca["id"])
+        articulos = cliente.get(
+            f"/api/v1/compliance/normativa-propia/{rca['id']}/articulos"
+        ).json()
+        assert ficha["articulos"] == len(articulos) == 2
+
+    def test_otra_empresa_no_lee_los_considerandos_ajenos(self, cliente, rca) -> None:
+        """Las condiciones de una RCA describen la operacion de la planta."""
+        try:
+            cliente.headers["X-Tenant-Id"] = EMPRESA_B
+            r = cliente.get(
+                f"/api/v1/compliance/normativa-propia/{rca['id']}/articulos"
+            )
+            assert r.status_code == 404, r.text
+        finally:
+            cliente.headers["X-Tenant-Id"] = EMPRESA_A
+
+    def test_una_norma_sin_articulado_devuelve_vacio_y_no_404(self, cliente) -> None:
+        """Cargar la RCA primero y escribir los considerandos despues es el
+        flujo normal: cero articulos no es un error."""
+        cliente.headers["X-Tenant-Id"] = EMPRESA_A
+        creada = cliente.post(
+            "/api/v1/compliance/normativa-propia/",
+            json={
+                "fuente": "ISO",
+                "norm_type": "nch",
+                "title": f"ISO sin articulado {uuid.uuid4().hex[:6]}",
+            },
+        ).json()
+        try:
+            r = cliente.get(
+                f"/api/v1/compliance/normativa-propia/{creada['id']}/articulos"
+            )
+            assert r.status_code == 200, r.text
+            assert r.json() == []
+        finally:
+            with SessionLocal() as db:
+                declarar(db, EMPRESA_A)
+                db.execute(
+                    text("DELETE FROM legal_norms WHERE id = :i"), {"i": creada["id"]}
+                )
+                db.commit()
+
+
+class TestGetDbNoEsUnaSesionSinEmpresa:
+    """**`get_db` no es "sin tenant declarado" en un router con guarda.**
+
+    Se midio el 10-sep, buscando otra cosa. `get_tenant_db` recibe su sesion de
+    `get_db` (`db: Session = Depends(get_db)`) y le llama `declarar()`; FastAPI
+    cachea cada dependencia una vez por request, asi que las dos devuelven el
+    **mismo objeto**. En todo router montado con `exigir_permiso_de_la_ruta`
+    —que pide `get_tenant_db`— un endpoint que pida `get_db` corre con la
+    empresa ya declarada.
+
+    Hoy no abre nada: se ve **menos** de lo que el docstring prometia. El riesgo
+    es el contrario — un endpoint nuevo que use `get_db` para cruzar empresas va
+    a ver solo las de quien llama, **sin ningun error**.
+
+    Estas pruebas fijan el comportamiento medido para que un cambio se note.
+    """
+
+    def test_una_sesion_pelada_no_ve_la_norma_propia(self, cliente, rca) -> None:
+        """RLS **si** oculta: la politica de `db/29` funciona como dice."""
+        with SessionLocal() as db:
+            assert db.execute(text("SELECT current_tenant_id()")).scalar() is None
+            visible = db.execute(
+                text("SELECT count(*) FROM legal_norms WHERE id = :i"),
+                {"i": rca["id"]},
+            ).scalar()
+        assert visible == 0, (
+            "una sesion sin empresa declarada ve una norma propia: la politica "
+            "de db/29 no esta filtrando"
+        )
+
+    def test_el_catalogo_le_muestra_su_propia_rca_al_dueno(self, cliente, rca) -> None:
+        """`/catalog/norms/{id}/articles` pide `get_db` y aun asi la encuentra.
+
+        Es el efecto de borde, no un diseño. Si esta prueba empieza a fallar con
+        404, lo que cambio es que el catalogo dejo de llevar la guarda de
+        permisos — y con eso se cae la lectura del articulado propio por esa
+        ruta, que es justo lo que `/compliance/normativa-propia/{id}/articulos`
+        existe para no depender de.
+        """
+        cliente.headers["X-Tenant-Id"] = EMPRESA_A
+        r = cliente.get(f"/api/v1/catalog/norms/{rca['id']}/articles")
+        assert r.status_code == 200, (
+            f"el catalogo respondio {r.status_code} sobre la RCA propia. No es "
+            "un defecto en si, pero cambio el alcance de `get_db`: revisar "
+            "deps.py::get_db, que documenta esta medicion."
+        )
+
+    def test_el_catalogo_no_le_muestra_la_rca_ajena_a_nadie(self, cliente, rca) -> None:
+        """Lo que de verdad importa: el efecto de borde no cruza empresas."""
+        try:
+            cliente.headers["X-Tenant-Id"] = EMPRESA_B
+            assert (
+                cliente.get(f"/api/v1/catalog/norms/{rca['id']}/articles").status_code
+                == 404
+            )
+            titulos = [
+                n["title"]
+                for n in cliente.get("/api/v1/catalog/norms/?limit=500").json()
+            ]
+            assert rca["title"] not in titulos, (
+                "la RCA de otra empresa aparece en su catalogo: las condiciones "
+                "de una RCA describen la operacion de la planta"
+            )
+        finally:
+            cliente.headers["X-Tenant-Id"] = EMPRESA_A
