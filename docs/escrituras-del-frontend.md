@@ -16,10 +16,19 @@ un hecho.
 
 ## El número
 
+> **Actualizado el 10-sep-2026.** El conteo de abajo era **30, no 29**, y hoy
+> son **33**. La tabla «Las 10 que no llegan a la base» tenía tres filas cuya
+> causa ya no existía: dos se desbloquearon cuando cerraron otros bloques y
+> nadie volvió a mirar, y una **ya estaba conectada** desde que se hizo la
+> pantalla de permisos. Ver §«Las que dejaron de estar bloqueadas».
+>
+> El conteo no salió de correr el script otra vez: salió de **revisar las diez
+> una por una** contra el código, que es más fuerte que un total.
+
 | | Acciones |
 |---|---|
-| Llegan a la base | **29** |
-| Solo estado local | 10 |
+| Llegan a la base | **33** |
+| Solo estado local | 6 |
 | **Total** | **39** |
 
 **74 % conectado.**
@@ -120,7 +129,33 @@ apuntaría a identificadores inventados.
 
 ---
 
-## Las 10 que no llegan a la base
+## Las que dejaron de estar bloqueadas
+
+Revisadas una por una el 10-sep. **Ninguna de las cuatro necesitó una decisión
+nueva**: tres se destrabaron cuando cerraron otros bloques y una nunca estuvo
+bloqueada de verdad. La causa escrita en el código seguía ahí, y era la causa
+que nadie volvió a leer.
+
+| Acción | La causa que figuraba | Por qué ya no aplica |
+|---|---|---|
+| `users.updatePermisos` | «falta el endpoint que administre las excepciones por usuario, y la pantalla que lo consuma» | **Las dos cosas existen.** `GET/PUT/DELETE /users/{id}/permissions[/{codigo}]`, y `PermisosUsuarioModal` las llama desde `/usuarios`. Esta fila estaba mal **antes** de hoy: el conteo era 30, no 29 |
+| `legal-matrix.addNorm` | «hay que decidir dónde vive la normativa propia de una empresa» | Decidido y construido el 8-sep: `db/29` y `/compliance/normativa-propia` |
+| `gestores.addContrato` | «la sub-tenancy no existe, no hay ningún id que mandar» | El bloque C la cerró: `GET /gestor/clientes` da la cartera y `POST /contracts/` acepta el alta |
+| `departamentos.updateTipo` | «`ProcessUpdate` no expone `process_type`» | Era cierto y era **sólo eso**: la columna existe, `ProcessRead` ya la devolvía, faltaba declararla del lado de la escritura |
+
+La última merece un renglón aparte, porque el diagnóstico original decía *"un
+200 que no guarda nada es peor que no llamar"* y tenía razón: el campo se podía
+**leer y no escribir**. Reclasificar un proceso se veía funcionar y se perdía al
+recargar.
+
+**La lección no es sobre estas cuatro.** Es que una tabla de bloqueos envejece
+igual que cualquier otro dato afirmado: hay que releerla cuando cierra un
+bloque, o se convierte en la razón por la que algo sigue sin hacerse mucho
+después de que dejó de estar impedido.
+
+---
+
+## Las 6 que no llegan a la base
 
 Ninguna es "falta de tiempo". Cada una tiene una causa concreta, y está escrita
 también en el docstring de su función, que es donde la va a leer quien intente
@@ -131,20 +166,16 @@ arreglarla.
 | Acción | Causa |
 |---|---|
 | `users.updatePlants` | **Desacuerdo de modelo.** El único vínculo es `user_roles.facility_id`, y su PK `(user_id, role_id)` admite **una** planta por rol. La pantalla modela `plantIds` en plural |
-| `users.updatePermisos` | `user_permissions` existe como tabla. **El RBAC ya funciona en la API** —permiso efectivo, guarda derivada de la ruta, rol `servicio_lectura`— pero falta el endpoint que administre las excepciones por usuario, y la pantalla que lo consuma |
 | `users.updateDescriptorCargo` | `UserUpdate` no acepta ese campo |
 | `support.setVisibilidad` | `SupportTicketUpdate` acepta `status`, `priority` y `assigned_to`. No hay visibilidad por ticket |
 | `notifications.updatePreferences` | No hay tabla ni endpoint de preferencias por usuario. `rules` y `templates` son configuración de empresa |
 | `plan-accion.toggleTarea` | Las tareas de un plan **no existen en el modelo** |
-| `departamentos.updateTipo` | `ProcessUpdate` no expone `process_type`, que es justo lo que reclasifica esa pantalla |
 
 ### Falta un dato aguas arriba
 
 | Acción | Causa |
 |---|---|
-| `legal-matrix.addNorm` | **Decisión de diseño, no falta de endpoint.** `legal_norms` es catálogo global **sin `tenant_id`, a propósito**. Una RCA es de una empresa: escribirla ahí la publicaría a todos los tenants. Hay que decidir dónde vive la normativa propia |
 | `support.addCorreccion` | Ya no está bloqueada por las no conformidades: ahora depende de que el ticket modele la corrección |
-| `gestores.addContrato` | `client_tenant_id` sale de datos de ejemplo: la sub-tenancy no existe |
 
 ### Resueltas, que estaban listadas como pendientes
 

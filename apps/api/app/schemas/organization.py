@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, computed_field
@@ -345,6 +346,21 @@ class ProcessRead(OrmBase):
 
 class ProcessUpdate(BaseModel):
     name: str | None = None
+    #: Reclasificar el proceso en el mapa (ISO 9001 §4.4).
+    #:
+    #: **No estaba declarado, y `ProcessRead` si lo devuelve.** O sea que el
+    #: tipo se podia leer y no escribir: la pantalla del mapa de procesos
+    #: mandaba el cambio, Pydantic lo descartaba en silencio —descarta lo que no
+    #: declara— y la API respondia **200 sin guardar nada**. Reclasificar se
+    #: veia funcionar y se perdia al recargar.
+    #:
+    #: Es la misma familia que `planned_start_date` y que `process_id` en el
+    #: alta anidada de un item de auditoria.
+    #:
+    #: **`Literal` y no `str`**: los tres valores son los del CHECK de la tabla.
+    #: Con `str`, un valor equivocado llega hasta Postgres y vuelve como error
+    #: de integridad; asi se rechaza en el borde, con 422 y diciendo cuales son.
+    process_type: Literal["strategic", "operational", "support"] | None = None
     description: str | None = None
     responsible_user_id: UUID | None = None
     inputs: list | None = None
