@@ -177,12 +177,10 @@ El script documenta los pasos previos en Clerk (allowlist, primer ingreso,
 - **`email` es único global.** Dos empresas no pueden compartir la dirección, y
   las subdirecciones (`ia+andes@`) están bloqueadas en Clerk. Hacen falta
   correos distintos de verdad.
-- **No incluye `chatbot.use`**, que es lo que hace falta para escribir mensajes.
-  Deliberado: guardar la conversación debería hacerse con la sesión de **la
-  persona que conversa**, no con la cuenta de servicio — el registro de
-  auditoría necesita un responsable con nombre, y "el servicio" no lo es. Si el
-  diseño resulta ser otro, es una decisión a tomar (§9.1), no un permiso a
-  agregar sin pensarlo.
+- **No incluye `chatbot.use`**, y eso quedó confirmado como la decisión el
+  10-sep: guardar la conversación se hace con la sesión de **la persona que
+  conversa** (§9.1). Esta cuenta es para leer sin persona detrás — un proceso de
+  indexación, por ejemplo. Son dos caminos para dos cosas distintas.
 
 ### 2.3 Las credenciales no van por chat ni por correo
 
@@ -596,18 +594,33 @@ Ninguno es bloqueante para una primera versión.
 Tres cosas abiertas que dependen de Fabrizzio y del cliente. Las dejo escritas
 para que no queden como supuestos de nadie.
 
-### 9.1 Con qué identidad escribe el AI Service
+### 9.1 Con qué identidad escribe el AI Service — **DECIDIDO el 10-sep**
 
-El rol `servicio_lectura` **no incluye `chatbot.use`** (§2.2), a propósito: un
-mensaje guardado tiene autor, y "el servicio" no es un responsable con nombre.
-Las opciones son dos y son distintas:
+> **Con la sesión de la persona que conversa.** El token del usuario viaja al
+> AI Service, y cada mensaje queda atribuido a quien preguntó.
 
-- **Con la sesión de la persona que conversa** — el token del usuario viaja al
-  AI Service. Trazabilidad correcta; obliga a pasar el token.
-- **Con la cuenta de servicio + `chatbot.use`** — más simple; deja todos los
-  mensajes atribuidos a "Servicio IA".
+Lo que significa para vos, concretamente:
 
-Mi recomendación es la primera, y es la que asume el diseño actual.
+- **El frontend te pasa el token de Clerk del usuario** y vos lo reenviás a la
+  API tal cual en `Authorization: Bearer`. El AI Service **no necesita cuenta
+  propia para escribir**.
+- **El `user_id` de la conversación es el de esa persona**, y sale de `/me`
+  llamado con su mismo token (§5.1). No lo adivines: el UUID interno y el id de
+  Clerk son distintos, y ésa es la confusión más común (§1).
+- **`servicio_lectura` sigue sin `chatbot.use`**, y eso ya no es un cabo suelto
+  sino la decisión. Si además necesitás una cuenta para *leer* el catálogo en un
+  proceso de indexación sin persona detrás, ésa sí es `servicio_lectura` (§2.2)
+  — son dos caminos para dos cosas distintas.
+
+**Por qué así.** Un mensaje guardado tiene autor, y «el servicio» no es un
+responsable con nombre. El registro de este sistema se exporta a un
+fiscalizador: una conversación entera atribuida a una cuenta técnica no contesta
+la pregunta que ese lector hace.
+
+**El costo, dicho:** si el token del usuario expira a mitad de una respuesta
+larga, la escritura falla con **401** y hay que reintentar con uno nuevo.
+Conviene preverlo desde el principio en vez de descubrirlo con una conversación
+perdida.
 
 ### 9.2 Dónde corre el AI Service
 

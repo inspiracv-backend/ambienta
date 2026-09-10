@@ -3,13 +3,24 @@
 ## MODIFIED Requirements
 
 ### Requirement: Inicio de sesión con cuenta corporativa
-El sistema SHALL permitir iniciar sesión con correo y contraseña, con Microsoft
-y con Google, y SHALL redirigir al inicio de sesión a quien intente entrar a una
-pantalla sin sesión.
+El sistema SHALL permitir iniciar sesión con correo y contraseña y con Google, y
+SHALL redirigir al inicio de sesión a quien intente entrar a una pantalla sin
+sesión.
 
 Autenticarse con un proveedor corporativo demuestra **quién es** la persona, no
 que pertenezca a una empresa del sistema. Son dos hechos distintos y el sistema
 los trata por separado.
+
+**Microsoft quedó fuera de este requisito el 10-sep-2026, y es una decisión.**
+La versión anterior lo exigía junto con Google, y Microsoft nunca se configuró:
+exige un registro en Entra ID cuyo tipo de cuenta tiene que ser *cualquier
+directorio + cuentas personales* —con «sólo este directorio» ningún cliente
+puede entrar—. Mientras el requisito lo pedía, este cambio no se podía archivar y
+`openspec/specs/` seguía sin describir la autenticación **que sí funciona**.
+
+Un spec que exige lo que el sistema no hace no protege nada: hace que el próximo
+cambio se escriba contra un estado imaginado. Microsoft entra por su propio
+cambio (#92) cuando haya un cliente que lo pida.
 
 #### Scenario: Acceso sin sesión
 - **WHEN** alguien sin sesión abre una pantalla del sistema
@@ -17,13 +28,13 @@ los trata por separado.
 
 #### Scenario: Ingreso con proveedor corporativo
 - **GIVEN** una persona ya dada de alta en una empresa
-- **WHEN** entra con Microsoft o con Google
+- **WHEN** entra con Google
 - **THEN** accede al tablero de su empresa con los mismos datos que si hubiera
   entrado con correo y contraseña
 
-#### Scenario: La misma persona alterna entre proveedores
+#### Scenario: La misma persona alterna entre formas de entrar
 - **GIVEN** una persona dada de alta con un correo determinado
-- **WHEN** entra unas veces con Microsoft y otras con Google usando ese mismo correo
+- **WHEN** entra unas veces con Google y otras con correo y contraseña usando ese mismo correo
 - **THEN** el sistema la reconoce como la misma persona
 - **AND** no se crea un segundo registro con el mismo correo
 

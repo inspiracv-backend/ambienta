@@ -100,12 +100,29 @@ El registro de auditoría referencia al usuario. Borrarlo dejaría huérfano el 
 - **AND** su registro sigue existiendo y su historial sigue siendo consultable
 
 ### Requirement: Inicio de sesión con cuenta corporativa
-El sistema SHALL permitir iniciar sesión con correo y contraseña, con Microsoft y con Google, y SHALL redirigir al inicio de sesión a quien intente entrar a una pantalla sin sesión.
+El sistema SHALL permitir iniciar sesión con correo y contraseña y con Google, y
+SHALL redirigir al inicio de sesión a quien intente entrar a una pantalla sin
+sesión.
+
+Autenticarse con un proveedor corporativo demuestra **quién es** la persona, no
+que pertenezca a una empresa del sistema. Son dos hechos distintos y el sistema
+los trata por separado.
+
+**Microsoft quedó fuera de este requisito el 10-sep-2026, y es una decisión.**
+La versión anterior lo exigía junto con Google, y Microsoft nunca se configuró:
+exige un registro en Entra ID cuyo tipo de cuenta tiene que ser *cualquier
+directorio + cuentas personales* —con «sólo este directorio» ningún cliente
+puede entrar—. Mientras el requisito lo pedía, este cambio no se podía archivar y
+`openspec/specs/` seguía sin describir la autenticación **que sí funciona**.
+
+Un spec que exige lo que el sistema no hace no protege nada: hace que el próximo
+cambio se escriba contra un estado imaginado. Microsoft entra por su propio
+cambio (#92) cuando haya un cliente que lo pida.
 
 #### Scenario: Acceso sin sesión
 - **WHEN** alguien sin sesión abre una pantalla del sistema
 - **THEN** se le redirige al inicio de sesión
 
 #### Scenario: Ingreso con proveedor corporativo
-- **WHEN** un usuario entra con Microsoft o con Google
+- **WHEN** un usuario entra con Google
 - **THEN** accede al tablero de su empresa con los mismos datos que si hubiera entrado con correo y contraseña
