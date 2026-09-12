@@ -49,6 +49,7 @@ from .audit import (
     AuditItem,
     AuditParticipant,
     EntityStatusHistory,
+    ImprovementStageEntry,
     Nonconformity,
 )
 from .notifications import (
@@ -93,6 +94,7 @@ __all__ = [
     # Audit
     "Audit", "AuditItem", "AuditParticipant",
     "Nonconformity", "ActionPlan", "EntityStatusHistory",
+    "ImprovementStageEntry",
     # Notifications
     "NotificationTemplate", "NotificationRule", "Notification",
     # Support

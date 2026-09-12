@@ -732,10 +732,41 @@ Tres cosas que conviene saber antes de tocarlo:
   a toda empresa creada despues. Una prueba **lee el archivo SQL** y exige que
   las dos listas coincidan.
 
-Lo que NO entra: los plazos **por etapa** del design. Las etapas tipadas no
-existen todavia —`improvement_stages` sigue siendo JSONB provisorio y su modelo
-depende de #57— y una tabla de configuracion para algo que nadie lee es el
-patron que este repositorio ya conoce de sobra.
+**Y las etapas tipadas existen desde el 12-sep** (`db/30`, decision #57).
+Esta linea decia que no y que su modelo dependia de una decision abierta: se
+tomo el 10-sep y fue **tabla**, no JSONB. El motivo no es purismo — con JSONB el
+responsable de cada etapa es un texto sin clave foranea, y el generador de
+avisos tendria que leer dentro del JSON para saber a quien escribirle, que es
+exactamente como este repositorio ya se quemo con las obligaciones sin
+responsable.
+
+Tres cosas que conviene saber de `improvement_stage_entries`:
+
+- **No migro datos, y se midio.** Las 293 no conformidades tenian
+  `improvement_stages = '{}'` —292 borradas logicamente— asi que la parte
+  riesgosa de una migracion no existia. La columna JSONB **se conserva**:
+  quitarla es un paso aparte.
+- **El ciclo nace con el registro.** `POST /nonconformities/` siembra las cinco
+  etapas —o tres, si el tipo es `riesgo` u `oportunidad`— con su fecha limite
+  derivada del catalogo de severidades. Una etapa que todavia no existe no se
+  puede asignar ni avisar.
+- **Los cinco campos del seguimiento son tri-estado y el CHECK lo exige.**
+  `NULL` = sin verificar, que **no** es "No": en tres de las cuatro preguntas
+  "No" es la respuesta favorable, asi que el defecto silencioso cerraria la
+  verificacion a favor. El cierre compara contra `True`, no contra truthy.
+
+**Un registro sin ciclo sembrado no queda bloqueado**, y es deliberado: los
+anteriores al 12-sep no tienen etapas y exigirselas los dejaria sin poder
+cerrarse con el mensaje "faltan etapas", sin forma de entender por que. Esos
+siguen con la regla anterior —al menos un plan de accion verificado— y la
+excepcion se agota sola porque todo registro nuevo nace con su ciclo. No es una
+puerta trasera: **no existe el borrado de una etapa**, justamente por esto.
+
+**Y dos detectores me cazaron a mi** dentro de la misma hora: `exigir_cierre()`
+quedo escrita sin llamador —el patron de `bcn.sincronizar()`, otra vez— y
+`calcular_due_date` usaba `date.today()` en vez de `hoy_de`. Los dos arreglados;
+vale como recordatorio de que `herramientas/auditar.py` conviene correrlo
+**antes** de dar algo por terminado, no despues.
 
 **Y una leccion sobre el guardian de las dos listas:** su primera version
 comparaba con una expresion regular y **perdio una fila en silencio**. El nombre

@@ -89,6 +89,7 @@ services:
       - ./db/27_vinculos_de_documentos.sql:/docker-entrypoint-initdb.d/27-vinculos-de-documentos.sql:ro
       - ./db/28_comentarios.sql:/docker-entrypoint-initdb.d/28-comentarios.sql:ro
       - ./db/29_normativa_propia.sql:/docker-entrypoint-initdb.d/29-normativa-propia.sql:ro
+      - ./db/30_etapas_de_mejora.sql:/docker-entrypoint-initdb.d/30-etapas-de-mejora.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s

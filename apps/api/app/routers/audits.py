@@ -17,11 +17,17 @@ from ..crud.audit import (
 from ..auth import CurrentUser
 from ..deps import get_current_user, get_tenant_db, get_tenant_id
 from ..services import audits as svc_audits
+from ..services import etapas_de_mejora as svc_etapas
 from ..services import catalogos_de_mejora as svc_catalogos
 from ..services import informe_de_auditoria as svc_informe
 from ..crud.compliance import crud_article_compliance
 from ..crud.organization import crud_process, crud_user
-from ..models.audit import AuditItem, AuditParticipant, AuditProcessResult
+from ..models.audit import (
+    AuditItem,
+    AuditParticipant,
+    AuditProcessResult,
+    ImprovementStageEntry,
+)
 from ..models.organization import User
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import (
@@ -34,6 +40,9 @@ from ._comun import (
 )
 from ..schemas.audit import (
     AuditItemUpdate,
+    EtapaRead,
+    EtapaUpdate,
+    PuedeCerrarse,
     InformeDeAuditoria,
     VeredictoDeProcesoCreate,
     VeredictoDeProcesoCreateAnidado,
@@ -146,6 +155,13 @@ def create_nonconformity(
     obj = crud_nonconformity.create(db, obj_in=data, tenant_id=tenant_id)
     if obj.due_date is None:
         obj.due_date = svc_catalogos.fecha_limite(nivel, date.today())
+
+    # **El ciclo nace con el registro** (RF-97). Una etapa que todavia no existe
+    # no se puede asignar ni avisar, y el recordatorio por etapa es lo que hace
+    # que el tratamiento no se detenga: si la fila apareciera recien cuando
+    # alguien llega a ella, el aviso llegaria tarde por definicion.
+    svc_etapas.sembrar_ciclo(db, obj, tenant_id=tenant_id)
+
     db.commit()
     return obj
 
@@ -228,6 +244,13 @@ def audit_summary(audit_id: UUID, db: Session = Depends(get_tenant_db)):
 )
 def close_nc(nc_id: UUID, closure_notes: str = "", db: Session = Depends(get_tenant_db)):
     from ..services.audits import SinVerificarLaEficacia, close_nonconformity
+
+    # **Las dos reglas, no una.** La de planes de accion ya existia; esta es la
+    # del ciclo de etapas (RF-98), y se comprueba antes porque su mensaje dice
+    # cual de los tres estados falta — sin verificar, verificado que no, o una
+    # etapa sin ejecutar. Un registro sin ciclo sembrado la pasa sin ruido: ver
+    # `etapas_de_mejora.puede_cerrarse`.
+    svc_etapas.exigir_cierre(db, _registro_o_404(db, nc_id))
 
     try:
         obj = close_nonconformity(db, nc_id, closure_notes)
@@ -885,3 +908,150 @@ def get_veredicto(
         audit_id,
         campo="audit_id",
     )
+
+
+# ── Las cinco etapas del registro de mejora (RF-97, #38) ──────────────────
+#
+# `nonconformities.improvement_stages` era JSONB provisorio y la decision #57
+# —tomada el 10-sep— fue tabla tipada. Ver `db/30` y
+# `services/etapas_de_mejora.py` para por que.
+
+
+def _registro_o_404(db: Session, nc_id: UUID):
+    return obtener_o_404(crud_nonconformity, db, nc_id, recurso="Nonconformity")
+
+
+def _armar_etapas(db: Session, filas: list) -> list[EtapaRead]:
+    """Resuelve el nombre del responsable en una consulta, no en N."""
+    ids = {f.responsable_user_id for f in filas if f.responsable_user_id}
+    nombres = {}
+    if ids:
+        nombres = {
+            u.id: u.full_name
+            for u in db.scalars(select(User).where(User.id.in_(ids))).all()
+        }
+    salida = []
+    for f in filas:
+        datos = EtapaRead.model_validate(f, from_attributes=True)
+        datos.responsable_nombre = nombres.get(f.responsable_user_id)
+        salida.append(datos)
+    return salida
+
+
+@router.get(
+    "/nonconformities/{nc_id}/etapas",
+    response_model=list[EtapaRead],
+    tags=["nonconformities"],
+    summary="Las etapas del ciclo de tratamiento",
+    description=(
+        "En el **orden del ciclo**, no por fecha de creacion: ordenarlas por "
+        "`created_at` mostraria el orden en que alguien completo los "
+        "formularios, que no es el orden del proceso.\n\n"
+        "Un registro de tipo `riesgo` u `oportunidad` recorre **tres** etapas y "
+        "no cinco — no hay correccion inmediata de una oportunidad, y hacerla "
+        "pasar por las cinco con los campos vacios seria peor dato."
+    ),
+)
+def listar_etapas(nc_id: UUID, db: Session = Depends(get_tenant_db)):
+    _registro_o_404(db, nc_id)
+    return _armar_etapas(db, svc_etapas.etapas_de(db, nc_id))
+
+
+@router.post(
+    "/nonconformities/{nc_id}/etapas",
+    response_model=list[EtapaRead],
+    status_code=status.HTTP_201_CREATED,
+    tags=["nonconformities"],
+    summary="Crear el ciclo de etapas del registro",
+    description=(
+        "Crea las etapas que le corresponden al registro, vacias y con su fecha "
+        "limite derivada del catalogo de severidades de la empresa.\n\n"
+        "**Se crean todas de una vez y no a medida que se avanza.** Una etapa "
+        "que todavia no existe no se puede asignar ni avisar, y el recordatorio "
+        "por etapa es justamente lo que hace que el ciclo no se detenga.\n\n"
+        "Idempotente: llamarlo dos veces no duplica nada."
+    ),
+)
+def sembrar_etapas(
+    nc_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    registro = _registro_o_404(db, nc_id)
+    svc_etapas.sembrar_ciclo(db, registro, tenant_id=tenant_id)
+    salida = _armar_etapas(db, svc_etapas.etapas_de(db, nc_id))
+    db.commit()
+    return salida
+
+
+@router.patch(
+    "/nonconformities/{nc_id}/etapas/{etapa_id}",
+    response_model=EtapaRead,
+    tags=["nonconformities"],
+    summary="Completar o corregir una etapa",
+    description=(
+        "**`completada_en` la pone el servidor**, no el cuerpo: se marca sola "
+        "cuando llega `fecha_ejecucion`. Dejarla al cliente permitiria una "
+        "etapa dada por completa sin fecha, y el informe de auditoria ordena "
+        "por esa fecha.\n\n"
+        "Los cinco campos del seguimiento son **tri-estado**: `null` es «sin "
+        "verificar», que no es «No». La base impide que una etapa que no sea "
+        "`seguimiento` los use."
+    ),
+)
+def actualizar_etapa(
+    nc_id: UUID,
+    etapa_id: UUID,
+    data: EtapaUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    _registro_o_404(db, nc_id)
+    fila = db.scalar(
+        select(ImprovementStageEntry).where(
+            ImprovementStageEntry.id == etapa_id,
+            ImprovementStageEntry.deleted_at.is_(None),
+        )
+    )
+    if fila is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    verificar_padre(fila, nc_id, campo="nonconformity_id")
+
+    validar_visible(crud_user, db, data.responsable_user_id, campo="responsable_user_id")
+    validar_visible(
+        crud_metodologia, db, data.metodologia_id, campo="metodologia_id"
+    )
+
+    for campo, valor in data.model_dump(exclude_unset=True).items():
+        setattr(fila, campo, valor)
+
+    # La marca de completada se deriva de la fecha, no se recibe.
+    if fila.fecha_ejecucion is not None and fila.completada_en is None:
+        fila.completada_en = datetime.now(timezone.utc)
+    elif fila.fecha_ejecucion is None:
+        fila.completada_en = None
+
+    db.flush()
+    db.refresh(fila)
+    salida = _armar_etapas(db, [fila])[0]
+    db.commit()
+    return salida
+
+
+@router.get(
+    "/nonconformities/{nc_id}/puede-cerrarse",
+    response_model=PuedeCerrarse,
+    tags=["nonconformities"],
+    summary="Si el ciclo permite cerrar el registro, y si no, por que",
+    description=(
+        "**Devuelve el motivo y no solo un booleano.** «No se puede cerrar» sin "
+        "decir por que manda a adivinar, y las tres causas tienen arreglos "
+        "distintos: falta ejecutar una etapa, falta verificar la eficacia, o se "
+        "verifico y la accion **no** funciono — esta ultima devuelve el registro "
+        "a tratamiento en vez de cerrarlo.\n\n"
+        "Sin verificar **no es** «no fue eficaz»: el seguimiento es tri-estado."
+    ),
+)
+def puede_cerrarse(nc_id: UUID, db: Session = Depends(get_tenant_db)):
+    registro = _registro_o_404(db, nc_id)
+    ok, motivo = svc_etapas.puede_cerrarse(db, registro)
+    return PuedeCerrarse(puede=ok, motivo=motivo)

@@ -86,6 +86,11 @@ SUFIJOS_DE_ACCION = (
     # checklist, no un recurso. No se crea ni se borra una "cobertura" —
     # cambia sola al responder preguntas.
     "/coverage",
+    # Si el ciclo de tratamiento admite cerrar el registro, y si no por que
+    # (RF-98). Es una **vista derivada** de las cinco etapas, igual que
+    # `/informe`: no se crea ni se borra un "puede cerrarse" — se completan las
+    # etapas y se verifica la eficacia, y entonces cambia solo.
+    "/puede-cerrarse",
     "/stats", "/summary", "/metrics", "/audit-log", "/clerk", "/upcoming",
     "/overdue", "/generate-notifications",
 )
@@ -97,6 +102,7 @@ SIN_CRUD_COMPLETO = {
     "/compliance/normativa-propia": "no lleva editar ni borrar todavia, y es deliberado: una RCA que la empresa cargo y despues edito deja la matriz evaluada contra un texto que ya no es el que se cargo, sin rastro de cual era. Corregirla es cargar la version nueva —el modelo las tiene— y esa es la operacion que corresponde. Borrarla destruiria la evidencia de lo que se evaluo mientras rigio, igual que en el control documental",
     "/buscar": "es una consulta, no un recurso: no hay nada que crear, editar ni borrar. Devuelve punteros a filas que viven en otras tablas, cada una con su propio CRUD",
     "/historial": "es una vista, no un recurso: la historia se DERIVA de tres tablas que ya tienen su propio CRUD (`audit_log`, `comments`, `entity_documents`). Un POST aca escribiria un hecho que no ocurrio — y el registro de actividades en particular tiene `REVOKE UPDATE, DELETE` sobre `ambienta_app` a proposito: un rastro que la aplicacion puede editar no sirve como rastro",
+    "/audits/nonconformities/etapas": "faltan leer UNA y borrar, y las dos son deliberadas. **La unidad es el ciclo, no la etapa**: las cinco se leen juntas porque una etapa fuera de su secuencia no contesta ninguna pregunta — «se corrigio» sin saber si despues se analizo la causa ni si se verifico la eficacia no dice nada. Y **borrar una dejaria el ciclo con un hueco**: `puede_cerrarse` diria «faltan etapas» sin que nadie pueda ver cual falto ni por que, que es peor que no poder borrar. Corregir una etapa es el PATCH; rehacer el ciclo es volver a sembrarlo, que es idempotente",
     "/comentarios": "falta leer UNO por id, y no hace falta: la unidad es el hilo. Un comentario suelto, sin lo que se dijo antes y lo que se contesto despues, no le sirve a ninguna pantalla — y en una discusion sobre si una evidencia cumple, leer una frase fuera de su hilo es como se entiende al reves lo que alguien dijo. `GET /comentarios/?entity_type=&entity_id=` devuelve la conversacion entera con las respuestas debajo de su raiz",
     "/documents/vinculados": "no es un recurso: es el sentido inverso de la consulta de vinculos (RF-108). El vinculo se crea, edita y borra en `/documents/{id}/entities`, que si tiene su CRUD entero; esta ruta contesta la otra pregunta —que documentos respaldan este registro— que es la que hace un fiscalizador. Darle POST seria un segundo camino para escribir la misma fila, y dos caminos que mantener coherentes es como se llega a que uno compruebe el anclaje y el otro no",
     "/permissions": "es el catalogo de permisos que la API sabe verificar: la lista de capacidades que el sistema define, no datos de una empresa. Crearlos o borrarlos desde la API seria inventar permisos que ninguna guarda consulta — el codigo tiene que existir tambien en el codigo, no solo en la tabla. Crecen con una migracion, cuando se agrega una capacidad. Lo que si se administra es a quien se le conceden, y eso vive en `/users/{id}/permissions`",

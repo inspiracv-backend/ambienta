@@ -549,3 +549,89 @@ class InformeDeAuditoria(BaseModel):
     #: Cual de los tres casos. Sin esto, el `null` obliga a adivinar.
     motivo_sin_tasa: str | None
     auditoria_anterior_id: str | None
+
+
+# ── Las cinco etapas del registro de mejora (RF-97, #38) ──────────────────
+
+
+class EtapaBase(BaseModel):
+    """Lo comun a las cinco etapas.
+
+    Los cinco tri-estado viven aca y no en una clase aparte por `seguimiento`
+    porque **la validacion de que solo esa etapa los usa la hace la base**
+    (`ck_etapa_triestado_solo_seguimiento`). Partir el schema obligaria a elegir
+    el tipo por `kind` antes de validar, y Pydantic descarta lo que no declara —
+    o sea que el error se veria como "se guardo y no quedo", que es el defecto
+    que este repositorio persigue.
+    """
+
+    responsable_user_id: UUID | None = None
+    metodologia_id: UUID | None = None
+    fecha_ejecucion: date | None = None
+    due_date: date | None = None
+    observaciones: str | None = None
+    evidencia_urls: list[str] = Field(default_factory=list)
+    #: Lo especifico de la etapa: correccion inmediata, causa raiz, cinco
+    #: porques, espina de pescado, descripcion de la accion.
+    datos: dict = Field(default_factory=dict)
+
+    #: **Tri-estado, no booleano.** `None` = sin verificar, que no es "No": en
+    #: tres de las cuatro preguntas del seguimiento "No" es la respuesta
+    #: favorable, asi que el defecto silencioso cerraria la verificacion a
+    #: favor. El cierre compara contra `True`.
+    eficaz: bool | None = None
+    causa_se_repitio: bool | None = None
+    cumplio_proposito: bool | None = None
+    requiere_actualizar_riesgos: bool | None = None
+    requiere_cambios_sgc: bool | None = None
+
+
+class EtapaCreate(EtapaBase):
+    kind: Literal[
+        "registro", "correccion", "analisis_causa", "accion_correctiva", "seguimiento"
+    ]
+
+
+class EtapaUpdate(EtapaBase):
+    """`kind` no se edita: cambiar de que etapa se trata seria otra fila.
+
+    Y `nonconformity_id` tampoco — mover una etapa a otro registro dejaria dos
+    historias contando cosas distintas del mismo hecho.
+    """
+
+
+class EtapaRead(OrmBase):
+    id: UUID
+    tenant_id: UUID
+    nonconformity_id: UUID
+    kind: str
+    responsable_user_id: UUID | None
+    #: Resuelto, para que la pantalla no tenga que pedir la nomina entera.
+    responsable_nombre: str | None = None
+    metodologia_id: UUID | None
+    fecha_ejecucion: date | None
+    due_date: date | None
+    completada_en: datetime | None
+    eficaz: bool | None
+    causa_se_repitio: bool | None
+    cumplio_proposito: bool | None
+    requiere_actualizar_riesgos: bool | None
+    requiere_cambios_sgc: bool | None
+    observaciones: str | None
+    evidencia_urls: list[str]
+    datos: dict
+    created_at: datetime
+    updated_at: datetime
+
+
+class PuedeCerrarse(BaseModel):
+    """Si el ciclo admite el cierre, y el motivo cuando no.
+
+    **El motivo va siempre que `puede` sea falso.** Un booleano pelado manda a
+    adivinar, y las tres causas se arreglan distinto: ejecutar la etapa que
+    falta, verificar la eficacia, o volver a tratamiento porque la accion no
+    funciono.
+    """
+
+    puede: bool
+    motivo: str | None = None

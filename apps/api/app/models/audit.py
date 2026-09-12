@@ -15,7 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, SoftDeleteMixin, TenantMixin, TimestampMixin
@@ -157,6 +157,17 @@ class Nonconformity(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     root_cause_methodology_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("improvement_methodologies.id")
     )
+    #: **Provisorio, y reemplazado desde el 12-sep por `ImprovementStageEntry`.**
+    #:
+    #: Su comentario en `01_schema.sql` ya decia que se puso "para no perder lo
+    #: que el cliente ya tiene" mientras se decidia el modelo. La decision es
+    #: #57 y fue tabla tipada: con JSONB el responsable de cada etapa es texto
+    #: sin clave foranea, y el generador de avisos tendria que leer dentro del
+    #: JSON para saber a quien escribirle.
+    #:
+    #: **Se conserva la columna y no se borra**: quitarla es un paso aparte, y
+    #: una base de otro entorno podria tener datos que aca no se ven. En esta,
+    #: medido el 10-sep, las 293 filas la tienen en `{}`.
     improvement_stages: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
@@ -318,3 +329,84 @@ class ImprovementMethodology(Base, TenantMixin, TimestampMixin, SoftDeleteMixin)
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
+
+
+class ImprovementStageEntry(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """Una de las cinco etapas del tratamiento de un registro de mejora (RF-97).
+
+    ## Por que una tabla y no el JSONB que ya estaba
+
+    Decision #57, tomada el 10-sep-2026. `improvement_stages` era JSONB
+    provisorio y lo decia su propio comentario en el esquema. Con JSONB:
+
+    - `responsable_user_id` es un texto sin clave foranea. Nada impide que
+      apunte a alguien de otra empresa, o a nadie.
+    - El generador de avisos tendria que leer dentro del JSON para saber a quien
+      escribirle — y este repositorio ya se quemo con eso: **se saltaba en
+      silencio las obligaciones sin responsable**, 3 de 8 en el seed.
+    - `due_date` no se puede indexar, asi que el cron recorreria todo.
+
+    ## Que es columna y que sigue en `datos`
+
+    Son columnas las que alguien **consulta o recorre**: el responsable, el
+    plazo, los cinco tri-estado del seguimiento y la metodologia. Lo especifico
+    de cada etapa —la correccion inmediata, la causa raiz, los cinco porques, la
+    espina de pescado— va en `datos`, porque nadie filtra por eso: se lee entero
+    con la etapa. Veinte columnas para que diecisiete esten siempre nulas no
+    tipan nada.
+
+    ## Los tri-estado son `bool | None` y el CHECK lo exige
+
+    Los cinco desplegables del cliente son `Seleccione… / SI / NO`. Como
+    booleano, "todavia no lo verifique" se vuelve "No" — que en tres de las
+    cuatro preguntas es la respuesta **favorable**. El cierre compara contra
+    `True`, no contra un valor truthy, y `ck_etapa_triestado_solo_seguimiento`
+    impide que una correccion inmediata diga que fue eficaz.
+    """
+
+    __tablename__ = "improvement_stage_entries"
+
+    #: Las cinco de la maquina de estados, en orden.
+    ETAPAS = ("registro", "correccion", "analisis_causa", "accion_correctiva", "seguimiento")
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    nonconformity_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("nonconformities.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+
+    #: **Quien la ejecuto**, que no es a quien se le asigno.
+    #: `nonconformities.responsables` es la asignacion; esto es el hecho, y
+    #: cuando no coinciden esa diferencia misma es informacion.
+    #:
+    #: Nulable porque una etapa existe antes de que alguien la ejecute — y esa
+    #: es justamente la que hay que avisar.
+    responsable_user_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id")
+    )
+    metodologia_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("improvement_methodologies.id")
+    )
+
+    fecha_ejecucion: Mapped[date | None] = mapped_column(Date)
+    #: Se calcula de `improvement_severities.days_to_close` cuando la empresa lo
+    #: declara. Mientras ese catalogo tenga los plazos en NULL —hoy los tiene, a
+    #: proposito— se sigue pidiendo a mano.
+    due_date: Mapped[date | None] = mapped_column(Date)
+    completada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    eficaz: Mapped[bool | None] = mapped_column(Boolean)
+    causa_se_repitio: Mapped[bool | None] = mapped_column(Boolean)
+    cumplio_proposito: Mapped[bool | None] = mapped_column(Boolean)
+    requiere_actualizar_riesgos: Mapped[bool | None] = mapped_column(Boolean)
+    requiere_cambios_sgc: Mapped[bool | None] = mapped_column(Boolean)
+
+    observaciones: Mapped[str | None] = mapped_column(Text)
+    evidencia_urls: Mapped[list] = mapped_column(
+        ARRAY(Text), nullable=False, server_default="{}"
+    )
+    datos: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
