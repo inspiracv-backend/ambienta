@@ -87,7 +87,7 @@ pantalla corresponda a lo que quedó en la base.
 | `obligations` | **3 / 3** |
 | `users` | 5 / 8 |
 | `legal-matrix` | 3 / 4 |
-| `support-tickets` | 2 / 4 |
+| `support-tickets` | **3 / 3** — ver nota del 13-sep |
 | `departamentos` | 1 / 2 |
 | `notifications` | 1 / 2 |
 | `plan-accion` | 1 / 2 |
@@ -157,6 +157,17 @@ después de que dejó de estar impedido.
 
 ## Las 6 que no llegan a la base
 
+> **13-sep-2026: quedan 4, y el medidor contaba mal una "conectada".**
+> `support.addCorreccion` ahora guarda un `internal_note` en el ticket (la API
+> pone el autor desde la sesión y responde 409 si se intenta reescribir).
+> `support.setVisibilidad` **se quitó**: la base no tiene ese campo y la
+> pantalla lo mostraba siempre en `true`. Y `support.createTicket`, que figuraba
+> como conectada porque la petición salía, **nunca guardaba nada** con cuenta:
+> mandaba `category: 'declaracion'` —la base acepta seis valores en inglés— y
+> un `.catch(() => {})` se tragaba el rechazo mientras la pantalla mostraba un
+> número de ticket sorteado. Es exactamente el caso que advierte la sección
+> de arriba: que la petición salga no es que se guarde.
+
 Ninguna es "falta de tiempo". Cada una tiene una causa concreta, y está escrita
 también en el docstring de su función, que es donde la va a leer quien intente
 arreglarla.
@@ -167,7 +178,7 @@ arreglarla.
 |---|---|
 | `users.updatePlants` | **Desacuerdo de modelo.** El único vínculo es `user_roles.facility_id`, y su PK `(user_id, role_id)` admite **una** planta por rol. La pantalla modela `plantIds` en plural |
 | `users.updateDescriptorCargo` | `UserUpdate` no acepta ese campo |
-| `support.setVisibilidad` | `SupportTicketUpdate` acepta `status`, `priority` y `assigned_to`. No hay visibilidad por ticket |
+| ~~`support.setVisibilidad`~~ | **Quitada de la pantalla el 13-sep.** No hay visibilidad por ticket; la distinción de RF-84 es por mensaje (`is_internal`) |
 | `notifications.updatePreferences` | No hay tabla ni endpoint de preferencias por usuario. `rules` y `templates` son configuración de empresa |
 | `plan-accion.toggleTarea` | Las tareas de un plan **no existen en el modelo** |
 
@@ -175,7 +186,7 @@ arreglarla.
 
 | Acción | Causa |
 |---|---|
-| `support.addCorreccion` | Ya no está bloqueada por las no conformidades: ahora depende de que el ticket modele la corrección |
+| ~~`support.addCorreccion`~~ | **Conectada el 13-sep** como mensaje `internal_note` |
 
 ### Resueltas, que estaban listadas como pendientes
 

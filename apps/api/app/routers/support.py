@@ -14,7 +14,8 @@ from ..crud.support import (
 )
 from ..deps import get_current_user, get_tenant_db, get_tenant_id
 from ._paginacion import Pagina, paginacion, recortar
-from ._comun import borrar_o_404, obtener_o_404, verificar_padre
+from ._comun import borrar_o_404, obtener_o_404, validar_visible, verificar_padre
+from ..crud.organization import crud_user
 from ..schemas.support import (
     ChatbotConversationCreate,
     ChatbotConversationUpdate,
@@ -104,24 +105,97 @@ def update_ticket(ticket_id: UUID, data: SupportTicketUpdate, db: Session = Depe
     return obj
 
 
-@router.get("/tickets/{ticket_id}/messages", response_model=list[SupportTicketMessageRead])
+@router.get(
+    "/tickets/{ticket_id}/messages",
+    response_model=list[SupportTicketMessageRead],
+    summary="La conversacion de un ticket, en orden",
+)
 def list_ticket_messages(ticket_id: UUID, db: Session = Depends(get_tenant_db)):
+    """El hilo del ticket, del mas antiguo al mas nuevo.
+
+    **Tenia los dos defectos que el 8-sep se arreglaron en los mensajes del
+    chatbot**, y nadie los habia mirado aca: sin `ORDER BY` —Postgres devuelve
+    el orden fisico, y un `UPDATE` que no puede ser HOT mueve la fila al
+    final— y sin comprobar el ticket, asi que uno inexistente respondia `[]`,
+    que se lee como "este ticket no tiene mensajes".
+
+    Importa mas desde el 13-sep: **las correcciones de un registro erroneo
+    (RF-83) viven aca**, como `internal_note`. Un historial de correcciones
+    barajado le cambia el sentido a lo que se corrigio.
+    """
     from sqlalchemy import select
+
     from ..models.support import SupportTicketMessage
-    stmt = select(SupportTicketMessage).where(SupportTicketMessage.ticket_id == ticket_id)
+
+    obtener_o_404(crud_support_ticket, db, ticket_id, recurso="SupportTicket")
+    stmt = (
+        select(SupportTicketMessage)
+        .where(SupportTicketMessage.ticket_id == ticket_id)
+        .order_by(SupportTicketMessage.created_at, SupportTicketMessage.id)
+    )
     return list(db.scalars(stmt).all())
 
 
-@router.post("/tickets/{ticket_id}/messages", response_model=SupportTicketMessageRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/tickets/{ticket_id}/messages",
+    response_model=SupportTicketMessageRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Agregar un mensaje o una correccion al ticket",
+)
 def create_ticket_message(
     ticket_id: UUID,
     data: SupportTicketMessageCreate,
     tenant_id: UUID = Depends(get_tenant_id),
+    actual: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_tenant_db),
 ):
+    """Escribe un turno del hilo.
+
+    ## El autor sale de la sesion, no del cuerpo
+
+    `author_user_id` venia **del cuerpo, sin mirarlo**. Para un comentario
+    cualquiera es un descuido; para una **correccion de un registro erroneo**
+    (RF-83) es lo que invalida el requisito entero: la pantalla promete *"queda
+    registrado con tu nombre"*, y ese nombre lo elegia quien mandaba la
+    peticion. Una correccion atribuida a otro es exactamente lo que un auditor
+    no puede distinguir de una real.
+
+    Cuando hay sesion identificada, **gana el usuario de la sesion** y lo que
+    diga el cuerpo se ignora. Sin sesion —el modo `X-Tenant-Id` de desarrollo—
+    el id del cuerpo se acepta solo si es de esta empresa: **las claves foraneas
+    no pasan por RLS** (CLAUDE.md §4), asi que sin esa comprobacion se podia
+    firmar con el id de alguien de otra empresa.
+
+    ## Y el ticket se comprueba antes de escribir
+
+    Mismo arreglo que los mensajes del chatbot:
+
+    | lo que se manda | antes | ahora |
+    |---|---|---|
+    | un ticket inexistente | **500** — revienta la clave foranea | 404 |
+    | el ticket de otra empresa | **201**, y la fila quedaba escrita | 404 |
+    """
+    from sqlalchemy import select
+
     from ..models.support import SupportTicketMessage
+
+    obtener_o_404(crud_support_ticket, db, ticket_id, recurso="SupportTicket")
+
     msg_data = data.model_dump(exclude_unset=True)
     msg_data["ticket_id"] = ticket_id
+
+    autor = None
+    if actual is not None and actual.user_id:
+        autor = db.scalars(
+            select(User).where(User.clerk_id == actual.user_id, User.deleted_at.is_(None))
+        ).first()
+    if autor is not None:
+        msg_data["author_user_id"] = autor.id
+    else:
+        validar_visible(
+            crud_user, db, msg_data.get("author_user_id"), campo="author_user_id"
+        )
+
     obj = SupportTicketMessage(**msg_data, tenant_id=tenant_id)
     db.add(obj)
     db.flush()
@@ -277,9 +351,23 @@ def get_ticket_message(ticket_id: UUID, mensaje_id: int, db: Session = Depends(g
 @router.patch("/tickets/{ticket_id}/messages/{mensaje_id}", response_model=SupportTicketMessageRead)
 def update_ticket_message(ticket_id: UUID, mensaje_id: int, data: SupportTicketMessageUpdate, db: Session = Depends(get_tenant_db)):
     """Corrige el texto. El autor no cambia: editar quien dijo algo seria
-    falsificar la conversacion con el cliente."""
+    falsificar la conversacion con el cliente.
+
+    **Una `internal_note` no se edita.** Desde el 13-sep las correcciones de un
+    registro erroneo (RF-83) viven ahi, y la pantalla promete que "no se puede
+    editar despues". La tabla no tiene `updated_at`: una correccion reescrita
+    no deja rastro de que lo fue. Si la correccion estaba mal, se agrega otra.
+    """
     obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
     verificar_padre(obj, ticket_id, campo="ticket_id")
+    if obj.message_type == "internal_note":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Una correccion registrada no se edita. Si estaba mal, "
+                "registra otra que la corrija."
+            ),
+        )
     obj = crud_ticket_message.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
