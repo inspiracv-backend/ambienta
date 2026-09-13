@@ -33,6 +33,7 @@ vi.mock('next/navigation', () => ({
 
 const post = vi.fn();
 const patch = vi.fn();
+const put = vi.fn();
 
 vi.mock('./api-client', async (importarReal) => {
   const real = await importarReal<typeof import('./api-client')>();
@@ -42,6 +43,7 @@ vi.mock('./api-client', async (importarReal) => {
       get: vi.fn().mockResolvedValue([]),
       post: (...a: unknown[]) => post(...a),
       patch: (...a: unknown[]) => patch(...a),
+      put: (...a: unknown[]) => put(...a),
       delete: vi.fn(),
     },
   };
@@ -137,5 +139,41 @@ describe('cambiar el rol', () => {
     });
 
     expect(patch).not.toHaveBeenCalled();
+  });
+});
+
+describe('alcance por planta (#25)', () => {
+  it('manda la planta al endpoint de alcance y adopta lo que la base dejó', async () => {
+    put.mockResolvedValue({ user_id: 'u-1', facility_ids: ['f-1'] });
+    const { result } = renderHook(() => useUsers(), { wrapper });
+
+    let despues: string[] = [];
+    await act(async () => {
+      despues = await result.current.fijarAlcance('u-1', TENANT, 'f-1');
+    });
+
+    const [ruta, cuerpo, opciones] = put.mock.calls.at(-1)!;
+    expect(ruta).toBe('/users/u-1/alcance');
+    expect(cuerpo).toEqual({ facility_id: 'f-1' });
+    expect(opciones).toEqual({ tenantId: TENANT });
+    expect(despues).toEqual(['f-1']);
+  });
+
+  it('"todas las plantas" se manda como null explícito, no omitiendo el campo', async () => {
+    put.mockResolvedValue({ user_id: 'u-1', facility_ids: [] });
+    const { result } = renderHook(() => useUsers(), { wrapper });
+    await act(async () => {
+      await result.current.fijarAlcance('u-1', TENANT, null);
+    });
+    // La API exige el campo: un cuerpo vacío no puede ampliar el acceso.
+    expect(put.mock.calls.at(-1)![1]).toEqual({ facility_id: null });
+  });
+
+  it('si la base lo rechaza, rechaza', async () => {
+    put.mockRejectedValue(new Error('409'));
+    const { result } = renderHook(() => useUsers(), { wrapper });
+    await act(async () => {
+      await expect(result.current.fijarAlcance('u-1', TENANT, 'f-1')).rejects.toThrow('409');
+    });
   });
 });

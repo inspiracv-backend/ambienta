@@ -190,6 +190,12 @@ SIN_CRUD_COMPLETO = {
         "edicion son la misma operacion. Leer uno suelto tampoco aplica: lo que "
         "importa es el conjunto efectivo, que sale del listado"
     ),
+    "/users/alcance": (
+        "no es un recurso sino un atributo de la persona, guardado en sus roles "
+        "vigentes: el PUT describe el estado final (una planta, o `null` para "
+        "todas), asi que alta, edicion y borrado son la misma operacion. Mismo "
+        "criterio que `/users/roles`"
+    ),
 }
 
 

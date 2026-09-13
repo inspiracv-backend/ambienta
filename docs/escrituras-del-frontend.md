@@ -85,12 +85,12 @@ pantalla corresponda a lo que quedó en la base.
 | `tenants` | **9 / 9** |
 | `audits` | **4 / 4** |
 | `obligations` | **3 / 3** |
-| `users` | 5 / 8 |
+| `users` | **6 / 6** — alcance conectado, cargo quitado (13-sep) |
 | `legal-matrix` | 3 / 4 |
 | `support-tickets` | **3 / 3** — ver nota del 13-sep |
 | `departamentos` | 1 / 2 |
-| `notifications` | 1 / 2 |
-| `plan-accion` | 1 / 2 |
+| `notifications` | **1 / 1** — preferencias quitadas (13-sep) |
+| `plan-accion` | **1 / 1** — tareas quitadas (13-sep) |
 | `gestores` | 0 / 1 |
 
 ---
@@ -157,7 +157,17 @@ después de que dejó de estar impedido.
 
 ## Las 6 que no llegan a la base
 
-> **13-sep-2026: quedan 4, y el medidor contaba mal una "conectada".**
+> **13-sep-2026, por la tarde: quedan 0.** Ninguna pantalla ofrece ya una
+> escritura que no llega a la base. Dos se conectaron y el resto se quitó:
+>
+> | Acción | Qué pasó |
+> |---|---|
+> | `users.updatePlants` | **Conectada** como `fijarAlcance` contra `PUT /users/{id}/alcance` (nuevo). Una planta o todas; se escribe en los roles vigentes, y un rol nuevo hereda la planta |
+> | `users.updateDescriptorCargo` | **Quitada del modal.** `UserUpdate` no tiene dónde guardarlo |
+> | `notifications.updatePreferences` | **Quitada.** La pantalla ahora muestra las reglas de la empresa, que son las que el generador aplica — y corrige los días: decía 30/15/7 y se manda 15/7/3/1 |
+> | `plan-accion.toggleTarea` | **Quitada**, con la sección de tareas: el modelo no existe (#169) |
+>
+> **13-sep-2026, por la mañana: quedaban 4, y el medidor contaba mal una "conectada".**
 > `support.addCorreccion` ahora guarda un `internal_note` en el ticket (la API
 > pone el autor desde la sesión y responde 409 si se intenta reescribir).
 > `support.setVisibilidad` **se quitó**: la base no tiene ese campo y la

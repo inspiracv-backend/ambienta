@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { DescriptorCargo, Role, User, UserEstado } from '@ambienta/shared';
+import type { Role, User, UserEstado } from '@ambienta/shared';
 import { mockUsers } from '@/mocks/users';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
@@ -19,10 +19,12 @@ interface UsersContextValue {
     departamentoId: string | null;
   }) => User;
   updateRole: (userId: string, role: Role) => void;
-  updatePlants: (userId: string, plantIds: string[]) => void;
+  /** Las plantas a las que está acotada. Vacía = todas. Rechaza si falla. */
+  leerAlcance: (userId: string, tenantId: string) => Promise<string[]>;
+  /** Una planta, o `null` para todas. Rechaza si la base no lo guardó. */
+  fijarAlcance: (userId: string, tenantId: string, facilityId: string | null) => Promise<string[]>;
   updateDepartamento: (userId: string, departamentoId: string | null) => void;
   updateNombre: (userId: string, nombre: string) => void;
-  updateDescriptorCargo: (userId: string, descriptor: DescriptorCargo) => void;
   setEstado: (
     userId: string,
     estado: UserEstado,
@@ -254,26 +256,29 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * **Todavía no llega a la base, pero ya no por un desacuerdo de modelo.**
+   * El alcance por planta (#25), contra `GET/PUT /users/{id}/alcance`.
    *
-   * La versión anterior de este comentario decía que los dos modelos no se
-   * podían conciliar. Medido el 1-sep-2026, era falso: con clave primaria
-   * `(user_id, role_id)` una persona con **varios roles** puede tener varias
-   * plantas, y `alcance_del_usuario` ya las junta en un conjunto. Lo único
-   * que la PK no admite es el **mismo** rol en dos plantas, y se decidió que
-   * no hace falta.
+   * Hasta el 13-sep esto era `updatePlants`: tocaba solo el estado local y se
+   * perdía al recargar, mientras la API **sí** acotaba por planta — así que
+   * nadie podía asignar lo que el sistema aplicaba, salvo con SQL.
    *
-   * La **lectura** ya está conectada: el alcance de la sesión sale de
-   * `GET /me`.`instalaciones` (ver `lib/alcance.ts`), y con eso las siete
-   * pantallas que acotan por planta empezaron a acotar de verdad.
-   *
-   * La **escritura** es asignar `user_roles.facility_id`, o sea parte de
-   * asignar roles (#140) — que vive en otra rama. Meterla acá serían dos
-   * caminos para escribir la misma fila. Hasta entonces esto solo toca el
-   * estado local y se pierde al recargar.
+   * **Una planta o todas**, no varias: el alcance se guarda en las filas de
+   * rol, y la clave `(user_id, role_id)` no admite el mismo rol en dos plantas.
    */
-  function updatePlants(userId: string, plantIds: string[]) {
+  async function leerAlcance(userId: string, tenantId: string): Promise<string[]> {
+    const r = await api.get<{ facility_ids: string[] }>(`/users/${userId}/alcance`, { tenantId });
+    return r.facility_ids.map(String);
+  }
+
+  async function fijarAlcance(userId: string, tenantId: string, facilityId: string | null): Promise<string[]> {
+    const r = await api.put<{ facility_ids: string[] }>(
+      `/users/${userId}/alcance`,
+      { facility_id: facilityId },
+      { tenantId },
+    );
+    const plantIds = r.facility_ids.map(String);
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plantIds } : u)));
+    return plantIds;
   }
 
   function updateDepartamento(userId: string, departamentoId: string | null) {
@@ -318,13 +323,7 @@ export function UsersProvider({ children }: { children: ReactNode }) {
       });
   }
 
-  /**
-   * **No llega a la base:** `UserUpdate` acepta `full_name`, `department_id`,
-   * `status` y `preferences`. El descriptor de cargo no esta entre ellos.
-   */
-  function updateDescriptorCargo(userId: string, descriptorCargo: DescriptorCargo) {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, descriptorCargo } : u)));
-  }
+
 
   /**
    * **No llega a la base.** Los permisos individuales tienen tabla
@@ -388,10 +387,10 @@ export function UsersProvider({ children }: { children: ReactNode }) {
         loading,
         inviteUser,
         updateRole,
-        updatePlants,
+        leerAlcance,
+        fijarAlcance,
         updateDepartamento,
         updateNombre,
-        updateDescriptorCargo,
         setEstado,
       }}
     >
