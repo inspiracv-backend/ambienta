@@ -185,17 +185,36 @@ export function DepartamentosProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const tenantId = user.tenantId;
+    // **Primero el departamento organizativo, después el proceso colgado de él.**
+    //
+    // Hasta el 14-sep solo se creaba el proceso. Pero el perfil de empresa
+    // (RF-10) se da por completo cuando existe una fila en `departments`, y las
+    // personas internas (RF-11) exigen un `department_id` de esa tabla: una
+    // empresa nueva completaba este paso y **seguía con el perfil incompleto**,
+    // sin poder escribir en Matriz Legal ni Obligaciones y sin poder invitar a
+    // nadie con departamento. Las empresas del seed traían departamentos, por
+    // eso no se había visto.
     api
       .post<Record<string, unknown>>(
-        '/processes/',
-        {
-          code: codigoDesdeNombre(input.nombre),
-          name: input.nombre,
-          process_type: PROCESS_TYPE_POR_TIPO[input.tipo],
-          description: input.descripcion ?? null,
-          responsible_user_id: input.responsableId ?? null,
-        },
-        { tenantId: user.tenantId },
+        '/departments/',
+        // `DEP-` y no `PROC-`: es otra tabla y otro concepto, aunque nazcan juntos.
+        { code: codigoDesdeNombre(input.nombre).replace(/^PROC-/, 'DEP-'), name: input.nombre },
+        { tenantId },
+      )
+      .then((unidad) =>
+        api.post<Record<string, unknown>>(
+          '/processes/',
+          {
+            code: codigoDesdeNombre(input.nombre),
+            name: input.nombre,
+            process_type: PROCESS_TYPE_POR_TIPO[input.tipo],
+            description: input.descripcion ?? null,
+            responsible_user_id: input.responsableId ?? null,
+            department_id: String(unidad.id),
+          },
+          { tenantId },
+        ),
       )
       .then((creado) => {
         const persistido = mapApiProceso(creado);

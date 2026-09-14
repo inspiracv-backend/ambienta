@@ -88,17 +88,29 @@ describe('addDepartamento', () => {
     expect(result.current.depts.departamentos[0].id).not.toMatch(/^depto-/);
   });
 
-  it('manda el proceso con codigo derivado y el tipo traducido', async () => {
-    post.mockResolvedValue({ id: 'x', name: 'Chancado y Molienda', process_type: 'operational' });
+  it('crea el departamento organizativo y cuelga de él el proceso', async () => {
+    // Sin el departamento, el perfil de empresa nunca se completaba y ninguna
+    // persona interna se podía invitar: la API los exige de `departments`.
+    post.mockImplementation((ruta: string) =>
+      Promise.resolve(
+        ruta === '/departments/'
+          ? { id: 'unidad-1', name: 'Chancado y Molienda' }
+          : { id: 'x', name: 'Chancado y Molienda', process_type: 'operational', department_id: 'unidad-1' },
+      ),
+    );
 
     const { result } = montar();
     await waitFor(() => expect(result.current.depts.loading).toBe(false));
     act(() => result.current.depts.addDepartamento(alta));
 
-    await waitFor(() => expect(post).toHaveBeenCalled());
-    const [ruta, cuerpo] = post.mock.calls[0] as [string, Record<string, unknown>];
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    const [rutaUnidad, cuerpoUnidad] = post.mock.calls[0] as [string, Record<string, unknown>];
+    expect(rutaUnidad).toBe('/departments/');
+    expect(cuerpoUnidad).toMatchObject({ code: 'DEP-CHANCADOYM', name: 'Chancado y Molienda' });
 
+    const [ruta, cuerpo] = post.mock.calls[1] as [string, Record<string, unknown>];
     expect(ruta).toBe('/processes/');
+    expect(cuerpo.department_id).toBe('unidad-1');
     // 'operativo' es nuestro; la base solo acepta el CHECK en ingles.
     expect(cuerpo.process_type).toBe('operational');
     // 'Chancado y Molienda' → CHANCADOYMOLIENDA → los primeros 10.

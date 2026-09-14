@@ -147,9 +147,15 @@ def endpoints_sin_llamador() -> Detector:
             "Una operacion que nadie invoca es trabajo hecho que el producto no "
             "ofrece. Ojo: algunas son legitimas (tareas, webhooks)."
         ),
-        # `/gestor/clientes` se agrego el 4-sep y la pantalla `/gestores` sigue
-        # pidiendo `/contracts/`: verificado a mano leyendo `gestores-store.tsx`.
-        casos_conocidos=["/gestor/clientes"],
+        # El caso anterior, `/gestor/clientes`, dejo de serlo cuando la cartera
+        # del gestor se conecto (`gestores-store.tsx` la pide), y el detector se
+        # nego a informar durante dias: un caso de control que se vuelve falso
+        # apaga el detector entero. Hoy: la consulta "lo que le toca a una
+        # persona" (#169) existe y ninguna pantalla la llama, pero el detector
+        # compara por prefijo estatico y la ruta hermana `/tasks/{id}` si se
+        # llama: no sirve de control. Se usa el webhook de Clerk, que por
+        # definicion nunca lo llama una pantalla y no deja de ser cierto.
+        casos_conocidos=["/webhooks/clerk"],
     )
 
     rutas = set()

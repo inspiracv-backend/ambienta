@@ -498,7 +498,6 @@ describe('normativa propia de la empresa', () => {
 
     const { result } = renderHook(() => useLegalMatrix(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
-    const antes = result.current.norms.length;
 
     let ok: boolean | undefined;
     await act(async () => {
@@ -512,7 +511,10 @@ describe('normativa propia de la empresa', () => {
     });
 
     expect(ok).toBe(false);
-    expect(result.current.norms).toHaveLength(antes);
+    // Por nombre y no por largo: la lista termina de cargar despues de que
+    // `loading` baja (la sesion llega un instante mas tarde), asi que contar
+    // antes y despues fallaba solo con la suite completa cargada.
+    expect(result.current.norms.some((n) => n.nombre === 'RCA que no se guarda')).toBe(false);
   });
 
   it('al recargar, la RCA sigue ahi con su articulado', async () => {
