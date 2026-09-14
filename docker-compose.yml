@@ -82,6 +82,7 @@ services:
       - ./db/28_comentarios.sql:/docker-entrypoint-initdb.d/28-comentarios.sql:ro
       - ./db/29_normativa_propia.sql:/docker-entrypoint-initdb.d/29-normativa-propia.sql:ro
       - ./db/30_etapas_de_mejora.sql:/docker-entrypoint-initdb.d/30-etapas-de-mejora.sql:ro
+      - ./db/31_tareas_del_plan_de_accion.sql:/docker-entrypoint-initdb.d/31-tareas-del-plan-de-accion.sql:ro
       - ./db/03_seed_catalogos.sql:/docker-entrypoint-initdb.d/07-catalogos.sql:ro
       # Datos de demo: 2 tenants, 5 usuarios, obligaciones y una matriz legal
       # evaluada. Sin esto la base queda vacia y el Dashboard muestra ceros —

@@ -3,6 +3,7 @@
 import { usePlanAccion } from '@/lib/plan-accion-store';
 import { useNombreDeUsuario } from '@/lib/get-user-name';
 import type { PlanAccionDetailViewProps } from './PlanAccionDetailView.types';
+import { TareasDelPlanPanel } from './TareasDelPlanPanel';
 
 const ESTADO_LABEL = { abierto: 'Abierto', en_progreso: 'En progreso', cerrado: 'Cerrado' } as const;
 
@@ -37,11 +38,9 @@ export function PlanAccionDetailView({ plan: planProp }: PlanAccionDetailViewPro
         </div>
       </div>
 
-      {/* Las secciones "Tareas del plan" e "Historial de cambios" se quitaron el
-          13-sep. Las tareas no existen en el modelo (#169): la lista venía
-          siempre vacía con "aún no tiene tareas registradas", que invita a
-          registrar algo que no se puede. Y el historial era un recuadro que
-          decía "pendiente de modelar". Vuelven con su modelo. */}
+      {/* Las tareas volvieron el 14-sep con su modelo (#169, `db/31`). El
+          recuadro "Historial de cambios — pendiente de modelar" no vuelve. */}
+      <TareasDelPlanPanel planId={plan.id} />
     </div>
   );
 }

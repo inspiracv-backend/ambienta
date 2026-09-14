@@ -139,6 +139,9 @@ class ObligationUpdate(BaseModel):
 
 class TaskCreate(BaseModel):
     obligation_id: UUID | None = None
+    #: #169. La ruta anidada lo pone desde la URL; mandarlo junto con
+    #: `obligation_id` se rechaza con 422.
+    action_plan_id: UUID | None = None
     parent_task_id: UUID | None = None
     task_type: str = "task"
     title: str
@@ -154,6 +157,7 @@ class TaskRead(OrmBase):
     id: UUID
     tenant_id: UUID
     obligation_id: UUID | None
+    action_plan_id: UUID | None = None
     parent_task_id: UUID | None
     task_type: str
     title: str

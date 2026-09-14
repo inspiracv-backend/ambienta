@@ -209,6 +209,14 @@ def create_task(
 
     task_data = data.model_dump(exclude_unset=True)
     task_data["obligation_id"] = obligation_id
+    # Como maximo un padre (#169). Se comprueba antes de escribir para
+    # responder un 422 legible y no el error del CHECK, que se lee como una
+    # falla del sistema.
+    if task_data.get("action_plan_id") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Una tarea cuelga de una obligacion o de un plan de accion, no de los dos.",
+        )
 
     # Misma historia que `article_compliance_id`: las claves foraneas no pasan
     # por RLS, asi que `parent_task_id` entraba sin comprobarse y una subtarea

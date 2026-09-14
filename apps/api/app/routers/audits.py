@@ -21,7 +21,9 @@ from ..services import etapas_de_mejora as svc_etapas
 from ..services import catalogos_de_mejora as svc_catalogos
 from ..services import informe_de_auditoria as svc_informe
 from ..crud.compliance import crud_article_compliance
-from ..crud.organization import crud_process, crud_user
+from ..crud.obligations import crud_task
+from ..schemas.obligations import TaskCreate, TaskRead, TaskUpdate
+from ..crud.organization import crud_department, crud_process, crud_user
 from ..models.audit import (
     AuditItem,
     AuditParticipant,
@@ -192,6 +194,145 @@ def create_action_plan(
     obj = crud_action_plan.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return obj
+
+
+# ── Tareas del plan de accion (#169) ────────────────────────────────────
+#
+# **Van antes que `/action-plans/{plan_id}`**: FastAPI prueba las rutas en orden,
+# y con `{plan_id}` primero `/action-plans/tasks/` se leeria como un plan de id
+# "tasks" y responderia 422 — el error de orden de lineas que ya se pago con
+# `/equipment/sin-operador`.
+
+
+def _tarea_de_plan_o_404(db: Session, task_id: UUID):
+    """La tarea, **si es de un plan**. Una tarea de obligacion no se toca desde
+    aca: tiene sus propias rutas, y mezclarlas haria que un permiso de plan de
+    accion editara declaraciones."""
+    tarea = obtener_o_404(crud_task, db, task_id, recurso="Task")
+    if tarea.action_plan_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return tarea
+
+
+@router.get(
+    "/action-plans/tasks/",
+    response_model=list[TaskRead],
+    tags=["action-plans"],
+    summary="Lo que le toca a una persona, entre todos los planes",
+    description=(
+        "Las tareas de planes de accion asignadas a `assignee_user_id`, sin indicar "
+        "de que plan cuelgan. Es la consulta que una lista embebida en el plan no "
+        "permite: sin esto habria que abrir plan por plan."
+    ),
+)
+def listar_tareas_de_persona(assignee_user_id: UUID, db: Session = Depends(get_tenant_db)):
+    from ..models.obligations import Task
+
+    return list(
+        db.scalars(
+            select(Task)
+            .where(
+                Task.action_plan_id.is_not(None),
+                Task.assignee_user_id == assignee_user_id,
+                Task.deleted_at.is_(None),
+            )
+            .order_by(Task.due_at.asc().nulls_last(), Task.created_at, Task.id)
+        ).all()
+    )
+
+
+@router.get("/action-plans/tasks/{task_id}", response_model=TaskRead, tags=["action-plans"])
+def get_tarea_de_plan(task_id: UUID, db: Session = Depends(get_tenant_db)):
+    return _tarea_de_plan_o_404(db, task_id)
+
+
+@router.patch("/action-plans/tasks/{task_id}", response_model=TaskRead, tags=["action-plans"])
+def update_tarea_de_plan(task_id: UUID, data: TaskUpdate, db: Session = Depends(get_tenant_db)):
+    """Estado, responsable, titulo o fecha. **Completarla fija `completed_at`**, y
+    reabrirla lo limpia: la fecha de cierre la pone el servidor."""
+    tarea = _tarea_de_plan_o_404(db, task_id)
+    validar_visible(crud_user, db, data.assignee_user_id, campo="assignee_user_id")
+    tarea = crud_task.update(db, db_obj=tarea, obj_in=data)
+    if tarea.status == "done" and tarea.completed_at is None:
+        tarea.completed_at = datetime.now(timezone.utc)
+    elif tarea.status != "done":
+        tarea.completed_at = None
+    # `refresh` antes del `commit`: despues, la transaccion ya no tiene la empresa
+    # declarada y RLS no deja ver la fila (CLAUDE.md, "no consultar despues de
+    # db.commit()").
+    db.flush()
+    db.refresh(tarea)
+    db.commit()
+    return tarea
+
+
+@router.delete("/action-plans/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["action-plans"])
+def delete_tarea_de_plan(task_id: UUID, db: Session = Depends(get_tenant_db)):
+    _tarea_de_plan_o_404(db, task_id)
+    borrar_o_404(crud_task, db, task_id, recurso="Task")
+
+
+@router.get("/action-plans/{plan_id}/tasks", response_model=list[TaskRead], tags=["action-plans"])
+def listar_tareas_del_plan(plan_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Las tareas vivas del plan, en el orden en que se crearon.
+
+    **Comprueba el plan**: sin eso, uno inexistente responderia `[]`, que se lee
+    como "este plan no tiene tareas".
+    """
+    from ..models.obligations import Task
+
+    obtener_o_404(crud_action_plan, db, plan_id, recurso="ActionPlan")
+    return list(
+        db.scalars(
+            select(Task)
+            .where(Task.action_plan_id == plan_id, Task.deleted_at.is_(None))
+            .order_by(Task.created_at, Task.id)
+        ).all()
+    )
+
+
+@router.post(
+    "/action-plans/{plan_id}/tasks",
+    response_model=TaskRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["action-plans"],
+)
+def crear_tarea_del_plan(
+    plan_id: UUID,
+    data: TaskCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    """Crea una tarea en el plan. El plan sale de la URL: si RLS no lo ve, el 404
+    llega antes de escribir, y un plan inventado y uno ajeno responden igual."""
+    from ..models.obligations import Task
+
+    obtener_o_404(crud_action_plan, db, plan_id, recurso="ActionPlan")
+    datos = data.model_dump(exclude_unset=True)
+    if datos.get("obligation_id") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Una tarea cuelga de una obligacion o de un plan de accion, no de los dos.",
+        )
+    datos["action_plan_id"] = plan_id
+    # Las claves foraneas del cuerpo no pasan por RLS.
+    validar_visible(crud_user, db, datos.get("assignee_user_id"), campo="assignee_user_id")
+    validar_visible(crud_department, db, datos.get("department_id"), campo="department_id")
+    padre_id = datos.get("parent_task_id")
+    validar_visible(crud_task, db, padre_id, campo="parent_task_id")
+    if padre_id is not None:
+        padre = crud_task.get(db, padre_id)
+        if padre is not None and padre.action_plan_id != plan_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="parent_task_id pertenece a otro plan: una subtarea no cruza planes.",
+            )
+    tarea = Task(**datos, tenant_id=tenant_id)
+    db.add(tarea)
+    db.flush()
+    db.refresh(tarea)
+    db.commit()
+    return tarea
 
 
 @router.patch("/action-plans/{plan_id}", response_model=ActionPlanRead, tags=["action-plans"])

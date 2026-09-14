@@ -55,6 +55,8 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
           responsableId: raw.owner_user_id ? String(raw.owner_user_id) : undefined,
           fechaLimite: raw.target_date ? String(raw.target_date) : new Date().toISOString(),
           estado: (raw.status === 'closed' ? 'cerrado' : raw.status === 'in_progress' ? 'en_progreso' : 'abierto') as PlanAccion['estado'],
+          // El listado no trae tareas: se cargan en la ficha del plan
+          // (`lib/tareas-del-plan.ts`), para no pedir una lista por cada plan.
           tareas: [],
         }));
         // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`

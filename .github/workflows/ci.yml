@@ -130,7 +130,7 @@ jobs:
                    26_informe_por_proceso \
                    27_vinculos_de_documentos \
                    28_comentarios \
-                   29_normativa_propia 30_etapas_de_mejora; do
+                   29_normativa_propia 30_etapas_de_mejora 31_tareas_del_plan_de_accion; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"
