@@ -13,6 +13,7 @@ from ..crud.catalog import (
     crud_retc_system,
 )
 from ..models.catalog import (
+    NormSyncRun,
     LegalArticle,
     LegalNorm,
     LegalNormVersion,
@@ -35,6 +36,7 @@ from ..schemas.catalog import (
     LegalNormUpdate,
     LegalSourceCreate,
     LegalSourceRead,
+    NormSyncRunRead,
     LegalSourceUpdate,
     SectorCreate,
     NormSectorRead,
@@ -531,3 +533,24 @@ def list_retc_systems(
 )
 def get_retc_system(system_id: int, db: Session = Depends(get_db)):
     return obtener_o_404(crud_retc_system, db, system_id, recurso="RetcSystem")
+
+
+@router.get(
+    "/sync-runs",
+    response_model=list[NormSyncRunRead],
+    summary="Las ultimas sincronizaciones del catalogo con la BCN",
+    description=(
+        "De la mas reciente a la mas antigua. `status` es `success`, `partial` "
+        "(algun termino fallo o no encontro su norma) o `failed`.\n\n"
+        "**Existe para que el catalogo diga de donde salio y cuando.** La tabla "
+        "se escribe desde el 14-sep; una lista vacia significa que el catalogo "
+        "nunca se sincronizo con esta version del sistema, no que este al dia."
+    ),
+)
+def list_sync_runs(limite: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
+    return list(
+        db.scalars(
+            select(NormSyncRun).order_by(NormSyncRun.started_at.desc(), NormSyncRun.id.desc()).limit(limite)
+        ).all()
+    )
+

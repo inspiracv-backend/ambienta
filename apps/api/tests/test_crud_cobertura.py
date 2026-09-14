@@ -190,6 +190,12 @@ SIN_CRUD_COMPLETO = {
         "edicion son la misma operacion. Leer uno suelto tampoco aplica: lo que "
         "importa es el conjunto efectivo, que sale del listado"
     ),
+    "/catalog/sync-runs": (
+        "es la bitacora de la sincronizacion con la BCN: la escribe la tarea "
+        "`python -m app.tareas sincronizar-bcn`, no una persona. Crear, editar o "
+        "borrar una corrida por la API seria falsificar de donde salio el "
+        "catalogo; solo se lista"
+    ),
     "/users/alcance": (
         "no es un recurso sino un atributo de la persona, guardado en sus roles "
         "vigentes: el PUT describe el estado final (una planta, o `null` para "

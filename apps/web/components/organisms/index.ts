@@ -37,6 +37,7 @@ export * from './EtapasMejoraPanel';
 export * from './CierreNoConformidadPanel';
 export * from './InformeDeAuditoriaPanel';
 export * from './SinEmpresaScreen';
+export * from './UltimaSincronizacionBcn';
 export * from './CatalogNormsTable';
 export * from './AssignNormsToPlant';
 export * from './SubTenantsListTable';
