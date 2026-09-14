@@ -785,6 +785,15 @@ que se tapaban entre si:
 los cuerpos literales de `cuerpoDe` y termina en un registro cerrado: si cambia
 uno de los dos lados, falla.
 
+**Y cada etapa avisa a su responsable desde el 13-sep** (RF-99, #40):
+`services/avisos_de_etapas.py`, llamado por el mismo cron de avisos y en la
+misma transaccion. Tres avisos —asignacion, por vencer (7/3/1 o las reglas
+`improvement_stage_due` de la empresa) y vencida—, cada uno una sola vez por
+destinatario y en los dos canales. Sin responsable, los de fecha **se escalan**
+a los administradores. **Mientras `days_to_close` siga en NULL las etapas no
+tienen fecha limite**, asi que hoy solo sale el de asignacion: es a proposito,
+no un defecto del generador.
+
 **Y dos detectores me cazaron a mi** dentro de la misma hora: `exigir_cierre()`
 quedo escrita sin llamador —el patron de `bcn.sincronizar()`, otra vez— y
 `calcular_due_date` usaba `date.today()` en vez de `hoy_de`. Los dos arreglados;

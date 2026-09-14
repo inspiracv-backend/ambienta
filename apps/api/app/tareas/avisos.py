@@ -3,7 +3,9 @@
 Dos pasos que se corren juntos y son independientes a proposito:
 
 1. **Generar** — mira que obligaciones vencen dentro de las ventanas de cada
-   empresa (15/7/3/1 por defecto) y escribe los avisos que falten. Es
+   empresa (15/7/3/1 por defecto) y escribe los avisos que falten. Tambien las
+   etapas del registro de mejora: asignacion, por vencer (7/3/1) y vencida
+   (`services/avisos_de_etapas.py`, RF-99). Es
    idempotente: correrlo dos veces no duplica, lo garantiza un indice unico
    (`db/17`), no un `if`.
 2. **Despachar** — toma lo encolado y lo entrega. Reintenta lo que falla y se
@@ -53,6 +55,7 @@ from sqlalchemy.orm import Session
 from ..db import SessionLocal
 from ..deps import declarar, olvidar
 from ..services import despacho
+from ..services import avisos_de_etapas
 from ..services.avisos_de_vencimiento import generar
 
 logger = logging.getLogger("ambienta.tareas.avisos")
@@ -139,6 +142,10 @@ def correr(*, transporte: despacho.Transporte | None = None) -> Informe:
             declarar(db, tenant_id)
             try:
                 r = generar(db, tenant_id)
+                # Las etapas del registro de mejora (RF-99) van en la misma
+                # transaccion: si una de las dos falla, no queda media corrida
+                # escrita que la siguiente tome por completa.
+                e = avisos_de_etapas.generar(db, tenant_id)
                 db.commit()
             except Exception:
                 db.rollback()
@@ -146,10 +153,11 @@ def correr(*, transporte: despacho.Transporte | None = None) -> Informe:
                 continue
 
             informe.empresas += 1
-            informe.creados += r.creados
-            informe.repetidos += r.omitidos_por_repetidos
-            informe.escalados += r.escalados
+            informe.creados += r.creados + e.creados
+            informe.repetidos += r.omitidos_por_repetidos + e.omitidos_por_repetidos
+            informe.escalados += r.escalados + e.escalados
             informe.sin_destinatario.extend(r.sin_destinatario)
+            informe.sin_destinatario.extend(e.sin_destinatario)
 
         with SessionLocal() as db:
             # **Por toda la sesion, no por transaccion.** El despachador

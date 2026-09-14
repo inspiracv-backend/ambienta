@@ -172,7 +172,14 @@ Lo que destraba, en orden: decidir sobre **Microsoft SSO** (destraba dos de una)
 confirmar el **escenario de la invitación** (destraba el tercero), y decidir si
 el **acotamiento por planta** entra en la 1.0.
 
-### Tanda 3 — apenas llegue #57
+### Tanda 3 — ✅ ejecutada el 12 y 13-sep, salvo los plazos
+
+#38 y #43 (tabla tipada, panel conectado, cierre posible) y #40 (avisos por
+etapa) están hechos en la rama. Lo único que sigue esperando a #57 es **cuántos
+días da cada severidad**: sin eso las etapas no tienen fecha límite y solo sale
+el aviso de asignación.
+
+### Tanda 3 — lo que decía antes de ejecutarla
 
 **Bloque B3** (#38, #43, #40): las 5 etapas con responsable, la migración de
 `improvement_stages` al modelo definitivo, y el aviso por correo al responsable
