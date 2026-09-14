@@ -128,6 +128,30 @@ describe('guardar', () => {
     expect(cuerpo).not.toHaveProperty('improvement_stages');
   });
 
+  it('si una falla, las demás se guardan igual y dice cuántas quedaron sin guardar', async () => {
+    // Escenario "una parte falla y otra no" de escrituras-de-la-interfaz.
+    patch.mockImplementation((url: string) =>
+      url.endsWith('/e-correccion')
+        ? Promise.reject(new ApiError(422, 'Unprocessable Entity', { detail: 'responsable inválido' }))
+        : Promise.resolve(etapa('seguimiento', { observaciones: 'verificado en terreno' })),
+    );
+    await montar();
+
+    await userEvent.type(screen.getByLabelText('Corrección Inmediata'), 'x');
+    await userEvent.type(screen.getByLabelText('Evidencia Seguimiento'), 'verificado en terreno');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar etapas' }));
+
+    expect(await screen.findByText(/No se guardaron 1 de 2 etapas: corrección/)).toBeInTheDocument();
+    expect(patch).toHaveBeenCalledTimes(2);
+
+    // Al reintentar se manda solo la que falló: la otra ya coincide con la base.
+    patch.mockClear();
+    patch.mockResolvedValue(etapa('correccion', { datos: { correccionInmediata: 'x', evidencia: '' } }));
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar etapas' }));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0][0]).toMatch(/e-correccion$/);
+  });
+
   it('si la base rechaza, dice qué etapa no se guardó', async () => {
     patch.mockRejectedValue(new ApiError(422, 'Unprocessable Entity', { detail: 'responsable_user_id no válido' }));
     await montar();
@@ -135,7 +159,7 @@ describe('guardar', () => {
     await userEvent.type(screen.getByLabelText('Corrección Inmediata'), 'x');
     await userEvent.click(screen.getByRole('button', { name: 'Guardar etapas' }));
 
-    expect(await screen.findByText(/No se guardó la etapa de corrección/)).toBeInTheDocument();
+    expect(await screen.findByText(/No se guardaron 1 de 1 etapas: corrección/)).toBeInTheDocument();
     expect(screen.queryByText('Etapas guardadas.')).not.toBeInTheDocument();
   });
 });

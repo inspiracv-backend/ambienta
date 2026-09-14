@@ -180,24 +180,32 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
     setGuardando(true);
     setResultado(null);
     let actuales = filas;
+    const fallidas: string[] = [];
     try {
-      // De a una y en orden: si una falla, las anteriores quedaron guardadas y
-      // se dice cuál no — "no se pudo guardar" a secas haría rehacer todo.
+      // **Se intentan todas**, y no se corta en la primera que falla: que el
+      // responsable de una etapa sea inválido no es razón para perder lo
+      // escrito en las otras. Las guardadas se adoptan; las que fallaron
+      // conservan lo escrito para reintentar, y se dice cuántas y cuáles.
       for (const { etapa, cuerpo } of pendientes) {
         try {
           const guardada = await guardarEtapa(ncId, etapa.id, cuerpo, tenantId);
           actuales = actuales.map((f) => (f.id === guardada.id ? guardada : f));
         } catch (e) {
-          setFilas(actuales);
-          setResultado({
-            ok: false,
-            texto: `No se guardó la etapa de ${NOMBRE_ETAPA[etapa.kind] ?? etapa.kind}: ${mensajeDeError(e)}`,
-          });
-          return;
+          fallidas.push(`${NOMBRE_ETAPA[etapa.kind] ?? etapa.kind} (${mensajeDeError(e)})`);
         }
       }
-      adoptar(actuales);
-      setResultado({ ok: true, texto: 'Etapas guardadas.' });
+      if (fallidas.length === 0) {
+        adoptar(actuales);
+        setResultado({ ok: true, texto: 'Etapas guardadas.' });
+      } else {
+        // Solo `filas`: el formulario se queda con lo escrito, así que al volver
+        // a guardar se mandan únicamente las que fallaron.
+        setFilas(actuales);
+        setResultado({
+          ok: false,
+          texto: `No se guardaron ${fallidas.length} de ${pendientes.length} etapas: ${fallidas.join('; ')}.`,
+        });
+      }
     } finally {
       setGuardando(false);
       await refrescarCierre();
