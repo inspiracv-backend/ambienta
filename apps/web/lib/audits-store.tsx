@@ -123,6 +123,7 @@ function mapApiNonConformity(raw: Record<string, unknown>): NonConformity | null
       // `improvement_stages` (JSONB) ya no se lee: las etapas se piden aparte a
       // `/nonconformities/{id}/etapas`, que es lo que el cierre comprueba.
       ...(raw.record_type ? { tipoRegistro: String(raw.record_type) as TipoRegistroMejora } : {}),
+      ...(raw.audit_item_id ? { auditItemId: String(raw.audit_item_id) } : {}),
       // La API no expone el `audit_id` en el listado, solo `audit_item_id`. Se
       // deja sin origen antes que inventar el vinculo.
       ...(cerradaEl

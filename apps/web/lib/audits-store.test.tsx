@@ -242,6 +242,19 @@ describe('alta de un hallazgo', () => {
     expect(result.current.a.nonConformities.map((n) => n.id)).toEqual([NC_ID]);
   });
 
+  it('conserva la pregunta de la auditoria de la que salio', async () => {
+    // Es el unico vinculo con la auditoria que trae la API: sin mapearlo, la
+    // ficha de la auditoria no podia mostrar sus hallazgos.
+    const { result } = await montar([]);
+    // Despues de montar: `montar` reinicia la respuesta de `post`.
+    post.mockResolvedValue(ncApi({ audit_item_id: 'item-7' }));
+    let nc: Awaited<ReturnType<typeof result.current.a.addNonConformity>> | undefined;
+    await act(async () => {
+      nc = await result.current.a.addNonConformity(BASE);
+    });
+    expect(nc?.auditItemId).toBe('item-7');
+  });
+
   it('si la API lo rechaza, rechaza y no queda en pantalla', async () => {
     const { result } = await montar([]);
     post.mockRejectedValue(new ApiError(422, 'Unprocessable Entity', { detail: 'code ya existe' }));
