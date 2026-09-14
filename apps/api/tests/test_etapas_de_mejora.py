@@ -78,6 +78,7 @@ def _borrar(nc_id: str, empresa: str = EMPRESA_A) -> None:
             text("DELETE FROM improvement_stage_entries WHERE nonconformity_id = :n"),
             {"n": nc_id},
         )
+        db.execute(text("DELETE FROM action_plans WHERE nonconformity_id = :n"), {"n": nc_id})
         db.execute(text("DELETE FROM nonconformities WHERE id = :n"), {"n": nc_id})
         db.commit()
 
@@ -123,6 +124,115 @@ class TestElCicloSeSiembra:
             "accion_correctiva",
             "seguimiento",
         ]
+
+    def test_la_etapa_de_registro_nace_completada(self, cliente, registro) -> None:
+        """Ninguna pantalla muestra ni completa la etapa de registro. Nacia
+        vacia, y `puede-cerrarse` respondia "sin completar: registro" para
+        siempre: **ningun registro nuevo se podia cerrar**."""
+        cliente.post(f"{BASE}/{registro}/etapas")
+        etapas = {e["kind"]: e for e in cliente.get(f"{BASE}/{registro}/etapas").json()}
+        assert etapas["registro"]["completada_en"] is not None
+        assert etapas["registro"]["fecha_ejecucion"] is not None
+        assert all(
+            e["completada_en"] is None for k, e in etapas.items() if k != "registro"
+        ), "solo el registro se da por hecho; el resto es trabajo pendiente"
+
+    def test_con_los_cuerpos_de_la_pantalla_se_cierra(self, cliente, registro) -> None:
+        """**El contrato con `lib/etapas-mejora.ts::cuerpoDe`, literal.**
+
+        Las cuatro etapas que la pantalla muestra, con los cuerpos que arma
+        —vacios en `null`, tri-estado en `null` salvo la eficacia, `datos` con
+        las claves del formulario—, y sin ningun plan de accion. Tiene que
+        terminar en un registro cerrado.
+
+        Hasta el 13-sep no terminaba: el registro nacia sin completar, y aun
+        completandolo `/close` exigia un plan de accion verificado que el ciclo
+        de etapas no crea.
+        """
+        cliente.post(f"{BASE}/{registro}/etapas")
+        cuerpos = {
+            "correccion": {
+                "responsable_user_id": None,
+                "fecha_ejecucion": "2026-09-02",
+                "evidencia_urls": [],
+                "datos": {"correccionInmediata": "Se aislo el derrame", "evidencia": ""},
+            },
+            "analisis_causa": {
+                "responsable_user_id": None,
+                "metodologia_id": None,
+                "fecha_ejecucion": "2026-09-04",
+                "datos": {
+                    "cincoPorques": ["Fallo el sello", "", "", "", ""],
+                    "espinaPescado": None,
+                    "causaRaiz": "Mantencion vencida",
+                },
+            },
+            "accion_correctiva": {
+                "responsable_user_id": None,
+                "fecha_ejecucion": "2026-09-08",
+                "evidencia_urls": [],
+                "datos": {
+                    "severidad": "major",
+                    "tipoAccion": "correctiva",
+                    "descripcionAccion": "Plan de mantencion mensual",
+                    "evidenciaAccion": "",
+                    "fechaInicial": "2026-09-05",
+                },
+            },
+            "seguimiento": {
+                "responsable_user_id": None,
+                "fecha_ejecucion": "2026-09-12",
+                "observaciones": None,
+                "evidencia_urls": [],
+                "eficaz": True,
+                "causa_se_repitio": False,
+                "cumplio_proposito": True,
+                "requiere_actualizar_riesgos": None,
+                "requiere_cambios_sgc": None,
+                "datos": {"requiereActualizarFoda": None, "salidas": []},
+            },
+        }
+        for e in cliente.get(f"{BASE}/{registro}/etapas").json():
+            if e["kind"] in cuerpos:
+                r = cliente.patch(f"{BASE}/{registro}/etapas/{e['id']}", json=cuerpos[e["kind"]])
+                assert r.status_code == 200, (e["kind"], r.text)
+
+        guardadas = {e["kind"]: e for e in cliente.get(f"{BASE}/{registro}/etapas").json()}
+        assert guardadas["seguimiento"]["requiere_actualizar_riesgos"] is None, (
+            "sin responder se guardo como otra cosa"
+        )
+        assert cliente.get(f"{BASE}/{registro}/puede-cerrarse").json() == {
+            "puede": True, "motivo": None,
+        }
+        r = cliente.post(f"{BASE}/{registro}/close")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "closed"
+
+    def test_un_plan_pendiente_bloquea_tambien_puede_cerrarse(
+        self, cliente, registro
+    ) -> None:
+        """`puede-cerrarse` y `/close` responden lo mismo: antes el primero solo
+        miraba las etapas y habilitaba un cierre que el segundo rechazaba."""
+        cliente.post(f"{BASE}/{registro}/etapas")
+        for e in cliente.get(f"{BASE}/{registro}/etapas").json():
+            cuerpo = {"fecha_ejecucion": "2026-09-12"}
+            if e["kind"] == "seguimiento":
+                cuerpo["eficaz"] = True
+            cliente.patch(f"{BASE}/{registro}/etapas/{e['id']}", json=cuerpo)
+        with SessionLocal() as db:
+            declarar(db, EMPRESA_A)
+            db.execute(
+                text(
+                    "INSERT INTO action_plans (tenant_id, nonconformity_id, title, objective, status) "
+                    "VALUES (:t, :n, '[QA] plan pendiente', 'medir el bloqueo', 'in_progress')"
+                ),
+                {"t": EMPRESA_A, "n": registro},
+            )
+            db.commit()
+        r = cliente.get(f"{BASE}/{registro}/puede-cerrarse").json()
+        assert r["puede"] is False
+        assert "plan" in r["motivo"]
+        assert cliente.post(f"{BASE}/{registro}/close").status_code == 409
 
     def test_sembrar_dos_veces_no_duplica(self, cliente, registro) -> None:
         """Tambien sirve para reparar un registro que quedo a medias."""
@@ -235,7 +345,9 @@ class TestLaBaseSostieneLasReglas:
                 db.execute(
                     text(
                         "UPDATE improvement_stage_entries SET completada_en = now() "
-                        "WHERE nonconformity_id = :n AND kind = 'registro'"
+                        # `correccion` y no `registro`: desde el 13-sep el
+                        # registro nace completado, con fecha.
+                        "WHERE nonconformity_id = :n AND kind = 'correccion'"
                     ),
                     {"n": registro},
                 )

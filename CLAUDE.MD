@@ -762,6 +762,29 @@ siguen con la regla anterior —al menos un plan de accion verificado— y la
 excepcion se agota sola porque todo registro nuevo nace con su ciclo. No es una
 puerta trasera: **no existe el borrado de una etapa**, justamente por esto.
 
+**Y hasta el 13-sep ningun registro nuevo se podia cerrar**, por tres defectos
+que se tapaban entre si:
+
+1. **La etapa `registro` nacia vacia** y ninguna pantalla la completa, asi que
+   `puede-cerrarse` respondia "sin completar: registro" para siempre. Ahora nace
+   completada, con la fecha de deteccion.
+2. **`/close` exigia ademas un plan de accion verificado**, que el ciclo no crea.
+   Con ciclo, la verificacion de §10.2.1 d) es el seguimiento; el plan verificado
+   solo se exige a los registros sin etapas. Los planes **pendientes** bloquean
+   siempre. La regla vive en `services/audits.py::impedimento_por_planes` y la
+   llaman `/close` **y** `/puede-cerrarse` — con dos copias, la pantalla
+   habilitaba un cierre que el endpoint rechazaba.
+3. **El panel escribia el JSONB** `improvement_stages`, que el cierre no mira, con
+   responsables de `mockUsers` (422 contra la clave foranea) y la severidad
+   `Alta/Media/Baja` escrita a mano. Ahora usa `lib/etapas-mejora.ts` contra
+   `/etapas`, el catalogo de la empresa y `/users/`. El cierre se habilita con lo
+   que responde `puede-cerrarse`, **no con lo escrito en el formulario**: marcar
+   SI sin guardar no habilita nada.
+
+`test_etapas_de_mejora.py::test_con_los_cuerpos_de_la_pantalla_se_cierra` manda
+los cuerpos literales de `cuerpoDe` y termina en un registro cerrado: si cambia
+uno de los dos lados, falla.
+
 **Y dos detectores me cazaron a mi** dentro de la misma hora: `exigir_cierre()`
 quedo escrita sin llamador —el patron de `bcn.sincronizar()`, otra vez— y
 `calcular_due_date` usaba `date.today()` en vez de `hoy_de`. Los dos arreglados;

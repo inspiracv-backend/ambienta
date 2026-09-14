@@ -124,29 +124,9 @@ def close_nonconformity(
     if nc.status == "closed":
         raise ValueError("Nonconformity already closed")
 
-    planes = db.scalars(
-        select(ActionPlan).where(
-            and_(
-                ActionPlan.nonconformity_id == nc_id,
-                ActionPlan.deleted_at.is_(None),
-            )
-        )
-    ).all()
-
-    pendientes = [p for p in planes if p.status not in ESTADOS_QUE_NO_BLOQUEAN]
-    if pendientes:
-        raise SinVerificarLaEficacia(
-            f"No se puede cerrar: {len(pendientes)} plan(es) de accion siguen "
-            "abiertos. Hay que terminarlos y verificar que la accion funciono."
-        )
-
-    if not any(p.status == ESTADO_VERIFICADO for p in planes):
-        raise SinVerificarLaEficacia(
-            "No se puede cerrar: nadie verifico que la accion funciono. "
-            "Cerrar exige una verificacion de eficacia afirmativa (ISO 14001 "
-            "10.2.1 d). Sin planes verificados no hay nada que respalde el "
-            "cierre ante una auditoria."
-        )
+    motivo = impedimento_por_planes(db, nc)
+    if motivo:
+        raise SinVerificarLaEficacia(motivo)
 
     nc.status = "closed"
     nc.closed_at = datetime.now(timezone.utc)
@@ -154,6 +134,53 @@ def close_nonconformity(
     db.flush()
     db.refresh(nc)
     return nc
+
+
+def impedimento_por_planes(db: Session, nc: Nonconformity) -> str | None:
+    """Lo que los planes de accion le impiden al cierre, o `None`.
+
+    **Un plan pendiente bloquea siempre.** Es trabajo comprometido sin hacer.
+
+    **El plan verificado solo se exige a registros SIN ciclo de etapas.** Con
+    ciclo, la verificacion de §10.2.1 d) es la etapa de seguimiento
+    (`eficaz is True`, ver `etapas_de_mejora.puede_cerrarse`). Hasta el 13-sep
+    se exigian las dos: `puede-cerrarse` respondia que si y `/close` respondia
+    409 "nadie verifico", porque un registro con su seguimiento verificado y
+    sin planes de accion —que es lo normal cuando la accion correctiva se
+    registra en la propia etapa— no tenia ningun plan `verified`.
+
+    Es la misma funcion para `/close` y para `/puede-cerrarse`: dos copias de la
+    regla serian dos respuestas distintas a la misma pregunta.
+    """
+    from .etapas_de_mejora import etapas_de
+
+    planes = db.scalars(
+        select(ActionPlan).where(
+            and_(
+                ActionPlan.nonconformity_id == nc.id,
+                ActionPlan.deleted_at.is_(None),
+            )
+        )
+    ).all()
+
+    pendientes = [p for p in planes if p.status not in ESTADOS_QUE_NO_BLOQUEAN]
+    if pendientes:
+        return (
+            f"No se puede cerrar: {len(pendientes)} plan(es) de accion siguen "
+            "abiertos. Hay que terminarlos y verificar que la accion funciono."
+        )
+
+    if etapas_de(db, nc.id):
+        return None
+
+    if not any(p.status == ESTADO_VERIFICADO for p in planes):
+        return (
+            "No se puede cerrar: nadie verifico que la accion funciono. "
+            "Cerrar exige una verificacion de eficacia afirmativa (ISO 14001 "
+            "10.2.1 d). Sin planes verificados no hay nada que respalde el "
+            "cierre ante una auditoria."
+        )
+    return None
 
 
 def get_audit_summary(db: Session, audit_id: UUID) -> dict:

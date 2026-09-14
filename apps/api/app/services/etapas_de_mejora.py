@@ -29,7 +29,7 @@ a mano y esta funcion devuelve `None`.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -237,6 +237,18 @@ def sembrar_ciclo(
             kind=kind,
             due_date=vencimiento,
         )
+        if kind == "registro":
+            # **La etapa de registro se cumple al registrar.** Hasta el 13-sep
+            # nacia vacia, y ninguna pantalla la muestra ni la completa — asi
+            # que `puede_cerrarse` respondia "hay etapas sin completar:
+            # registro" para siempre y ningun registro nuevo se podia cerrar.
+            # Su fecha es la de deteccion: es cuando el hallazgo quedo anotado.
+            fila.fecha_ejecucion = (
+                registro.detected_at.date()
+                if registro.detected_at
+                else hoy_de(db, tenant_id)
+            )
+            fila.completada_en = datetime.now(timezone.utc)
         db.add(fila)
         creadas.append(fila)
     if creadas:

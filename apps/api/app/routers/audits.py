@@ -1052,6 +1052,15 @@ def actualizar_etapa(
     ),
 )
 def puede_cerrarse(nc_id: UUID, db: Session = Depends(get_tenant_db)):
+    from ..services.audits import impedimento_por_planes
+
     registro = _registro_o_404(db, nc_id)
+    if registro.status == "closed":
+        return PuedeCerrarse(puede=False, motivo="El registro ya esta cerrado.")
     ok, motivo = svc_etapas.puede_cerrarse(db, registro)
+    if ok:
+        # Las dos reglas, igual que `/close`: sin esto la pantalla habilitaba un
+        # cierre que el endpoint despues rechazaba por los planes de accion.
+        motivo = impedimento_por_planes(db, registro)
+        ok = motivo is None
     return PuedeCerrarse(puede=ok, motivo=motivo)

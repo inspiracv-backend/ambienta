@@ -6,6 +6,7 @@ import { FEATURE_FLAGS, type NonConformity } from '@ambienta/shared';
 import { Button } from '@/components/atoms';
 import { useAudits } from '@/lib/audits-store';
 import { getUserName } from '@/lib/get-user-name';
+import type { EstadoDeCierre } from '@/lib/etapas-mejora';
 
 function formatFecha(iso: string) {
   return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -15,10 +16,13 @@ interface Props {
   nonConformity: NonConformity;
   responsableOptions: { id: string; nombre: string }[];
   /**
-   * Resultado de la Etapa de Seguimiento (§10.2.1 d).
-   * `null` = sin responder, que no habilita: solo `true` lo hace.
+   * Lo que responde `GET /puede-cerrarse`, con el motivo.
+   *
+   * `null` = todavía no se sabe, que **no** habilita. Antes esto era un
+   * booleano calculado en el navegador con lo escrito en el formulario, así que
+   * marcar "SI" sin guardar habilitaba un cierre que la API rechazaba.
    */
-  eficaciaVerificada?: boolean | null;
+  cierre?: EstadoDeCierre | null;
 }
 
 /**
@@ -26,25 +30,19 @@ interface Props {
  *
  * Vive en su propio componente y no dentro del detalle **por orden de lectura**:
  * el cierre es el ultimo acto del tratamiento, asi que tiene que renderizarse
- * despues de las etapas. Cuando estaba embebido en el detalle, la pantalla
- * pedia firmar antes de mostrar el trabajo que se estaba cerrando.
+ * despues de las etapas.
  *
- * Es el unico punto de cierre del sistema: es el que registra en el audit log,
- * y tener un segundo boton en otra parte dejaria uno de los dos salteando la
- * verificacion de eficacia.
+ * Es el unico punto de cierre del sistema. La API vuelve a comprobar el ciclo al
+ * cerrar (409 con el motivo), así que esto adelanta la respuesta, no la reemplaza.
  */
-export function CierreNoConformidadPanel({
-  nonConformity: nc,
-  responsableOptions,
-  eficaciaVerificada,
-}: Props) {
+export function CierreNoConformidadPanel({ nonConformity: nc, responsableOptions, cierre }: Props) {
   const { closeNonConformity } = useAudits();
   const [cierreResponsableId, setCierreResponsableId] = useState(nc.responsableId);
   const [firmada, setFirmada] = useState(false);
 
-  const exigeEficacia = FEATURE_FLAGS.registroMejora;
-  const eficaciaOk = !exigeEficacia || eficaciaVerificada === true;
-  const puedeCerrar = nc.estado !== 'cerrada' && eficaciaOk;
+  const exigeCiclo = FEATURE_FLAGS.registroMejora;
+  const cicloOk = !exigeCiclo || cierre?.puede === true;
+  const puedeCerrar = nc.estado !== 'cerrada' && cicloOk;
 
   function handleCerrar() {
     if (!firmada || !puedeCerrar) return;
@@ -83,10 +81,11 @@ export function CierreNoConformidadPanel({
           <Button onClick={handleCerrar} disabled={!firmada || !puedeCerrar} className="w-fit">
             Cerrar No Conformidad
           </Button>
-          {exigeEficacia && !eficaciaOk && (
+          {exigeCiclo && !cicloOk && (
             <p className="text-sm text-slate-500">
-              El cierre se habilita cuando la Etapa de Seguimiento verifica la eficacia como SI
-              (§10.2.1 d).
+              {cierre === null || cierre === undefined
+                ? 'Comprobando si el ciclo de etapas permite cerrar…'
+                : `Todavía no se puede cerrar. ${cierre.motivo ?? ''}`}
             </p>
           )}
         </div>

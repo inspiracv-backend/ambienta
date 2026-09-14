@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Audit, NonConformity, EtapasMejora, TipoRegistroMejora } from '@ambienta/shared';
+import type { Audit, NonConformity, TipoRegistroMejora } from '@ambienta/shared';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useUsers } from '@/lib/users-store';
 import { useSession } from '@/lib/session';
@@ -31,7 +31,6 @@ interface AuditsContextValue {
     tipoRegistro?: TipoRegistroMejora;
   }) => NonConformity;
   updatePorques: (ncId: string, cincoPorques: string[]) => void;
-  updateEtapas: (ncId: string, etapas: EtapasMejora) => void;
   closeNonConformity: (ncId: string, responsableId: string) => void;
 }
 
@@ -117,11 +116,8 @@ function mapApiNonConformity(raw: Record<string, unknown>): NonConformity | null
       cincoPorques: Array.isArray(raw.root_cause_answers)
         ? (raw.root_cause_answers as unknown[]).map(String).slice(0, 5)
         : [],
-      ...(raw.improvement_stages && typeof raw.improvement_stages === 'object'
-        && !Array.isArray(raw.improvement_stages)
-        && Object.keys(raw.improvement_stages).length > 0
-        ? { etapasMejora: raw.improvement_stages as EtapasMejora }
-        : {}),
+      // `improvement_stages` (JSONB) ya no se lee: las etapas se piden aparte a
+      // `/nonconformities/{id}/etapas`, que es lo que el cierre comprueba.
       ...(raw.record_type ? { tipoRegistro: String(raw.record_type) as TipoRegistroMejora } : {}),
       // La API no expone el `audit_id` en el listado, solo `audit_item_id`. Se
       // deja sin origen antes que inventar el vinculo.
@@ -346,42 +342,10 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  function updateEtapas(ncId: string, etapas: EtapasMejora) {
-    const anterior = nonConformities.find((nc) => nc.id === ncId);
-    if (!anterior) return;
+  // `updateEtapas` se quitó el 13-sep: escribía el JSONB provisorio
+  // `improvement_stages`, que el cierre no mira. Las etapas viven en
+  // `improvement_stage_entries` y las lee y escribe `lib/etapas-mejora.ts`.
 
-    const nuevoEstado = anterior.estado === 'abierta' ? 'en_tratamiento' : anterior.estado;
-
-    setNonConformities((prev) =>
-      prev.map((nc) =>
-        nc.id !== ncId ? nc : { ...nc, etapasMejora: etapas, estado: nuevoEstado },
-      ),
-    );
-
-    guardar(
-      ncId,
-      {
-        improvement_stages: etapas,
-        ...(nuevoEstado !== anterior.estado ? { status: STATUS_EN_TRATAMIENTO } : {}),
-      },
-      anterior,
-      'No se pudieron guardar las etapas del tratamiento',
-    );
-
-    registrar({
-      entidadTipo: 'no_conformidad',
-      entidadId: ncId,
-      entidadLabel: etiqueta(anterior),
-      tenantId: anterior.tenantId,
-      accion: 'actualizado',
-      resumen: 'Actualizó las etapas del tratamiento',
-      cambios: [
-        ...(nuevoEstado !== anterior.estado
-          ? [{ campo: 'Estado', antes: NC_ESTADO_LABEL[anterior.estado], despues: NC_ESTADO_LABEL[nuevoEstado] }]
-          : []),
-      ],
-    });
-  }
 
   function closeNonConformity(ncId: string, responsableId: string) {
     const anterior = nonConformities.find((nc) => nc.id === ncId);
@@ -430,7 +394,7 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuditsContext.Provider value={{ audits, nonConformities, loading, errorDeCarga, addNonConformity, updatePorques, updateEtapas, closeNonConformity }}>
+    <AuditsContext.Provider value={{ audits, nonConformities, loading, errorDeCarga, addNonConformity, updatePorques, closeNonConformity }}>
       {children}
     </AuditsContext.Provider>
   );
