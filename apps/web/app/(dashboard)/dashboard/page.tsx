@@ -1,5 +1,6 @@
 'use client';
 
+import { visibleEnAlcance } from '@/lib/alcance';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileWarning, ShieldAlert, Clock, RefreshCw, WifiOff } from 'lucide-react';
@@ -96,7 +97,7 @@ export default function DashboardPage() {
       : tenant?.plants ?? [];
 
   const scopedObligations = mockObligations.filter(
-    (o) => o.tenantId === user.tenantId && scopedPlants.some((p) => p.id === o.plantId),
+    (o) => o.tenantId === user.tenantId && visibleEnAlcance(o.plantId, scopedPlants),
   );
 
   const respaldo = {

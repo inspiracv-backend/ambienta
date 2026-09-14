@@ -257,6 +257,14 @@ Ver `app/alcance.py`. Tres reglas que conviene no invertir:
    existe, cuenta en sus totales y es invisible para quien la escribio. Es la
    leccion del `PATCH` que se saltaba la comprobacion de las etapas del CRM.
 
+**Y el navegador invertia la regla 2 hasta el 13-sep.** Seis pantallas filtraban
+con `plantas.some((p) => p.id === fila.plantId)`, y una fila sin planta llega con
+`plantId: ''`: no coincidia con nada y desaparecia. Medido: **51 de las 56
+obligaciones** de la empresa A no se veian en obligaciones, calendario, dashboard
+ni reportes. Ahora todas usan `lib/alcance.ts::visibleEnAlcance`, y
+`alcance-visible.test.ts` barre `app/` y `components/` para que el filtro viejo no
+vuelva.
+
 **Y el Admin Global ya no edita contenido de una empresa.** §4 lo declara entre
 las reglas no negociables y el spec de RBAC tiene su escenario, y **no lo
 aplicaba nada**: `users.tenant_id` es NOT NULL, asi que un `platform_admin`

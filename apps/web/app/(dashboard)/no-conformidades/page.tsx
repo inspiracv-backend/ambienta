@@ -1,5 +1,6 @@
 'use client';
 
+import { visibleEnAlcance } from '@/lib/alcance';
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -36,7 +37,7 @@ export default function NoConformidadesPage() {
       : tenant?.plants ?? [];
 
   const visibleNCs = nonConformities.filter(
-    (nc) => nc.tenantId === user.tenantId && scopedPlants.some((p) => p.id === nc.plantId),
+    (nc) => nc.tenantId === user.tenantId && visibleEnAlcance(nc.plantId, scopedPlants),
   );
 
   return (

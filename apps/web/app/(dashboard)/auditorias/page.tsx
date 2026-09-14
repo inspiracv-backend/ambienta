@@ -1,5 +1,6 @@
 'use client';
 
+import { visibleEnAlcance } from '@/lib/alcance';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/atoms';
@@ -35,7 +36,7 @@ export default function AuditoriasPage() {
       : tenant?.plants ?? [];
 
   const visibleAudits = audits.filter(
-    (a) => a.tenantId === user.tenantId && scopedPlants.some((p) => p.id === a.plantId),
+    (a) => a.tenantId === user.tenantId && visibleEnAlcance(a.plantId, scopedPlants),
   );
 
   return (

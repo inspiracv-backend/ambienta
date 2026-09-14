@@ -1,5 +1,6 @@
 'use client';
 
+import { visibleEnAlcance } from '@/lib/alcance';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarDays, GanttChartSquare, Kanban } from 'lucide-react';
@@ -55,7 +56,7 @@ export default function CalendarioPage() {
   const tickets: TicketRef[] = useMemo(() => {
     if (!user) return [];
     return obligations
-      .filter((o) => o.tenantId === user.tenantId && scopedPlants.some((p) => p.id === o.plantId))
+      .filter((o) => o.tenantId === user.tenantId && visibleEnAlcance(o.plantId, scopedPlants))
       .flatMap((obligation) => obligation.tasks.map((task) => ({ obligation, task })));
   }, [obligations, user, scopedPlants]);
 
