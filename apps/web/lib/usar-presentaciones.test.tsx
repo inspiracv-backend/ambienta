@@ -21,7 +21,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { usarPresentaciones } from './usar-presentaciones';
+import { usePresentaciones } from './usar-presentaciones';
 import { SessionProvider } from './session';
 import { ToastProvider } from './toast-store';
 import { UsersProvider } from './users-store';
@@ -96,7 +96,7 @@ beforeEach(() => {
 describe('trae cada intento con lo suyo', () => {
   it('conserva el folio de cada version y el motivo de la rechazada', async () => {
     responder(DOS_INTENTOS);
-    const { result } = renderHook(() => usarPresentaciones('o-1', 'accepted|X'), {
+    const { result } = renderHook(() => usePresentaciones('o-1', 'accepted|X'), {
       wrapper: envoltura,
     });
 
@@ -117,7 +117,7 @@ describe('una lista vacía nunca puede leerse como "no se presentó"', () => {
   it('mientras no vuelve la consulta, no hay lista', async () => {
     // Una promesa que no resuelve: el estado real mientras se espera.
     get.mockImplementation(() => new Promise(() => {}));
-    const { result } = renderHook(() => usarPresentaciones('o-1', 'accepted|X'), {
+    const { result } = renderHook(() => usePresentaciones('o-1', 'accepted|X'), {
       wrapper: envoltura,
     });
 
@@ -129,7 +129,7 @@ describe('una lista vacía nunca puede leerse como "no se presentó"', () => {
 
   it('si falla, lo dice en vez de devolver una lista vacía a secas', async () => {
     responder(new Error('se cayó la consulta'));
-    const { result } = renderHook(() => usarPresentaciones('o-1', 'accepted|X'), {
+    const { result } = renderHook(() => usePresentaciones('o-1', 'accepted|X'), {
       wrapper: envoltura,
     });
 
@@ -145,7 +145,7 @@ describe('una lista vacía nunca puede leerse como "no se presentó"', () => {
 
   it('una declaración sin presentar devuelve la lista vacía, sin error', async () => {
     responder([]);
-    const { result } = renderHook(() => usarPresentaciones('o-1', 'draft|'), {
+    const { result } = renderHook(() => usePresentaciones('o-1', 'draft|'), {
       wrapper: envoltura,
     });
 
@@ -159,7 +159,7 @@ describe('se vuelve a pedir cuando la declaración se mueve', () => {
   it('cambiar el estado dispara una consulta nueva', async () => {
     responder([]);
     const { result, rerender } = renderHook(
-      ({ clave }: { clave: string }) => usarPresentaciones('o-1', clave),
+      ({ clave }: { clave: string }) => usePresentaciones('o-1', clave),
       { wrapper: envoltura, initialProps: { clave: 'submitted|' } },
     );
 

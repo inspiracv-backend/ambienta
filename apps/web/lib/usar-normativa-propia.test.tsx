@@ -20,7 +20,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import type { ReactNode } from 'react';
-import { usarNormativaPropia } from './usar-normativa-propia';
+import { useNormativaPropia } from './usar-normativa-propia';
 import { SessionProvider } from './session';
 import { ToastProvider } from './toast-store';
 import { UsersProvider } from './users-store';
@@ -84,7 +84,7 @@ function responder(respuesta: unknown) {
   });
 }
 
-const montar = () => renderHook(() => usarNormativaPropia(), { wrapper: envoltura });
+const montar = () => renderHook(() => useNormativaPropia(), { wrapper: envoltura });
 
 beforeEach(() => {
   vi.clearAllMocks();

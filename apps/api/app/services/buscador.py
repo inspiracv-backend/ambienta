@@ -41,7 +41,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import String, cast, func, or_, select

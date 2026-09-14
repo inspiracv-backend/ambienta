@@ -19,7 +19,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { usarDocumentosVinculados } from './usar-documentos-vinculados';
+import { useDocumentosVinculados } from './usar-documentos-vinculados';
 import { SessionProvider } from './session';
 import { ToastProvider } from './toast-store';
 import { UsersProvider } from './users-store';
@@ -80,7 +80,7 @@ describe('la consulta', () => {
   it('manda la entidad como parámetros y mapea el código, que es lo que se cita', async () => {
     responder(UN_PROCEDIMIENTO);
     const { result } = renderHook(
-      () => usarDocumentosVinculados('obligation', 'o-1'),
+      () => useDocumentosVinculados('obligation', 'o-1'),
       { wrapper: envoltura },
     );
 
@@ -102,7 +102,7 @@ describe('la consulta', () => {
     // siendo un respaldo real, y esconderlo diría que no existe.
     responder([{ ...UN_PROCEDIMIENTO[0], code: null }]);
     const { result } = renderHook(
-      () => usarDocumentosVinculados('obligation', 'o-1'),
+      () => useDocumentosVinculados('obligation', 'o-1'),
       { wrapper: envoltura },
     );
 
@@ -116,7 +116,7 @@ describe('una lista vacía nunca puede leerse como "no hay evidencia"', () => {
   it('mientras no vuelve la consulta, no hay lista', async () => {
     get.mockImplementation(() => new Promise(() => {}));
     const { result } = renderHook(
-      () => usarDocumentosVinculados('obligation', 'o-1'),
+      () => useDocumentosVinculados('obligation', 'o-1'),
       { wrapper: envoltura },
     );
 
@@ -129,7 +129,7 @@ describe('una lista vacía nunca puede leerse como "no hay evidencia"', () => {
   it('si falla, lo dice', async () => {
     responder(new Error('se cayó la consulta'));
     const { result } = renderHook(
-      () => usarDocumentosVinculados('obligation', 'o-1'),
+      () => useDocumentosVinculados('obligation', 'o-1'),
       { wrapper: envoltura },
     );
 
@@ -146,7 +146,7 @@ describe('una lista vacía nunca puede leerse como "no hay evidencia"', () => {
   it('sin ningún documento, la lista vacía sí es una respuesta', async () => {
     responder([]);
     const { result } = renderHook(
-      () => usarDocumentosVinculados('obligation', 'o-1'),
+      () => useDocumentosVinculados('obligation', 'o-1'),
       { wrapper: envoltura },
     );
 

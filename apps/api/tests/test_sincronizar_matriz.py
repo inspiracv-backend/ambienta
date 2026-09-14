@@ -28,7 +28,7 @@ URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta",
 )
-from ._catalogo import como_catalogo
+from ._catalogo import como_catalogo  # noqa: E402
 
 
 TENANT = uuid.UUID("a0000000-0000-0000-0000-000000000001")

@@ -44,7 +44,7 @@ function mapear(f: Record<string, unknown>): NormaPropia {
 }
 
 /** La normativa propia de la empresa (RF-10, RF-11). */
-export function usarNormativaPropia(): NormativaPropia {
+export function useNormativaPropia(): NormativaPropia {
   const { user } = useSession();
   const tenantId = user?.tenantId ?? null;
   const [normas, setNormas] = useState<NormaPropia[] | null>(null);

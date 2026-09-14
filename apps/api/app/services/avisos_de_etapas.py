@@ -34,7 +34,7 @@ sumando horas — la leccion del cron que a las 07:00 no avisaba nunca.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { usarNormativaPropia } from '@/lib/usar-normativa-propia';
+import { useNormativaPropia } from '@/lib/usar-normativa-propia';
 import { fechaCalendario } from '@/lib/fechas';
 
 /**
@@ -29,7 +29,7 @@ const FUENTES = [
 ];
 
 export default function NormativaPropiaPage() {
-  const { normas, error, guardando, errorAlGuardar, registrar } = usarNormativaPropia();
+  const { normas, error, guardando, errorAlGuardar, registrar } = useNormativaPropia();
   const [abierto, setAbierto] = useState(false);
   const [fuente, setFuente] = useState('RCA');
   const [titulo, setTitulo] = useState('');

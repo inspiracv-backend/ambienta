@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { usarComentarios } from '@/lib/usar-comentarios';
+import { useComentarios } from '@/lib/usar-comentarios';
 // `fechaDeInstante` y no `fechaCalendario`: `created_at` es una marca de
 // tiempo, asi que se convierte a hora local. La otra es para fechas sin hora,
 // que pasadas por `new Date` retroceden un dia en todo huso al oeste de
@@ -34,7 +34,7 @@ interface Props {
  */
 export function HiloDeComentarios({ entityType, entityId, titulo = 'Conversación' }: Props) {
   const { comentarios, error, publicando, publicar, errorAlPublicar } =
-    usarComentarios(entityType, entityId);
+    useComentarios(entityType, entityId);
   const [borrador, setBorrador] = useState('');
   const [respondiendoA, setRespondiendoA] = useState<string | null>(null);
 

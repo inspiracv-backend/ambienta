@@ -46,7 +46,7 @@ export interface Historia {
  * devuelve una lista vacía sin error: no es un fallo, es que esa entidad no
  * tiene historia del otro lado. Ver `lib/vocabulario-de-entidades.ts`.
  */
-export function usarHistoria(entidad: EntidadAuditable, entidadId: string): Historia {
+export function useHistoria(entidad: EntidadAuditable, entidadId: string): Historia {
   const { user } = useSession();
   const tenantId = user?.tenantId ?? null;
   const [eventos, setEventos] = useState<EventoDeHistoria[] | null>(null);

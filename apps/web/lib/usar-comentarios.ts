@@ -55,7 +55,7 @@ function mapear(f: Record<string, unknown>): Comentario {
  * listas, una entidad comentable y no vinculable sería un estado que nadie
  * eligió.
  */
-export function usarComentarios(
+export function useComentarios(
   entityType: string,
   entityId: string,
 ): HiloDeComentarios {

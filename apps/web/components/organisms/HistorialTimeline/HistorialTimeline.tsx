@@ -20,7 +20,7 @@ import { ACCION_LABEL } from '@ambienta/shared';
 import { EmptyState } from '@/components/molecules';
 import { ROLE_LABEL } from '@/lib/roles';
 import { useAuditLog, type RefEntidad } from '@/lib/audit-log-store';
-import { usarHistoria, type EventoDeHistoria } from '@/lib/usar-historia';
+import { useHistoria, type EventoDeHistoria } from '@/lib/usar-historia';
 import type { Role } from '@ambienta/shared';
 
 const ICONO_ACCION: Record<AccionAuditable, typeof Pencil> = {
@@ -115,7 +115,7 @@ export function HistorialTimeline({
   // ordenada: lo de la sesion es lo que la persona **acaba** de hacer y va
   // arriba, sin esperar a que la API lo devuelva en la proxima carga.
   const { eventos: historia, error: errorHistoria, fuentesPendientes, hayMas } =
-    usarHistoria(entidadTipo, entidadId);
+    useHistoria(entidadTipo, entidadId);
   // **`!errorHistoria` no es de más.** Cuando la consulta falla el hook deja la
   // lista vacía —para no dejarla en `null` para siempre— y sin esta condición
   // la pantalla mostraba el error Y el «Sin movimientos registrados» debajo,

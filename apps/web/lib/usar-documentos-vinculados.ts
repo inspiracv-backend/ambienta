@@ -33,7 +33,7 @@ export interface RespaldoDocumental {
  * Ver `services/vinculos_de_documentos.py` — la misma lista que valida el
  * anclaje es la que documenta qué se puede pasar acá.
  */
-export function usarDocumentosVinculados(
+export function useDocumentosVinculados(
   entityType: string,
   entityId: string,
 ): RespaldoDocumental {

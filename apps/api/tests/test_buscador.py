@@ -34,7 +34,6 @@ from app.main import app  # noqa: E402
 from app.services.buscador import (  # noqa: E402
     FUENTES,
     MINIMO,
-    TOPE_POR_GRUPO,
     buscar,
     familia_de_fuente,
 )

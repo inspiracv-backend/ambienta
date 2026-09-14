@@ -11,8 +11,8 @@ import { TaskDetailModal } from '@/components/organisms/TaskDetailModal';
 import { mensajeDeError } from '@/lib/api-client';
 import { getUserName } from '@/lib/get-user-name';
 import { useObligations } from '@/lib/obligations-store';
-import { usarPresentaciones } from '@/lib/usar-presentaciones';
-import { usarDocumentosVinculados } from '@/lib/usar-documentos-vinculados';
+import { usePresentaciones } from '@/lib/usar-presentaciones';
+import { useDocumentosVinculados } from '@/lib/usar-documentos-vinculados';
 import { HiloDeComentarios } from '@/components/molecules/HiloDeComentarios';
 import type { ObligationDetailViewProps } from './ObligationDetailView.types';
 
@@ -68,11 +68,11 @@ export function ObligationDetailView({ obligation: obligationProp, responsableOp
   // Se revalida con el estado y el folio: presentar agrega una fila,
   // aceptar y rechazar cierran la ultima. Sin esto la pantalla mostraria
   // el historial de antes de la accion que el usuario acaba de hacer.
-  const { documentos, error: errorRespaldo } = usarDocumentosVinculados(
+  const { documentos, error: errorRespaldo } = useDocumentosVinculados(
     'obligation',
     obligation.id,
   );
-  const { presentaciones, error: errorHistorial } = usarPresentaciones(
+  const { presentaciones, error: errorHistorial } = usePresentaciones(
     obligation.id,
     `${obligation.estado}|${obligation.folio ?? ''}`,
   );

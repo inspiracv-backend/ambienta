@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Search } from 'lucide-react';
-import { usarBusqueda } from '@/lib/usar-busqueda';
+import { useBusqueda } from '@/lib/usar-busqueda';
 
 /**
  * S-40 — El buscador transversal (RF-114, #76).
@@ -41,7 +41,7 @@ const ETIQUETA: Record<string, string> = {
 };
 
 export default function BuscarPage() {
-  const { grupos, error, buscando, advertencias, buscar } = usarBusqueda();
+  const { grupos, error, buscando, advertencias, buscar } = useBusqueda();
   const [texto, setTexto] = useState('');
 
   const total = grupos?.reduce((n, g) => n + g.coincidencias.length, 0) ?? 0;

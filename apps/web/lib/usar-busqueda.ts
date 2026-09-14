@@ -36,7 +36,7 @@ export interface Busqueda {
 }
 
 /** El buscador transversal (RF-114). */
-export function usarBusqueda(): Busqueda {
+export function useBusqueda(): Busqueda {
   const { user } = useSession();
   const tenantId = user?.tenantId ?? null;
   const [grupos, setGrupos] = useState<GrupoDeResultados[] | null>(null);

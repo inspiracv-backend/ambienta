@@ -39,7 +39,7 @@ export interface HistorialDePresentaciones {
  * fila, y sin eso la pantalla mostraría el historial de antes de la acción que
  * el usuario acaba de hacer.
  */
-export function usarPresentaciones(
+export function usePresentaciones(
   obligationId: string,
   revalidarCon: string,
 ): HistorialDePresentaciones {
