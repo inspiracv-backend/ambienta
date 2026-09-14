@@ -94,16 +94,24 @@ de construir encima.
 
 ## Fase 4 — La pantalla
 
-**Bloqueada por el texto exacto (supuesto por confirmar).**
+**Construida el 14-sep con un texto provisional** — el texto exacto sigue siendo
+un supuesto por confirmar, y cambiarlo es editar `SinEmpresaScreen.tsx`.
 
-- [ ] El puente publica el estado en vez de solo escribir en consola
-- [ ] Pantalla propia: qué pasa, a quién pedirle el acceso, y **cerrar sesión**
-- [ ] Sin cerrar sesión, quien entró con la cuenta equivocada queda atrapado:
-      la sesión sobrevive al refresco
-- [ ] Que no revele si la empresa de ese dominio existe en el sistema
-- [ ] Que no redirija al ingreso: es lo que arma el bucle
-- [ ] Verificar que el modo sin proveedor **no cambia en nada**
-- [ ] Tests del estado y de que el cierre de sesión funciona desde ahí
+- [x] El puente publica el estado en vez de solo escribir en consola:
+      `api-client` detecta el 403 por su `codigo` y lo publica en
+      `lib/sesion-sin-empresa.ts`
+- [x] Pantalla propia: qué pasa, a quién pedirle el acceso (con el correo con
+      que entró), y **cerrar sesión** (`SinEmpresaGate` dentro de `AuthProvider`)
+- [x] Sin cerrar sesión, quien entró con la cuenta equivocada queda atrapado:
+      la sesión sobrevive al refresco — por eso el botón llama a `signOut`
+- [x] Que no revele si la empresa de ese dominio existe en el sistema
+- [x] Que no redirija al ingreso: es lo que arma el bucle — reemplaza la
+      aplicación en el lugar, no navega
+- [x] Verificar que el modo sin proveedor **no cambia en nada**: el gate solo se
+      monta dentro del `ClerkProvider`
+- [x] Tests del estado y de que el cierre de sesión funciona desde ahí
+      (`sesion-sin-empresa.test.tsx`, `SinEmpresaGate.test.tsx`; dos mutaciones
+      comprobadas)
 
 ## Fase 5 — Verificación de punta a punta
 

@@ -1,3 +1,4 @@
+import { esSinEmpresa, marcarSesionSinEmpresa } from './sesion-sin-empresa';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
@@ -57,6 +58,12 @@ export function mensajeDeError(error: unknown): string {
   }
 
   if (typeof detail === 'string') return detail;
+  // Algunos rechazos de la API mandan `detail` como objeto `{codigo, mensaje}`
+  // (el de sesión sin empresa, por ejemplo). Leer solo la cadena los dejaba en
+  // "El servidor rechazó la operación".
+  if (detail && typeof detail === 'object' && typeof (detail as { mensaje?: unknown }).mensaje === 'string') {
+    return (detail as { mensaje: string }).mensaje;
+  }
 
   if (Array.isArray(detail)) {
     const campos = detail
@@ -193,6 +200,10 @@ async function requestConRespuesta(
     // Clerk ya renueva por su cuenta dentro de `getToken()`.
     if (res.status === 401) alPerderLaSesion?.();
     const detail = await res.json().catch(() => null);
+    // **Una sesión válida sin empresa no es un 403 cualquiera.** Se avisa para
+    // que la aplicación muestre su pantalla en vez de un error por cada
+    // petición. Se decide por el código, no por el mensaje.
+    if (esSinEmpresa(res.status, detail)) marcarSesionSinEmpresa(true);
     throw new ApiError(res.status, res.statusText, detail);
   }
 
