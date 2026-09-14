@@ -9,7 +9,7 @@ import { Button, Input, StatusBadge } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { TaskDetailModal } from '@/components/organisms/TaskDetailModal';
 import { mensajeDeError } from '@/lib/api-client';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { useObligations } from '@/lib/obligations-store';
 import { usePresentaciones } from '@/lib/usar-presentaciones';
 import { useDocumentosVinculados } from '@/lib/usar-documentos-vinculados';
@@ -51,6 +51,8 @@ function formatFecha(iso: string) {
 
 /** S-14 Detalle de Obligación (Megaproyecto). */
 export function ObligationDetailView({ obligation: obligationProp, responsableOptions }: ObligationDetailViewProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const { obligations, addTask, moverDeclaracion } = useObligations();
   const obligation = obligations.find((o) => o.id === obligationProp.id) ?? obligationProp;
 

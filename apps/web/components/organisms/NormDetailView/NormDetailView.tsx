@@ -7,7 +7,7 @@ import { Button, StatusBadge } from '@/components/atoms';
 import { ArticleEvaluationModal } from '@/components/organisms/ArticleEvaluationModal';
 import { ComplianceConfigModal } from '@/components/organisms/ComplianceConfigModal';
 import { articuloSemaforo, normSemaforoDe, resumenDeNorma } from '@/lib/legal-matrix';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
 import type { NormDetailViewProps } from './NormDetailView.types';
 
@@ -48,6 +48,8 @@ function TextoDeArticulo({ texto }: { texto: string }) {
 
 /** S-09 Detalle de Norma + Evaluación por Artículo. */
 export function NormDetailView({ norm: normProp, activeTenantId, responsableOptions }: NormDetailViewProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const { norms } = useLegalMatrix();
   const norm = norms.find((n) => n.id === normProp.id) ?? normProp;
 

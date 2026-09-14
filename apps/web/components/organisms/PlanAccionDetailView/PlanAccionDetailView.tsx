@@ -1,7 +1,7 @@
 'use client';
 
 import { usePlanAccion } from '@/lib/plan-accion-store';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import type { PlanAccionDetailViewProps } from './PlanAccionDetailView.types';
 
 const ESTADO_LABEL = { abierto: 'Abierto', en_progreso: 'En progreso', cerrado: 'Cerrado' } as const;
@@ -12,6 +12,8 @@ function formatFecha(iso: string) {
 
 /** S-19 Detalle de Plan de Acción — vínculo con el artículo/tarea de origen (RF-19). */
 export function PlanAccionDetailView({ plan: planProp }: PlanAccionDetailViewProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const { plans } = usePlanAccion();
   const plan = plans.find((p) => p.id === planProp.id) ?? planProp;
 

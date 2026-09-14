@@ -404,3 +404,12 @@ export function useUsers() {
   if (!ctx) throw new Error('useUsers debe usarse dentro de <UsersProvider>');
   return ctx;
 }
+
+/**
+ * Como `useUsers`, pero devuelve `null` fuera del provider en vez de lanzar.
+ * Lo usa `useNombreDeUsuario`, que tiene que funcionar también en componentes
+ * que se prueban sin montar el store de usuarios.
+ */
+export function useUsersOpcional() {
+  return useContext(UsersContext);
+}

@@ -5,7 +5,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { FEATURE_FLAGS, type NonConformity } from '@ambienta/shared';
 import { Button } from '@/components/atoms';
 import { useAudits } from '@/lib/audits-store';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import type { EstadoDeCierre } from '@/lib/etapas-mejora';
 
 function formatFecha(iso: string) {
@@ -36,6 +36,8 @@ interface Props {
  * cerrar (409 con el motivo), así que esto adelanta la respuesta, no la reemplaza.
  */
 export function CierreNoConformidadPanel({ nonConformity: nc, responsableOptions, cierre }: Props) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const { closeNonConformity } = useAudits();
   const [cierreResponsableId, setCierreResponsableId] = useState(nc.responsableId);
   const [firmada, setFirmada] = useState(false);

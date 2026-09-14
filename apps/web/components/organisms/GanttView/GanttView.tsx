@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { cn } from '@/lib/utils';
 import type { GanttViewProps } from './GanttView.types';
 
@@ -18,6 +18,8 @@ const ESTADO_BAR: Record<string, string> = {
  * días (-7 a +83 desde hoy) en vez de una librería de Gantt de terceros.
  */
 export function GanttView({ tickets, onSelectTicket }: GanttViewProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const rangeStart = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 7);

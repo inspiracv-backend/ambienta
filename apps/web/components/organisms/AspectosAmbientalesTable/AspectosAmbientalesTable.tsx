@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
 import { ConfirmarBorrado, FormularioIso, type CampoIso } from '@/components/organisms/IsoForms';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { aspectoSinTratar, useIso, type AspectoApi, type PlantaApi } from '@/lib/iso-store';
 
 const CONDICION_LABEL: Record<string, string> = {
@@ -125,6 +125,8 @@ interface Props {
  * filtro y no una columna — se busca, no se mira de pasada.
  */
 export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   // El guard de la flag va DESPUES de los hooks: React exige que todo hook se
   // llame en el mismo orden en cada render, y un `return` antes los vuelve
   // condicionales.
