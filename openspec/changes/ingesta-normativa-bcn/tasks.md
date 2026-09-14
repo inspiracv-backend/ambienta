@@ -77,12 +77,20 @@ Probados contra el servicio real el 13-ago-2026, no leídos de la documentación
 
 ## Fase 4 — La bitácora
 
-- [ ] Cada corrida escribe en `norm_sync_runs`: inicio, revisadas, creadas,
-      actualizadas, fallidas
-- [ ] Un fallo de la fuente deja registro y no deja el catálogo a medias
-- [ ] **No exponerla como recurso editable.** Editar la bitácora sería
-      falsificar el registro de qué se sincronizó
-- [ ] Tests de los tres desenlaces: bien, sin novedades, y fallo
+**Hecha el 14-sep** (`app/tareas/sincronizar_bcn.py::anotar_corrida`). Las demás
+fases de este archivo están **desfasadas**: el 26-ago la ingesta se construyó por
+otro camino (SPARQL + XML de Ley Chile, ver CLAUDE.md) y sus casillas no se
+volvieron a mirar. Hay que auditarlas contra el código antes de archivar.
+
+- [x] Cada corrida escribe en `norm_sync_runs`: inicio, fin, creadas,
+      actualizadas (incluye adoptadas) y versiones; las encontradas y lo que
+      no encontró su norma van en `response_metadata`, los fallos en `error_detail`
+- [x] Un fallo de la fuente deja registro y no deja el catálogo a medias: un
+      savepoint por término — antes un fallo deshacía los términos anteriores
+- [x] **No exponerla como recurso editable**: `GET /catalog/sync-runs`, solo
+      lectura, declarado en `SIN_CRUD_COMPLETO`; el catálogo muestra la última
+- [x] Tests de los desenlaces: completa, parcial, fallida, y en seco no deja
+      corrida (`test_bitacora_bcn.py`, `test_bitacora_expuesta.py`)
 
 ## Fase 5 — El articulado
 
