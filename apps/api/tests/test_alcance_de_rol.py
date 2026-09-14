@@ -90,6 +90,23 @@ def plantas():
     return filas
 
 
+def _obligacion(db, facility_id) -> None:
+    """Una obligacion `[QA]` en esa planta, o de toda la empresa con `None`.
+
+    **Las pruebas siembran lo que miden.** La primera version confiaba en los
+    datos de `sembrar_demo` —evaluaciones en varias plantas, obligaciones sin
+    planta— y en CI, que parte de una base recien creada, fallaban tres: la
+    premisa no se cumplia y el mensaje acusaba al filtro.
+    """
+    db.execute(
+        text(
+            "INSERT INTO obligations (tenant_id, code, title, status, due_at, facility_id) "
+            "VALUES (:t, :c, '[QA] alcance', 'open', now() + interval '30 days', :f)"
+        ),
+        {"t": EMPRESA, "c": f"PRB-{os.urandom(4).hex().upper()}", "f": facility_id},
+    )
+
+
 @pytest.fixture
 def sesion_acotada(plantas):
     """Una sesión de base con el alcance puesto a mano, sin pasar por Clerk.
@@ -132,6 +149,7 @@ class TestLaLecturaSeAcota:
         from app.crud.obligations import crud_obligation
 
         db, _suya, _otra = sesion_acotada
+        _obligacion(db, None)
         filas = crud_obligation.get_multi(db, skip=0, limit=500)
         assert any(f.facility_id is None for f in filas), (
             "las obligaciones de la empresa entera desaparecieron para un rol "
@@ -164,30 +182,44 @@ class TestSinAcotamientoNoSeFiltra:
         — es lo que el docstring de `/me` ya advertía sobre el campo `acotado`.
         """
         from app.alcance import ALCANCE
-        from app.crud.compliance import crud_article_compliance
+        from app.crud.obligations import crud_obligation
 
         with SessionLocal() as db:
             declarar(db, EMPRESA)
+            _obligacion(db, plantas[0])
+            _obligacion(db, plantas[1])
             db.info[ALCANCE] = None  # resuelto y sin acotamiento
-            filas = crud_article_compliance.get_multi(db, skip=0, limit=500)
+            filas = crud_obligation.get_multi(db, skip=0, limit=500)
+            plantas_vistas = {f.facility_id for f in filas if f.facility_id}
+            db.rollback()
 
-        plantas_vistas = {f.facility_id for f in filas if f.facility_id}
         assert len(plantas_vistas) > 1, (
             "un rol SIN acotar dejo de ver todas las plantas: el filtro se esta "
             "aplicando cuando no corresponde"
         )
 
-    def test_sin_sesion_identificada_tampoco(self, cliente) -> None:
+    def test_sin_sesion_identificada_tampoco(self, cliente, plantas) -> None:
         """El modo `X-Tenant-Id` no tiene usuario del cual sacar roles.
 
         Es el mismo criterio que el resto de las guardas, y lo que permite
         trabajar en local sin Clerk.
         """
-        filas = cliente.get(
-            "/api/v1/compliance/article-compliance?limit=500"
-        ).json()
-        plantas_vistas = {f["facility_id"] for f in filas if f.get("facility_id")}
-        assert len(plantas_vistas) > 1
+        # Por HTTP la fila tiene que estar confirmada: se siembra, se mide y se
+        # borra, marcada `[QA]` por si la limpieza no llegara a correr.
+        with SessionLocal() as db:
+            declarar(db, EMPRESA)
+            _obligacion(db, plantas[0])
+            _obligacion(db, plantas[1])
+            db.commit()
+        try:
+            filas = cliente.get("/api/v1/obligations/?limit=500").json()
+            plantas_vistas = {f["facility_id"] for f in filas if f.get("facility_id")}
+            assert len(plantas_vistas) > 1
+        finally:
+            with SessionLocal() as db:
+                declarar(db, EMPRESA)
+                db.execute(text("DELETE FROM obligations WHERE title = '[QA] alcance'"))
+                db.commit()
 
 
 class TestLaEscrituraTambien:

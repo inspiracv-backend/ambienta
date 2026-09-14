@@ -154,19 +154,32 @@ class TestElCatalogoPublicoSigueIgual:
         tiene normas", que no se parece a "se activo RLS".
         """
         normas = cliente.get("/api/v1/catalog/norms/?limit=200").json()
-        assert len(normas) >= 20, (
-            f"solo {len(normas)} normas publicas visibles. El catalogo tenia 24 "
-            "el dia que se activo RLS."
+        # **Contra el dueño de la base, que no pasa por RLS.** Comparar con un
+        # numero fijo (24) media el catalogo local sincronizado con la BCN, y
+        # en CI —que parte del seed— fallaba sin que RLS escondiera nada.
+        with AdminSessionLocal() as db:
+            reales = db.execute(
+                text("SELECT count(*) FROM legal_norms WHERE tenant_id IS NULL AND deleted_at IS NULL")
+            ).scalar()
+        assert reales, "no hay normas publicas: la prueba no mediria nada"
+        assert len(normas) == min(reales, 200), (
+            f"la API muestra {len(normas)} normas publicas y la base tiene "
+            f"{reales}: RLS esta escondiendo catalogo publico"
         )
         assert all(n.get("tenant_id") is None for n in normas if "tenant_id" in n)
 
     def test_los_articulos_publicos_tambien(self, cliente) -> None:
         with SessionLocal() as db:
             declarar(db, EMPRESA_A)
-            n = db.execute(
+            visibles = db.execute(
                 text("SELECT count(*) FROM legal_articles WHERE tenant_id IS NULL")
             ).scalar()
-        assert n and n > 600, f"solo {n} articulos publicos; eran 689"
+        with AdminSessionLocal() as db:
+            reales = db.execute(
+                text("SELECT count(*) FROM legal_articles WHERE tenant_id IS NULL")
+            ).scalar()
+        assert reales, "no hay articulos publicos: la prueba no mediria nada"
+        assert visibles == reales, f"la empresa ve {visibles} articulos publicos de {reales}"
 
 
 class TestNadieEscribeLaLeyAjena:

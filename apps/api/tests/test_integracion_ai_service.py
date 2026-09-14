@@ -87,7 +87,14 @@ class TestSincronizacionIncremental:
             params={"updated_since": "2000-01-01T00:00:00Z", "limit": 200},
         )
         assert r.status_code == 200, r.text
-        assert len(r.json()) >= 20
+        # Contra lo que hay en la base, no contra un numero: con el catalogo del
+        # seed son 8 y con la BCN sincronizada 24, y la regla es la misma.
+        with SessionLocal() as db:
+            declarar(db, EMPRESA_A)
+            publicas = db.execute(
+                text("SELECT count(*) FROM legal_norms WHERE tenant_id IS NULL AND deleted_at IS NULL")
+            ).scalar()
+        assert len(r.json()) == min(publicas, 200)
 
     def test_el_corte_es_estricto(self, cliente) -> None:
         """`>` y no `>=`, que es lo que hace util el corte.
@@ -132,8 +139,19 @@ class TestSincronizacionIncremental:
 
 class TestVersionesDeUnaNorma:
     def test_se_listan_con_su_vigencia(self, cliente) -> None:
-        norma = _una_norma_publica(cliente)
-        r = cliente.get(f"/api/v1/catalog/norms/{norma['id']}/versions")
+        # Una norma **que tenga versiones**: las del seed no las tienen, las de
+        # la BCN si. Tomar la primera del listado medía el seed, no el endpoint.
+        with SessionLocal() as db:
+            declarar(db, EMPRESA_A)
+            norma_id = db.execute(
+                text(
+                    "SELECT n.id FROM legal_norms n JOIN legal_norm_versions v ON v.norm_id = n.id "
+                    "WHERE n.tenant_id IS NULL AND n.deleted_at IS NULL LIMIT 1"
+                )
+            ).scalar()
+        if norma_id is None:
+            pytest.skip("ninguna norma publica tiene versiones (base sin sincronizar con la BCN)")
+        r = cliente.get(f"/api/v1/catalog/norms/{norma_id}/versions")
         assert r.status_code == 200, r.text
         versiones = r.json()
         assert versiones, "la norma no tiene ninguna version"
