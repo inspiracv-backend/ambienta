@@ -4,17 +4,18 @@ import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
 import { HistorialTimeline, ObligationDetailView } from '@/components/organisms';
 import { useObligations } from '@/lib/obligations-store';
-import { mockUsers } from '@/mocks/users';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 
 export default function ObligationDetailPage({ params }: { params: { id: string } }) {
   const { obligations } = useObligations();
+  // Personas de la base (`/users/`), no `mockUsers`: el responsable es una
+  // clave foránea y un id de ejemplo hacía que la API rechazara la escritura.
+  const { personas } = usePersonasAsignables();
   const obligation = obligations.find((o) => o.id === params.id);
 
   if (!obligation) return notFound();
 
-  const responsableOptions = mockUsers
-    .filter((u) => u.tenantId === obligation.tenantId)
-    .map((u) => ({ id: u.id, nombre: u.nombre }));
+  const responsableOptions = personas;
 
   return (
     <div className="flex flex-col gap-4">

@@ -185,10 +185,25 @@ describe('el alta de empresa manda el perfil normativo', () => {
     expect(cuerpo).toHaveProperty('size_bracket', null);
   });
 
-  it('reemplaza el id inventado por el que devuelve la API', async () => {
-    // El id local es `tenant-${Date.now()}`. Si no se reconcilia, la empresa
-    // recién creada queda en pantalla apuntando a una fila que no existe, y
-    // cualquier acción posterior sobre ella falla sin explicación.
+  it('manda al administrador y los ajustes en el mismo pedido', async () => {
+    // Antes el administrador se invitaba aparte, con el id local inventado de
+    // la empresa: ninguna empresa nueva recibía a su administrador. Y el límite
+    // y los módulos del alta no viajaban, así que se perdían al recargar.
+    const { result } = await montar({});
+
+    act(() => void result.current.t.createTenant({
+      ...NUEVA,
+      administrador: { nombre: 'Rosa Muñoz', email: 'rosa@forestal.cl' },
+    }));
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [ruta, cuerpo] = post.mock.calls[0] as [string, Record<string, unknown>];
+    expect(ruta).toBe('/tenants/');
+    expect(cuerpo.administrador).toEqual({ full_name: 'Rosa Muñoz', email: 'rosa@forestal.cl' });
+    expect(cuerpo.settings).toEqual({ limiteUsuarios: 10, modulosActivos: [] });
+  });
+
+  it('la empresa que queda en la lista es la que devolvió la API', async () => {
     const REAL = 'b0000000-0000-0000-0000-0000000000ff';
     post.mockResolvedValue({
       id: REAL,
@@ -203,34 +218,29 @@ describe('el alta de empresa manda el perfil normativo', () => {
     });
     const { result } = await montar({});
 
-    act(() => void result.current.t.createTenant(NUEVA));
-
-    await waitFor(() => expect(result.current.t.tenants).toHaveLength(2));
-    await waitFor(() => {
-      const creada = result.current.t.tenants.find((t) => t.nombre === 'Forestal Nueva');
-      expect(creada?.id).toBe(REAL);
+    await act(async () => {
+      await result.current.t.createTenant(NUEVA);
     });
-    const creada = result.current.t.tenants.find((t) => t.id === REAL);
+
+    const creada = result.current.t.tenants.find((t) => t.nombre === 'Forestal Nueva');
+    expect(creada?.id).toBe(REAL);
     expect(creada?.sectorId).toBe(3);
     expect(creada?.tramo).toBe('mediana');
   });
 
-  it('si la API rechaza el alta, la empresa desaparece y lo dice', async () => {
-    // Antes era `.catch(() => {})`: quedaba en la lista como si existiera y se
-    // esfumaba al recargar. Es el mismo silencio que escondió que el alta de no
-    // conformidades nunca había funcionado.
+  it('si la API rechaza el alta, rechaza con el motivo y no aparece nada', async () => {
+    // Sin fila optimista: antes aparecía con un id inventado y se esfumaba al
+    // recargar. El motivo lo muestra el formulario, que queda con lo escrito.
     post.mockRejectedValue(
-      new ApiError(422, 'Unprocessable Entity', { detail: 'RUT ya registrado' }),
+      new ApiError(503, 'Service Unavailable', { detail: 'Falta CLERK_SECRET_KEY' }),
     );
     const { result } = await montar({});
 
-    act(() => void result.current.t.createTenant(NUEVA));
+    await act(async () => {
+      await expect(result.current.t.createTenant(NUEVA)).rejects.toBeInstanceOf(ApiError);
+    });
 
-    await waitFor(() => expect(result.current.toast.toasts.length).toBeGreaterThan(0));
     expect(result.current.t.tenants.some((t) => t.nombre === 'Forestal Nueva')).toBe(false);
-    expect(result.current.toast.toasts[0].mensaje).toContain('No se pudo crear');
-    // El motivo tiene que llegar: "algo salió mal" no le sirve a nadie.
-    expect(result.current.toast.toasts[0].descripcion).toContain('RUT ya registrado');
   });
 });
 

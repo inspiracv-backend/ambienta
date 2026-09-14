@@ -28,6 +28,9 @@ URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta",
 )
+from ._catalogo import como_catalogo  # noqa: E402
+
+
 TENANT = uuid.UUID("a0000000-0000-0000-0000-000000000001")
 
 
@@ -65,6 +68,7 @@ def _norma_con_articulos(db: Session):
     fila = db.execute(
         text(
             "SELECT v.norm_id FROM legal_norm_versions v "
+            "  JOIN legal_norms n ON n.id = v.norm_id AND n.tenant_id IS NULL "
             "JOIN legal_articles a ON a.norm_version_id = v.id "
             "WHERE v.is_current AND v.deleted_at IS NULL AND a.deleted_at IS NULL "
             "GROUP BY v.norm_id LIMIT 1"
@@ -247,6 +251,7 @@ class TestNuncaBorra:
         otra = db.execute(
             text(
                 "SELECT v.norm_id FROM legal_norm_versions v "
+            "  JOIN legal_norms n ON n.id = v.norm_id AND n.tenant_id IS NULL "
                 "JOIN legal_articles a ON a.norm_version_id = v.id "
                 "WHERE v.is_current AND v.norm_id <> :n GROUP BY v.norm_id LIMIT 1"
             ),
@@ -293,6 +298,7 @@ class TestNuncaBorra:
         otra = db.execute(
             text(
                 "SELECT v.norm_id FROM legal_norm_versions v "
+            "  JOIN legal_norms n ON n.id = v.norm_id AND n.tenant_id IS NULL "
                 "JOIN legal_articles a ON a.norm_version_id = v.id "
                 "WHERE v.is_current AND v.norm_id <> :n GROUP BY v.norm_id LIMIT 1"
             ),
@@ -353,18 +359,27 @@ class TestVersionDesactualizada:
     """Avisar que hay version nueva, sin invalidar lo evaluado (grupo 6)."""
 
     def _version_nueva(self, db: Session, norm_id):
-        """Publica una version mas nueva y la deja como vigente."""
+        """Publica una version mas nueva y la deja como vigente.
+
+        Va dentro de `como_catalogo` porque desde `db/29` el catalogo es
+        **publico** y una sesion con empresa declarada no puede escribirlo — que
+        es lo correcto: en produccion lo escribe la sincronizacion de la BCN,
+        sin tenant. Ver `tests/_catalogo.py`.
+        """
         nueva = uuid.uuid4()
-        db.execute(text("UPDATE legal_norm_versions SET is_current = false WHERE norm_id = :n"),
-                   {"n": norm_id})
-        db.execute(
-            text(
-                "INSERT INTO legal_norm_versions "
-                "(id, norm_id, valid_from, is_current, content_hash) "
-                "VALUES (:i, :n, CURRENT_DATE, true, :h)"
-            ),
-            {"i": nueva, "n": norm_id, "h": uuid.uuid4().hex + uuid.uuid4().hex},
-        )
+        with como_catalogo(db, TENANT):
+            db.execute(
+                text("UPDATE legal_norm_versions SET is_current = false WHERE norm_id = :n"),
+                {"n": norm_id},
+            )
+            db.execute(
+                text(
+                    "INSERT INTO legal_norm_versions "
+                    "(id, norm_id, valid_from, is_current, content_hash) "
+                    "VALUES (:i, :n, CURRENT_DATE, true, :h)"
+                ),
+                {"i": nueva, "n": norm_id, "h": uuid.uuid4().hex + uuid.uuid4().hex},
+            )
         return nueva
 
     def test_sin_version_nueva_no_marca_nada(self, db: Session) -> None:
@@ -456,39 +471,45 @@ class TestActualizarALaVersionVigente:
     """
 
     def _version_nueva_con_articulos(self, db: Session, norm_id, cuantos: int):
-        """Publica una version nueva **con articulado propio** y la deja vigente."""
+        """Publica una version nueva **con articulado propio** y la deja vigente.
+
+        Todo el bloque va sin tenant declarado: es catalogo publico, y desde
+        `db/29` una sesion con empresa no puede escribirlo. Ver
+        `tests/_catalogo.py`.
+        """
         nueva = uuid.uuid4()
-        db.execute(
-            text("UPDATE legal_norm_versions SET is_current = false WHERE norm_id = :n"),
-            {"n": norm_id},
-        )
-        db.execute(
-            text(
-                "INSERT INTO legal_norm_versions "
-                "(id, norm_id, valid_from, is_current, content_hash) "
-                "VALUES (:i, :n, CURRENT_DATE, true, :h)"
-            ),
-            {"i": nueva, "n": norm_id, "h": uuid.uuid4().hex + uuid.uuid4().hex},
-        )
-        for i in range(cuantos):
+        with como_catalogo(db, TENANT):
+            db.execute(
+                text("UPDATE legal_norm_versions SET is_current = false WHERE norm_id = :n"),
+                {"n": norm_id},
+            )
             db.execute(
                 text(
-                    "INSERT INTO legal_articles "
-                    "(id, norm_version_id, article_number, heading, content, display_order) "
-                    "VALUES (:i, :v, :num, :h, :c, :o)"
+                    "INSERT INTO legal_norm_versions "
+                    "(id, norm_id, valid_from, is_current, content_hash) "
+                    "VALUES (:i, :n, CURRENT_DATE, true, :h)"
                 ),
-                {
-                    "i": uuid.uuid4(),
-                    "v": nueva,
-                    "num": "Art. " + str(i + 1) + " (texto nuevo)",
-                    "h": "Articulo nuevo " + str(i + 1),
-                    # `content` es NOT NULL: un articulo sin texto no es un
-                    # articulo, y la base no deja escribirlo.
-                    "c": "Texto del articulo " + str(i + 1) + " de la version nueva.",
-                    "o": i,
-                },
+                {"i": nueva, "n": norm_id, "h": uuid.uuid4().hex + uuid.uuid4().hex},
             )
-        db.flush()
+            for i in range(cuantos):
+                db.execute(
+                    text(
+                        "INSERT INTO legal_articles "
+                        "(id, norm_version_id, article_number, heading, content, display_order) "
+                        "VALUES (:i, :v, :num, :h, :c, :o)"
+                    ),
+                    {
+                        "i": uuid.uuid4(),
+                        "v": nueva,
+                        "num": "Art. " + str(i + 1) + " (texto nuevo)",
+                        "h": "Articulo nuevo " + str(i + 1),
+                        # `content` es NOT NULL: un articulo sin texto no es un
+                        # articulo, y la base no deja escribirlo.
+                        "c": "Texto del articulo " + str(i + 1) + " de la version nueva.",
+                        "o": i,
+                    },
+                )
+            db.flush()
         return nueva
 
     def _evaluar_todo(self, db: Session, matrix_id) -> int:

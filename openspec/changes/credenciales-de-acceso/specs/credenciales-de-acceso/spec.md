@@ -39,6 +39,20 @@ por quien invita y no por una configuración manual posterior.
 - **WHEN** intenta invitar indicando la empresa B
 - **THEN** el sistema rechaza la operación
 
+#### Scenario: Un Admin Global da de alta una empresa con su administrador
+- **GIVEN** un Admin Global autenticado
+- **WHEN** da de alta una empresa indicando nombre y correo de su administrador
+- **THEN** la empresa se crea con sus roles de sistema
+- **AND** el administrador queda en esa empresa con estado `invited`, con el
+  rol de Administrador de Empresa y sin departamento
+- **AND** recibe la invitación del proveedor con esa empresa asociada
+
+#### Scenario: La invitación del administrador no se puede emitir
+- **GIVEN** un Admin Global que da de alta una empresa con su administrador
+- **WHEN** el proveedor de identidad rechaza la invitación o no responde
+- **THEN** el sistema no deja creada la empresa ni el administrador
+- **AND** informa por qué
+
 ### Requirement: Clave local con RUT
 El sistema SHALL permitir que un usuario interno que ya entra con un proveedor
 externo se fije una clave local y desde entonces ingrese con su RUT, sin

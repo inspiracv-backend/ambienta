@@ -40,9 +40,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ..models.catalog import NormSyncRun
 from ..services import bcn
 
 logger = logging.getLogger(__name__)
@@ -128,6 +131,7 @@ def sincronizar(db: Session, *, en_seco: bool = False) -> Informe:
     peor que traer siete.
     """
     informe = Informe(terminos=len(TERMINOS))
+    inicio = datetime.now(timezone.utc)
 
     for termino, numero_esperado in TERMINOS:
         try:
@@ -149,11 +153,16 @@ def sincronizar(db: Session, *, en_seco: bool = False) -> Informe:
         informe.encontradas += len(normas)
 
         try:
-            r = bcn.sincronizar(db, normas, con_texto=True)
+            # **Un savepoint por termino.** Antes esto era `db.rollback()`, que
+            # deshace la transaccion entera: un fallo al guardar el quinto
+            # termino borraba lo escrito por los cuatro anteriores —que todavia
+            # no tenian commit— mientras el informe los seguia contando como
+            # nuevos. El savepoint descarta solo lo de este termino.
+            with db.begin_nested():
+                r = bcn.sincronizar(db, normas, con_texto=True)
         except Exception as exc:
             logger.error("Fallo al guardar %r: %s", termino, exc)
             informe.errores.append(f"{termino} (al guardar): {exc}")
-            db.rollback()
             continue
 
         informe.nuevas += r.nuevas
@@ -168,5 +177,59 @@ def sincronizar(db: Session, *, en_seco: bool = False) -> Informe:
     if en_seco:
         db.rollback()
         logger.info("En seco: no se escribio nada.")
+    else:
+        anotar_corrida(db, informe, inicio)
 
     return informe
+
+
+def estado_de(informe: Informe) -> str:
+    """`success`, `partial` o `failed`, con los valores del CHECK de la tabla.
+
+    **`partial` incluye a los terminos que no encontraron su norma**, aunque no
+    haya habido excepcion: el catalogo quedo incompleto, y eso es lo que la
+    bitacora tiene que dejar ver.
+    """
+    if informe.terminos and len(informe.errores) >= informe.terminos:
+        return "failed"
+    if informe.errores or informe.sin_su_norma:
+        return "partial"
+    return "success"
+
+
+def anotar_corrida(db: Session, informe: Informe, inicio: datetime) -> NormSyncRun:
+    """Deja la corrida en `norm_sync_runs`. **No hace `commit`**, igual que el resto.
+
+    La tabla existia desde el esquema inicial y **nadie la escribia**: no habia
+    forma de saber cuando se sincronizo el catalogo por ultima vez, ni si la
+    ultima corrida trajo todo o se quedo a medias. Que el catalogo diga de donde
+    salio y cuando es lo que se contesta en una auditoria de la matriz legal.
+    """
+    fuente_id = db.execute(
+        text("SELECT id FROM legal_sources WHERE code = :c"), {"c": bcn.CODIGO_FUENTE}
+    ).scalar_one()
+    corrida = NormSyncRun(
+        source_id=fuente_id,
+        started_at=inicio,
+        finished_at=datetime.now(timezone.utc),
+        status=estado_de(informe),
+        request_parameters={
+            "terminos": [t for t, _ in TERMINOS],
+            "por_termino": POR_TERMINO,
+        },
+        response_metadata={
+            "encontradas": informe.encontradas,
+            "adoptadas": informe.adoptadas,
+            "articulos_nuevos": informe.articulos_nuevos,
+            "con_texto": informe.con_texto,
+            "con_version_nueva": informe.con_version_nueva,
+            "sin_su_norma": informe.sin_su_norma,
+        },
+        norms_created=informe.nuevas,
+        norms_updated=informe.actualizadas + informe.adoptadas,
+        versions_created=informe.versiones_nuevas,
+        error_detail="; ".join(informe.errores) or None,
+    )
+    db.add(corrida)
+    db.flush()
+    return corrida

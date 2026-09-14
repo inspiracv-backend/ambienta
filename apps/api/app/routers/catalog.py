@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from ..crud.catalog import (
     crud_retc_system,
 )
 from ..models.catalog import (
+    NormSyncRun,
     LegalArticle,
     LegalNorm,
     LegalNormVersion,
@@ -31,9 +32,11 @@ from ..schemas.catalog import (
     LegalArticleRead,
     LegalNormCreate,
     LegalNormRead,
+    LegalNormVersionRead,
     LegalNormUpdate,
     LegalSourceCreate,
     LegalSourceRead,
+    NormSyncRunRead,
     LegalSourceUpdate,
     SectorCreate,
     NormSectorRead,
@@ -107,10 +110,35 @@ def list_norms(
     pagina: Pagina = Depends(paginacion),
     buscar: str | None = None,
     tipo: str | None = None,
+    updated_since: datetime | None = Query(
+        None,
+        description=(
+            "Devuelve solo lo modificado **despues** de esta fecha y hora. "
+            "Pensado para sincronizacion incremental: sin el, cada ciclo de "
+            "indexacion baja el catalogo entero para comparar en local."
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
-    """Lista el catalogo, opcionalmente filtrado."""
+    """Lista el catalogo, opcionalmente filtrado.
+
+    ## `updated_since` compara con `>` y no con `>=`
+
+    Con `>=`, quien pida "desde la ultima corrida" recibe **siempre** la ultima
+    fila de la corrida anterior. Con `>` puede perderse una fila escrita en el
+    mismo microsegundo del corte: el ruido de la primera es constante y el
+    riesgo de la segunda es improbable y evitable.
+
+    **Evitable si el corte sale del dato y no del reloj de quien llama.** Por
+    eso `updated_at` sigue viniendo en cada registro: quien indexa guarda el
+    maximo que vio, no la hora en que corrio. Un cliente con el reloj
+    adelantado que guardara *su* hora se saltaria filas, y no habria como
+    notarlo.
+    """
     stmt = select(LegalNorm).where(LegalNorm.deleted_at.is_(None))
+
+    if updated_since is not None:
+        stmt = stmt.where(LegalNorm.updated_at > updated_since)
 
     if buscar:
         patron = f"%{buscar.strip()}%"
@@ -143,27 +171,91 @@ def get_norm(norm_id: UUID, db: Session = Depends(get_db)):
     return obj
 
 
+@router.get(
+    "/norms/{norm_id}/versions",
+    response_model=list[LegalNormVersionRead],
+    summary="Historial de versiones de una norma",
+    description=(
+        "El historial que el modelo guardaba desde el principio y **ninguna "
+        "ruta exponia**. Sin el no se puede contestar con que texto se evaluo "
+        "el cumplimiento en un periodo ya cerrado, que es lo que revisa una "
+        "auditoria.\n\n"
+        "De la mas reciente a la mas antigua. `is_current` identifica sin "
+        "ambiguedad cual rige hoy; `valid_to` nulo significa **que todavia "
+        "rige**, no que no rija."
+    ),
+)
+def list_norm_versions(norm_id: UUID, db: Session = Depends(get_db)):
+    if not crud_legal_norm.get(db, norm_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Norm not found")
+
+    return db.scalars(
+        select(LegalNormVersion)
+        .where(
+            LegalNormVersion.norm_id == norm_id,
+            LegalNormVersion.deleted_at.is_(None),
+        )
+        .order_by(LegalNormVersion.valid_from.desc())
+    ).all()
+
+
 @router.get("/norms/{norm_id}/articles", response_model=list[LegalArticleRead])
-def list_norm_articles(norm_id: UUID, db: Session = Depends(get_db)):
-    """Articulos del texto **vigente** de la norma.
+def list_norm_articles(
+    norm_id: UUID,
+    vigente_el: date | None = Query(
+        None,
+        description=(
+            "El articulado que regia en esa fecha. Sin este parametro se "
+            "devuelve el texto vigente hoy, como siempre."
+        ),
+    ),
+    db: Session = Depends(get_db),
+):
+    """Articulos del texto de la norma: el vigente, o el de una fecha dada.
 
     El articulo no cuelga de la norma sino de una VERSION suya, porque el texto
     legal cambia y una auditoria pregunta bajo que redaccion se evaluo en una
-    fecha dada. Aca se devuelve la version marcada `is_current`: es la que
-    corresponde evaluar hoy.
+    fecha dada. Sin `vigente_el` se devuelve la version marcada `is_current`,
+    que es la que corresponde evaluar hoy.
 
-    Una norma sin version vigente devuelve lista vacia, no 404: la norma existe
-    y la respuesta correcta es "no hay articulos que evaluar todavia".
+    ## Con `vigente_el` manda el rango, no `is_current`
+
+    `is_current` dice cual rige **hoy**; la pregunta historica es cual regia
+    entonces. Se resuelve con `valid_from`/`valid_to`, y ahi hay un filo:
+    **`valid_to` nulo significa "todavia rige"**, no "no rige". Escrito al
+    reves, la consulta devolveria **cero articulos justo para la version
+    vigente**, que es la que mas se consulta.
+
+    Una norma sin texto para esa fecha devuelve lista vacia, no 404: la norma
+    existe y la respuesta correcta es "no habia texto vigente entonces". Mismo
+    criterio que una norma sin version vigente.
     """
     if not crud_legal_norm.get(db, norm_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Norm not found")
 
+    condiciones = [
+        LegalNormVersion.norm_id == norm_id,
+        LegalNormVersion.deleted_at.is_(None),
+    ]
+    if vigente_el is None:
+        condiciones.append(LegalNormVersion.is_current.is_(True))
+    else:
+        condiciones += [
+            LegalNormVersion.valid_from <= vigente_el,
+            or_(
+                LegalNormVersion.valid_to.is_(None),
+                LegalNormVersion.valid_to >= vigente_el,
+            ),
+        ]
+
     vigente = db.scalar(
-        select(LegalNormVersion.id).where(
-            LegalNormVersion.norm_id == norm_id,
-            LegalNormVersion.is_current.is_(True),
-            LegalNormVersion.deleted_at.is_(None),
-        )
+        select(LegalNormVersion.id)
+        .where(*condiciones)
+        # Si dos versiones se solapan —pasa: la BCN marca mas de una vigente a
+        # la vez, y este repositorio ya lo midio en la Ley 19.300— se toma la
+        # que empezo despues. Sin `ORDER BY` la respuesta seria la que Postgres
+        # quiera, y dos llamadas iguales podrian devolver textos distintos.
+        .order_by(LegalNormVersion.valid_from.desc())
     )
     if vigente is None:
         return []
@@ -441,3 +533,24 @@ def list_retc_systems(
 )
 def get_retc_system(system_id: int, db: Session = Depends(get_db)):
     return obtener_o_404(crud_retc_system, db, system_id, recurso="RetcSystem")
+
+
+@router.get(
+    "/sync-runs",
+    response_model=list[NormSyncRunRead],
+    summary="Las ultimas sincronizaciones del catalogo con la BCN",
+    description=(
+        "De la mas reciente a la mas antigua. `status` es `success`, `partial` "
+        "(algun termino fallo o no encontro su norma) o `failed`.\n\n"
+        "**Existe para que el catalogo diga de donde salio y cuando.** La tabla "
+        "se escribe desde el 14-sep; una lista vacia significa que el catalogo "
+        "nunca se sincronizo con esta version del sistema, no que este al dia."
+    ),
+)
+def list_sync_runs(limite: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
+    return list(
+        db.scalars(
+            select(NormSyncRun).order_by(NormSyncRun.started_at.desc(), NormSyncRun.id.desc()).limit(limite)
+        ).all()
+    )
+

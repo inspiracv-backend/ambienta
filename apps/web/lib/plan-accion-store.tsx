@@ -26,7 +26,6 @@ interface PlanAccionContextValue {
     responsableId?: string;
     fechaLimite: string;
   }) => PlanAccion;
-  toggleTarea: (planId: string, tareaId: string) => void;
   findByOrigen: (origenId: string) => PlanAccion | undefined;
 }
 
@@ -56,6 +55,8 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
           responsableId: raw.owner_user_id ? String(raw.owner_user_id) : undefined,
           fechaLimite: raw.target_date ? String(raw.target_date) : new Date().toISOString(),
           estado: (raw.status === 'closed' ? 'cerrado' : raw.status === 'in_progress' ? 'en_progreso' : 'abierto') as PlanAccion['estado'],
+          // El listado no trae tareas: se cargan en la ficha del plan
+          // (`lib/tareas-del-plan.ts`), para no pedir una lista por cada plan.
           tareas: [],
         }));
         // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
@@ -125,60 +126,17 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
     return newPlan;
   }
 
-  /**
-   * **No llega a la base: las tareas no existen en el modelo.**
-   *
-   * El mapper de lectura arma `tareas: []` para todos los planes, y
-   * `ActionPlanUpdate` no tiene ningun campo donde guardarlas. Marcar una tarea
-   * se ve en pantalla y se pierde al recargar.
-   *
-   * Conectarlo exige decidir primero si las tareas son un modelo propio o una
-   * lista dentro del plan.
-   */
-  function toggleTarea(planId: string, tareaId: string) {
-    const plan = plans.find((p) => p.id === planId);
-    const tarea = plan?.tareas.find((t) => t.id === tareaId);
-
-    let estadoNuevo: PlanAccion['estado'] | null = null;
-
-    setPlans((prev) =>
-      prev.map((p) => {
-        if (p.id !== planId) return p;
-        const tareas = p.tareas.map((t) => (t.id === tareaId ? { ...t, hecha: !t.hecha } : t));
-        const estado =
-          tareas.length > 0 && tareas.every((t) => t.hecha) ? 'cerrado' : p.estado === 'abierto' ? 'en_progreso' : p.estado;
-        estadoNuevo = estado;
-        return { ...p, tareas, estado };
-      }),
-    );
-
-    if (!plan || !tarea) return;
-
-    const hechaAhora = !tarea.hecha;
-    const cerroElPlan = estadoNuevo === 'cerrado' && plan.estado !== 'cerrado';
-
-    registrar({
-      entidadTipo: 'plan_accion',
-      entidadId: planId,
-      entidadLabel: plan.titulo,
-      tenantId: plan.tenantId,
-      accion: cerroElPlan ? 'cerrado' : 'actualizado',
-      resumen: cerroElPlan
-        ? 'Completó la última tarea y cerró el plan'
-        : `${hechaAhora ? 'Completó' : 'Reabrió'} la tarea "${tarea.titulo}"`,
-      cambios: [
-        { campo: tarea.titulo, antes: tarea.hecha ? 'Hecha' : 'Pendiente', despues: hechaAhora ? 'Hecha' : 'Pendiente' },
-        ...(cerroElPlan ? [{ campo: 'Estado del plan', antes: 'En progreso', despues: 'Cerrado' }] : []),
-      ],
-    });
-  }
+  // `toggleTarea` se quitó el 13-sep: las tareas de un plan no existen en el
+  // modelo (#169), el mapper las arma siempre vacías, y marcar una se perdía
+  // al recargar — y además podía mostrar el plan como cerrado sin que la base
+  // lo supiera. Vuelve con el modelo de tareas.
 
   function findByOrigen(origenId: string) {
     return plans.find((p) => p.origenId === origenId);
   }
 
   return (
-    <PlanAccionContext.Provider value={{ plans, loading, errorDeCarga, createPlan, toggleTarea, findByOrigen }}>
+    <PlanAccionContext.Provider value={{ plans, loading, errorDeCarga, createPlan, findByOrigen }}>
       {children}
     </PlanAccionContext.Provider>
   );

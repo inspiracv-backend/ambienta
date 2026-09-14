@@ -1,3 +1,4 @@
+import { esSinEmpresa, marcarSesionSinEmpresa } from './sesion-sin-empresa';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
@@ -21,15 +22,48 @@ export class ApiError extends Error {
  * cuando la rechaza la validacion de Pydantic. Leer solo la primera deja los
  * 422 —los mas frecuentes al conectar una pantalla— mostrando `[object Object]`.
  */
+/**
+ * El motivo estable de un rechazo, para ramificar sin leer el texto.
+ *
+ * `null` cuando no llegó a la API o cuando la respuesta no trae código (los
+ * rechazos de un router traen solo `detail`). El texto de `detail` es para
+ * personas: se reescribe, y una pantalla que ramifica sobre él se rompe la
+ * primera vez que alguien mejora la redacción.
+ */
+export function codigoDeError(error: unknown): string | null {
+  if (!(error instanceof ApiError)) return null;
+  const codigo = (error.body as { codigo?: unknown } | null)?.codigo;
+  return typeof codigo === 'string' ? codigo : null;
+}
+
 export function mensajeDeError(error: unknown): string {
   if (!(error instanceof ApiError)) {
     // Ni siquiera llegamos a la API: DNS, red caida, CORS.
     return 'No se pudo contactar al servidor. Revisa tu conexion.';
   }
 
-  const detail = (error.body as { detail?: unknown } | null)?.detail;
+  const cuerpo = error.body as { detail?: unknown; codigo?: unknown; campos?: unknown } | null;
+  const detail = cuerpo?.detail;
+
+  // **El código primero, y el texto solo como respaldo.** Desde el 14-sep los
+  // rechazos de la base traen `codigo` y `campos`; nombrar el campo le dice a
+  // la persona qué corregir, y no depende de cómo esté redactado `detail`.
+  const campos = Array.isArray(cuerpo?.campos) ? (cuerpo!.campos as unknown[]).map(String) : [];
+  if (campos.length > 0) {
+    const lista = campos.join(', ');
+    if (cuerpo?.codigo === 'valor_duplicado') return `Ya existe un registro con ese valor en: ${lista}.`;
+    if (cuerpo?.codigo === 'referencia_inexistente') return `Lo elegido en ${lista} no existe o no es de tu empresa.`;
+    if (cuerpo?.codigo === 'campo_obligatorio') return `Falta completar: ${lista}.`;
+    if (cuerpo?.codigo === 'valor_no_permitido') return `Hay un valor no permitido en: ${lista}.`;
+  }
 
   if (typeof detail === 'string') return detail;
+  // Algunos rechazos de la API mandan `detail` como objeto `{codigo, mensaje}`
+  // (el de sesión sin empresa, por ejemplo). Leer solo la cadena los dejaba en
+  // "El servidor rechazó la operación".
+  if (detail && typeof detail === 'object' && typeof (detail as { mensaje?: unknown }).mensaje === 'string') {
+    return (detail as { mensaje: string }).mensaje;
+  }
 
   if (Array.isArray(detail)) {
     const campos = detail
@@ -166,6 +200,10 @@ async function requestConRespuesta(
     // Clerk ya renueva por su cuenta dentro de `getToken()`.
     if (res.status === 401) alPerderLaSesion?.();
     const detail = await res.json().catch(() => null);
+    // **Una sesión válida sin empresa no es un 403 cualquiera.** Se avisa para
+    // que la aplicación muestre su pantalla en vez de un error por cada
+    // petición. Se decide por el código, no por el mensaje.
+    if (esSinEmpresa(res.status, detail)) marcarSesionSinEmpresa(true);
     throw new ApiError(res.status, res.statusText, detail);
   }
 

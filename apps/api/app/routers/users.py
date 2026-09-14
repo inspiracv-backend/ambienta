@@ -11,6 +11,7 @@ from ..deps import (
     get_current_user,
     get_tenant_db,
     get_tenant_id,
+    tenant_efectivo,
     volver_a_declarar,
 )
 from ..models.organization import Permission, UserPermission
@@ -24,6 +25,8 @@ from ._comun import borrar_o_404, validar_visible
 from ..schemas.organization import (
     InvitacionEnviada,
     InvitadoRegistrado,
+    InvitarPersona,
+    PersonaInvitada,
     RegistrarInvitadoPermanente,
     PermisoEfectivo,
     PermisoIndividual,
@@ -220,6 +223,58 @@ def registrar_invitado_permanente(
     db.commit()
     db.refresh(usuario)
     return InvitadoRegistrado(user=UserRead.model_validate(usuario), efectos=efectos)
+
+
+@router.post(
+    "/invitaciones",
+    response_model=PersonaInvitada,
+    status_code=status.HTTP_201_CREATED,
+    tags=["business-logic"],
+    summary="Registrar a una persona de la empresa y mandarle la invitacion",
+    description=(
+        "RF-03: crea a la persona **con su rol** y le manda la invitacion de "
+        "Clerk, en un solo acto.\n\n"
+        "**Si la invitacion no sale, no queda nada.** Ni la fila ni el rol: "
+        "una persona registrada sin invitacion ocupa el correo —que es unico— y "
+        "no puede entrar nunca. Clerk rechaza → 409 (ya invitada) o 422; Clerk "
+        "no configurado → 503.\n\n"
+        "**El rol es obligatorio.** Sin rol la persona entra y recibe 403 en "
+        "todo el sistema.\n\n"
+        "Exige `role.manage`: decidir con que rol entra alguien es decidir que "
+        "puede hacer."
+    ),
+)
+def invitar_persona(
+    datos: InvitarPersona,
+    tenant_id: UUID = Depends(tenant_efectivo),
+    db: Session = Depends(get_tenant_db),
+):
+    _validar_departamento(db, datos.department_id)
+    try:
+        usuario, respuesta = svc_invitacion.registrar_e_invitar(
+            db,
+            tenant_id,
+            full_name=datos.full_name.strip(),
+            email=datos.email.strip(),
+            user_type=datos.user_type,
+            department_id=datos.department_id,
+            role_code=datos.role_code,
+        )
+    except svc_invitacion.ErrorDeInvitacion as exc:
+        raise _traducir_invitacion(exc) from None
+    except ClerkNoDisponible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from None
+
+    # Se lee antes del commit: despues, la sesion ya no tiene empresa declarada.
+    db.refresh(usuario)
+    leido = UserRead.model_validate(usuario)
+    db.commit()
+    return PersonaInvitada(
+        user=leido,
+        clerk_invitation_id=str(respuesta.get("id") or "") or None,
+    )
 
 
 @router.post(

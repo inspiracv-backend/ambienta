@@ -12,20 +12,24 @@ import {
 } from '@/components/organisms';
 import { useAudits } from '@/lib/audits-store';
 import { useTenants } from '@/lib/tenants-store';
-import { mockUsers } from '@/mocks/users';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
+import type { EstadoDeCierre } from '@/lib/etapas-mejora';
 
 export default function NonConformityDetailPage({ params }: { params: { id: string } }) {
   const { tenants } = useTenants();
   const { nonConformities } = useAudits();
-  // Resultado de la Etapa de Seguimiento. Vive acá y no en cada componente
-  // porque lo produce el panel de etapas y lo consume el bloque de Cierre.
-  const [eficacia, setEficacia] = useState<boolean | null>(null);
+  // Lo que el servidor dice del cierre. Vive acá porque lo consulta el panel
+  // de etapas —después de cargar y de cada guardado— y lo consume el Cierre.
+  const [cierre, setCierre] = useState<EstadoDeCierre | null>(null);
+  // Personas de la base y no `mockUsers`: el responsable de una etapa es una
+  // clave foránea, y un id de ejemplo respondía 422.
+  const { personas } = usePersonasAsignables();
   const nc = nonConformities.find((n) => n.id === params.id);
 
   if (!nc) return notFound();
 
   const plant = tenants.flatMap((t) => t.plants).find((p) => p.id === nc.plantId);
-  const responsableOptions = mockUsers.filter((u) => u.tenantId === nc.tenantId).map((u) => ({ id: u.id, nombre: u.nombre }));
+  const responsableOptions = personas;
 
   return (
     <div className="flex flex-col gap-4">
@@ -46,8 +50,7 @@ export default function NonConformityDetailPage({ params }: { params: { id: stri
         <EtapasMejoraPanel
           ncId={nc.id}
           responsableOptions={responsableOptions}
-          flujoCorto={nc.tipoRegistro === 'riesgo' || nc.tipoRegistro === 'oportunidad'}
-          onEficaciaChange={setEficacia}
+          onCierreChange={setCierre}
         />
       )}
 
@@ -56,7 +59,7 @@ export default function NonConformityDetailPage({ params }: { params: { id: stri
       <CierreNoConformidadPanel
         nonConformity={nc}
         responsableOptions={responsableOptions}
-        eficaciaVerificada={eficacia}
+        cierre={cierre}
       />
 
       {/* RF-32 y RNF-08: el tratamiento de una no conformidad es lo que se

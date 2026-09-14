@@ -24,6 +24,9 @@ URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta",
 )
+from ._catalogo import como_catalogo  # noqa: E402
+
+
 TENANT = uuid.UUID("a0000000-0000-0000-0000-000000000001")
 
 
@@ -130,10 +133,13 @@ class TestElNumeroNoSeVeMejorDeLoQueEsta:
         _clasificar(db, norm_id, _sector(db), "directa")
         assert calcular(db).por_sector
 
-        db.execute(
-            text("UPDATE legal_norms SET deleted_at = now() WHERE id = :n"),
-            {"n": norm_id},
-        )
+        # Marcar borrada una norma **publica** es tocar el catalogo, y desde
+        # `db/29` eso no se hace con una empresa declarada. Ver `tests/_catalogo.py`.
+        with como_catalogo(db, TENANT):
+            db.execute(
+                text("UPDATE legal_norms SET deleted_at = now() WHERE id = :n"),
+                {"n": norm_id},
+            )
         c = calcular(db)
 
         assert all(s.total == 0 for s in c.por_sector)

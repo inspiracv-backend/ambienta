@@ -44,7 +44,7 @@ Verificados contra el sistema real, no heredados del análisis.
 
 ## Fase 1 — Cliente saliente hacia Clerk
 
-- [ ] `CLERK_SECRET_KEY` al servicio `api` en compose y `.env.example`
+- [x] `CLERK_SECRET_KEY` al servicio `api` en compose y `.env.example`
 - [ ] Módulo con las llamadas salientes: crear invitación, fijar username,
       fijar clave. Aislado como `auth.py`, para que cambiar de proveedor siga
       siendo reescribir un archivo (ADR-006)
@@ -56,14 +56,27 @@ Verificados contra el sistema real, no heredados del análisis.
 
 ## Fase 2 — Invitación de usuarios
 
-- [ ] Endpoint de invitación: crea en Clerk y después la fila (orden de D4)
-- [ ] Verificar Admin Empresa. Mínimo viable, se reemplaza cuando entre
-      `sistema-actores-roles-rbac`
-- [ ] Rechazar invitar a una empresa distinta a la propia
-- [ ] Que `clerk_sync` adopte la invitación consumida sin duplicar fila
-- [ ] Pantalla de invitación conectada al endpoint. Hoy `inviteUser` del store
-      escribe local y hace POST a `/users/`, que no crea identidad
-- [ ] Tests de los 5 escenarios del requisito de invitación
+- [x] Endpoint de invitación: `POST /users/invitaciones` (14-sep). Fila y rol
+      con `flush`, después Clerk, después `commit`: si Clerk falla no queda
+      nada. Ver la nota de D4. `POST /users/{id}/invitacion` se conserva para
+      reenviar
+- [x] Verificar Admin Empresa: la guarda de la ruta exige `role.manage`
+      (`sistema-actores-roles-rbac` ya entró)
+- [x] Rechazar invitar a una empresa distinta a la propia: la empresa sale de
+      la sesión (`tenant_efectivo`), no del cuerpo — no hay campo que falsear
+- [x] Que `clerk_sync` adopte la invitación consumida sin duplicar fila: busca
+      por correo y pasa `invited` → `active`
+      (`test_webhooks.py::test_se_adopta_un_usuario_que_ya_existia_por_su_correo`)
+- [x] Pantalla de invitación conectada al endpoint (`users-store.inviteUser`).
+      **Hasta el 14-sep solo hacía `POST /users/`: la persona nunca recibía el
+      correo** y la pantalla decía "Invitación creada"
+- [x] Alta de empresa con su administrador: `POST /tenants/` con
+      `administrador` siembra los roles, crea al `tenant_admin` y lo invita en
+      la misma transacción (`test_alta_de_empresa_con_administrador.py`)
+- [x] Tests de los 5 escenarios: 1, 3 y 5 con Clerk simulado, el 2 por el
+      webhook y el 4 por la guarda de la ruta
+      (`test_permisos_de_rutas.py::test_invitar_exige_administrar_roles_y_no_editar_usuarios`).
+      La prueba contra la instancia real sigue pendiente en la Fase 1
 
 ## Fase 3 — RF-06, clave local con RUT
 

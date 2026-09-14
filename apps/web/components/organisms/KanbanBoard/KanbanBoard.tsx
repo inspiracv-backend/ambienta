@@ -2,7 +2,7 @@
 
 import type { ObligationStatus } from '@ambienta/shared';
 import { StatusBadge } from '@/components/atoms';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import type { KanbanBoardProps } from './KanbanBoard.types';
 
 const COLUMNS: { estado: ObligationStatus; label: string }[] = [
@@ -22,6 +22,8 @@ function formatFecha(iso: string) {
  * seccion-f-calendario-gantt-kanban.md.
  */
 export function KanbanBoard({ tickets, onSelectTicket }: KanbanBoardProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {COLUMNS.map((col) => {

@@ -30,6 +30,8 @@ export const NonConformitySchema = z.object({
   tenantId: z.string(),
   plantId: z.string(),
   auditId: z.string().optional(),
+  /** La pregunta de la auditoría de la que salió. Es el vínculo que sí trae la API. */
+  auditItemId: z.string().optional(),
   hallazgo: z.string(),
   criticidad: z.enum(['alta', 'media', 'baja']),
   estado: z.enum(['abierta', 'en_tratamiento', 'cerrada']),

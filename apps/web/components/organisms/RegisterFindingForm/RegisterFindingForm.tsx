@@ -1,26 +1,23 @@
 'use client';
 
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   FEATURE_FLAGS,
   ORIGENES_DETECCION,
   TIPOS_REGISTRO_MEJORA,
-  type NonConformity,
   type OrigenDeteccion,
   type TipoRegistroMejora,
 } from '@ambienta/shared';
 import { Button } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { useAudits } from '@/lib/audits-store';
-import { mockDepartamentos } from '@/mocks/departamentos';
+import { api, mensajeDeError } from '@/lib/api-client';
+import { cargarCatalogos, type Severidad } from '@/lib/etapas-mejora';
 import type { RegisterFindingFormProps } from './RegisterFindingForm.types';
 
-const CRITICIDADES: { value: NonConformity['criticidad']; label: string }[] = [
-  { value: 'alta', label: 'Alta' },
-  { value: 'media', label: 'Media' },
-  { value: 'baja', label: 'Baja' },
-];
+/** Los origenes que exigen decir de que pregunta de la auditoria salio. */
+const ORIGENES_DE_AUDITORIA: OrigenDeteccion[] = ['auditoria_interna', 'auditoria_externa'];
 
 const SELECT = 'h-11 w-full rounded-lg border border-slate-300 px-3 text-sm';
 
@@ -48,7 +45,13 @@ export function RegisterFindingForm({
 
   const [plantId, setPlantId] = useState(defaultPlantId ?? plants[0]?.id ?? '');
   const [hallazgo, setHallazgo] = useState('');
-  const [criticidad, setCriticidad] = useState<NonConformity['criticidad']>('media');
+  // La escala sale del catalogo de la empresa, no de "Alta/Media/Baja" escrito
+  // aca: esas etiquetas no eran las de nadie.
+  const [severidades, setSeveridades] = useState<Severidad[] | null>(null);
+  const [severidad, setSeveridad] = useState('');
+  const [preguntas, setPreguntas] = useState<{ id: string; texto: string }[]>([]);
+  const [auditItemId, setAuditItemId] = useState('');
+  const [guardando, setGuardando] = useState(false);
   const [responsableId, setResponsableId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -56,7 +59,6 @@ export function RegisterFindingForm({
   const [origen, setOrigen] = useState<OrigenDeteccion | ''>(
     defaultAuditId ? 'auditoria_interna' : '',
   );
-  const [procesoId, setProcesoId] = useState('');
   const [sku, setSku] = useState('');
   const [lote, setLote] = useState('');
   const [producto, setProducto] = useState('');
@@ -65,7 +67,31 @@ export function RegisterFindingForm({
   const [cliente, setCliente] = useState('');
   const [canal, setCanal] = useState('');
 
-  const procesos = mockDepartamentos.filter((d) => d.tenantId === tenantId);
+  useEffect(() => {
+    if (!tenantId) return;
+    cargarCatalogos(tenantId)
+      .then((c) => {
+        setSeveridades(c.severidades);
+        const porDefecto = c.severidades.find((x) => x.code === 'major') ?? c.severidades[0];
+        setSeveridad((actual) => actual || porDefecto?.code || '');
+      })
+      .catch((e) => setError(`No se pudo cargar la escala de severidad: ${mensajeDeError(e)}`));
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId || !defaultAuditId) return;
+    api
+      .get<Record<string, unknown>[]>(`/audits/${defaultAuditId}/items`, { tenantId })
+      .then((items) => setPreguntas(items.map((i) => ({ id: String(i.id), texto: `${i.sequence}. ${i.question}` }))))
+      .catch(() => setPreguntas([]));
+  }, [tenantId, defaultAuditId]);
+
+  const esDeAuditoria = !!origen && ORIGENES_DE_AUDITORIA.includes(origen as OrigenDeteccion);
+  // Sin auditoria de origen no hay pregunta que elegir, y la API exige una para
+  // esos origenes: ofrecerlos seria un formulario que siempre falla.
+  const origenes = defaultAuditId
+    ? ORIGENES_DETECCION
+    : ORIGENES_DETECCION.filter((o) => !ORIGENES_DE_AUDITORIA.includes(o.value));
   const esSalidaNoConforme = tipo === 'salida_no_conforme';
   const esReclamo = tipo === 'reclamo';
   const clausula = TIPOS_REGISTRO_MEJORA.find((t) => t.value === tipo)?.clausula;
@@ -74,9 +100,11 @@ export function RegisterFindingForm({
     if (!plantId || !hallazgo.trim() || !responsableId) {
       return 'Completa la planta, la descripción y el responsable.';
     }
+    if (!severidad) return 'Selecciona la severidad.';
     if (!conMejora) return null;
     if (!tipo) return 'Selecciona el tipo de registro: define qué cláusula aplica.';
     if (!origen) return 'Selecciona cómo se detectó.';
+    if (esDeAuditoria && !auditItemId) return 'Indica de qué pregunta de la auditoría salió el hallazgo.';
     if (esSalidaNoConforme && (!sku.trim() || !lote.trim() || !producto.trim() || !cantidad.trim())) {
       return 'Una salida no conforme exige identificar SKU, lote, producto y cantidad (§8.7).';
     }
@@ -86,7 +114,7 @@ export function RegisterFindingForm({
     return null;
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const problema = validar();
     if (problema) {
@@ -94,16 +122,29 @@ export function RegisterFindingForm({
       return;
     }
     setError(null);
-    const nc = addNonConformity({
-      tenantId,
-      plantId,
-      auditId: defaultAuditId,
-      hallazgo: hallazgo.trim(),
-      criticidad,
-      responsableId,
-      ...(conMejora && tipo ? { tipoRegistro: tipo } : {}),
-    });
-    router.push(`/no-conformidades/${nc.id}`);
+    setGuardando(true);
+    try {
+      const nc = await addNonConformity({
+        tenantId,
+        plantId,
+        hallazgo: hallazgo.trim(),
+        severidad,
+        responsableId,
+        ...(conMejora && tipo ? { tipoRegistro: tipo } : {}),
+        ...(conMejora && origen ? { origen } : {}),
+        ...(conMejora && esDeAuditoria ? { auditItemId } : {}),
+        // Las claves son las que exige la base (`db/24`), no las del formulario.
+        ...(conMejora && esSalidaNoConforme
+          ? { productData: { sku: sku.trim(), lote: lote.trim(), nombre: producto.trim(), cantidad: cantidad.trim(), unidad } }
+          : {}),
+        ...(conMejora && esReclamo ? { complaintData: { cliente_nombre: cliente.trim(), canal: canal.trim() } } : {}),
+      });
+      // El id es el de la base: antes se navegaba a `nc-<timestamp>`, que no existia.
+      router.push(`/no-conformidades/${nc.id}`);
+    } catch (err) {
+      setError(`No se registró: ${mensajeDeError(err)}`);
+      setGuardando(false);
+    }
   }
 
   return (
@@ -149,7 +190,7 @@ export function RegisterFindingForm({
                 onChange={(e) => setOrigen(e.target.value as OrigenDeteccion)}
               >
                 <option value="">Seleccione…</option>
-                {ORIGENES_DETECCION.map((o) => (
+                {origenes.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>
@@ -174,18 +215,20 @@ export function RegisterFindingForm({
           </select>
         </FormField>
 
-        {conMejora && (
-          <FormField label="Proceso involucrado" htmlFor={`${formId}-proceso`}>
+        {/* "Proceso involucrado" se quito el 13-sep: salia de departamentos de
+            ejemplo y no se mandaba, porque el registro no tiene ese campo. */}
+        {conMejora && esDeAuditoria && (
+          <FormField label="Pregunta de la auditoría" htmlFor={`${formId}-pregunta`} required>
             <select
-              id={`${formId}-proceso`}
+              id={`${formId}-pregunta`}
               className={SELECT}
-              value={procesoId}
-              onChange={(e) => setProcesoId(e.target.value)}
+              value={auditItemId}
+              onChange={(e) => setAuditItemId(e.target.value)}
             >
               <option value="">Seleccione…</option>
-              {procesos.map((p) => (
+              {preguntas.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.nombre}
+                  {p.texto}
                 </option>
               ))}
             </select>
@@ -278,24 +321,28 @@ export function RegisterFindingForm({
           />
         </FormField>
 
-        <FormField label="Criticidad" htmlFor={`${formId}-criticidad`}>
-          <div className="flex gap-2">
-            {CRITICIDADES.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => setCriticidad(c.value)}
-                aria-pressed={criticidad === c.value}
-                className={
-                  criticidad === c.value
-                    ? 'flex-1 rounded-lg border-2 border-brand-600 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700'
-                    : 'flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600'
-                }
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
+        <FormField label="Severidad" htmlFor={`${formId}-severidad`} required>
+          {severidades === null ? (
+            <p className="text-sm text-slate-500">Cargando la escala…</p>
+          ) : (
+            <div id={`${formId}-severidad`} className="flex gap-2">
+              {severidades.map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  onClick={() => setSeveridad(c.code)}
+                  aria-pressed={severidad === c.code}
+                  className={
+                    severidad === c.code
+                      ? 'flex-1 rounded-lg border-2 border-brand-600 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700'
+                      : 'flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600'
+                  }
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          )}
         </FormField>
 
         <FormField label="Responsable" htmlFor={`${formId}-responsable`} required>
@@ -314,8 +361,8 @@ export function RegisterFindingForm({
           </select>
         </FormField>
 
-        <Button type="submit" className="mt-2 w-full">
-          {conMejora ? 'Registrar mejora' : 'Registrar hallazgo'}
+        <Button type="submit" className="mt-2 w-full" disabled={guardando}>
+          {guardando ? 'Registrando…' : conMejora ? 'Registrar mejora' : 'Registrar hallazgo'}
         </Button>
       </form>
     </div>

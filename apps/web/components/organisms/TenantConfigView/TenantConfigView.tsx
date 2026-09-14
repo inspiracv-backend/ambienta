@@ -107,7 +107,7 @@ export function TenantConfigView({ tenant: tenantProp, userCount }: TenantConfig
                 {tenant.esGestor ? 'Gestor' : tenant.sector}
               </p>
               <p className="mt-0.5 text-xs text-slate-500">
-                {tenant.plants.length} planta(s) · {userCount} usuario(s)
+                {tenant.plants.length} planta(s){userCount !== null ? ` · ${userCount} usuario(s)` : ''}
                 {tenant.numeroTrabajadores ? ` · ${tenant.numeroTrabajadores} trabajadores` : ''}
               </p>
             </div>
@@ -187,11 +187,11 @@ export function TenantConfigView({ tenant: tenantProp, userCount }: TenantConfig
         </p>
 
         <div className="mt-4">
-          <FormField label="Máximo de usuarios permitidos" htmlFor="limite-usuarios" hint={`Actualmente hay ${userCount} en uso`}>
+          <FormField label="Máximo de usuarios permitidos" htmlFor="limite-usuarios" hint={userCount !== null ? `Actualmente hay ${userCount} en uso` : undefined}>
             <Input
               id="limite-usuarios"
               type="number"
-              min={userCount}
+              min={userCount ?? 1}
               value={limite}
               onChange={(e) => setLimite(Number(e.target.value))}
               className="max-w-[160px]"
@@ -234,7 +234,7 @@ export function TenantConfigView({ tenant: tenantProp, userCount }: TenantConfig
             </p>
             <p className="mt-0.5 text-xs text-slate-500">
               {tenant.estado === 'activo'
-                ? `Los ${userCount} usuarios de ${tenant.nombre} perderán acceso de inmediato. Los datos se conservan.`
+                ? `${userCount !== null ? `Los ${userCount} usuarios` : 'Todos los usuarios'} de ${tenant.nombre} perderán acceso de inmediato. Los datos se conservan.`
                 : 'Sus usuarios podrán volver a ingresar de inmediato.'}
             </p>
           </div>
@@ -273,7 +273,7 @@ export function TenantConfigView({ tenant: tenantProp, userCount }: TenantConfig
             </div>
 
             <Dialog.Description className="mt-3 text-sm text-slate-600">
-              Los <strong>{userCount} usuarios</strong> de {tenant.nombre} perderán acceso de inmediato. Los datos se
+              <strong>{userCount !== null ? `Los ${userCount} usuarios` : 'Todos los usuarios'}</strong> de {tenant.nombre} perderán acceso de inmediato. Los datos se
               conservan y la acción es reversible.
             </Dialog.Description>
 

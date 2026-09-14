@@ -165,6 +165,71 @@ export function aspectoSinTratar(aspecto: AspectoApi, riesgos: RiesgoApi[]): boo
   return !riesgos.some((r) => r.aspectoAmbientalId === aspecto.id);
 }
 
+/**
+ * Un aspecto significativo que **nadie enlazó a un riesgo u oportunidad** (#49).
+ *
+ * ISO 14001 encadena §6.1.2 con §6.1.4: lo que se declara significativo se
+ * gestiona. Un aspecto significativo sin riesgo asociado es la matriz a medias,
+ * y es lo primero que pregunta una auditoría.
+ */
+export interface AspectoSinTratar {
+  id: string;
+  actividad: string;
+  aspecto: string;
+  puntajeTotal: number | null;
+  facilityId: string;
+}
+
+/** Una inscripción o certificación por vencer, o ya vencida (#47). */
+export interface PorVencer {
+  equipmentId: string;
+  userId: string | null;
+  nombre: string;
+  detalle: string | null;
+  venceEl: string;
+  /** Negativo si ya venció. Lo vencido viene en la misma lista, a propósito. */
+  diasRestantes: number;
+}
+
+/**
+ * Un equipo en operación que hoy nadie puede operar legalmente (#48).
+ *
+ * `motivo` viene del servidor y **no se deduce**: son dos problemas que se
+ * arreglan distinto —asignar a alguien, o renovar la certificación vencida— y
+ * mezclarlos obligaría a abrir cada equipo para saber cuál es.
+ */
+export interface EquipoSinOperador {
+  equipmentId: string;
+  facilityId: string | null;
+  nombre: string;
+  tipo: string | null;
+  motivo: 'sin_operador' | 'certificacion_vencida';
+  operadoresAsignados: number;
+  ultimaCertificacion: string | null;
+}
+
+/**
+ * Lo que el servidor calcula y el navegador ya no.
+ *
+ * **Las cuatro se piden en una petición aparte de las matrices, a propósito.**
+ * Metidas en el mismo `Promise.all` que aspectos, riesgos y equipos, un fallo
+ * en una vista derivada dejaría las tres matrices en blanco — y la pantalla
+ * diría "esta empresa no tiene aspectos" cuando lo que falló fue una consulta
+ * secundaria. Las matrices son el contenido; esto es el resumen sobre él.
+ */
+export interface VistasDerivadas {
+  /** #49 — significativos que nadie enlazó a un riesgo. */
+  sinTratar: AspectoSinTratar[];
+  /** #47 — inscripciones de equipo por vencer o vencidas. */
+  inscripciones: PorVencer[];
+  /** #47 — certificaciones de operador por vencer o vencidas. */
+  certificaciones: PorVencer[];
+  /** #48 — equipos que hoy nadie puede operar legalmente. */
+  sinOperador: EquipoSinOperador[];
+  /** La ventana en días con que el servidor calculó los vencimientos. */
+  diasDeAviso: number | null;
+}
+
 interface IsoContextValue {
   aspectos: AspectoApi[];
   /**
@@ -194,11 +259,35 @@ interface IsoContextValue {
    * significa creer que se revisó todo cuando falta un pedazo.
    */
   truncado: string[];
+  /**
+   * Lo que el servidor deriva de las tres matrices (#44, #47, #48, #49).
+   *
+   * `null` mientras no se sabe: **no es lo mismo que "no hay nada"**, y la
+   * pantalla tiene que poder distinguirlos. Un cero dibujado sobre una consulta
+   * que todavía no volvió —o que falló— dice "todo en orden" sin haber mirado,
+   * que es el error que este proyecto ya cometió cuatro veces.
+   */
+  derivadas: VistasDerivadas | null;
+  /** Por qué las derivadas vinieron vacías, si es que falló la consulta. */
+  errorDerivadas: string | null;
   recargar: () => void;
 
   crearAspecto: (datos: Record<string, unknown>) => Promise<boolean>;
   editarAspecto: (id: string, datos: Record<string, unknown>) => Promise<boolean>;
   borrarAspecto: (id: string) => Promise<boolean>;
+
+  /**
+   * Evalúa la significancia **en el servidor** (#44, §6.1.2).
+   *
+   * La regla vivía en el navegador, así que dos clientes con la misma matriz
+   * podían discrepar y nadie podía auditar el criterio. Ahora el servidor
+   * decide y devuelve **por qué**: en una auditoría la pregunta no es si el
+   * aspecto es significativo sino en base a qué.
+   */
+  evaluarSignificancia: (
+    id: string,
+    puntajes: { frequency_score: number; severity_score: number; legal_score: number },
+  ) => Promise<boolean>;
 
   crearRiesgo: (datos: Record<string, unknown>) => Promise<boolean>;
   editarRiesgo: (id: string, datos: Record<string, unknown>) => Promise<boolean>;
@@ -223,6 +312,8 @@ export function IsoProvider({ children }: { children: ReactNode }) {
   const [cargando, setCargando] = useState(true);
   const [truncado, setTruncado] = useState<string[]>([]);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
+  const [derivadas, setDerivadas] = useState<VistasDerivadas | null>(null);
+  const [errorDerivadas, setErrorDerivadas] = useState<string | null>(null);
   const [reintento, setReintento] = useState(0);
 
   useEffect(() => {
@@ -282,6 +373,128 @@ export function IsoProvider({ children }: { children: ReactNode }) {
     };
   }, [tenantId, cargandoSesion, reintento]);
 
+  /**
+   * Las cuatro vistas que el servidor deriva (#44, #47, #48, #49).
+   *
+   * **En un efecto aparte del de las matrices, y esa separación es el punto.**
+   * Metidas en el mismo `Promise.all`, un fallo en cualquiera de estas cuatro
+   * dejaría aspectos, riesgos y equipos en blanco, y la pantalla diría "esta
+   * empresa no tiene aspectos" cuando lo que falló fue una consulta secundaria.
+   * Las matrices son el contenido; esto es el resumen sobre él, y el resumen no
+   * puede tumbar al contenido.
+   *
+   * `Promise.allSettled` por el mismo motivo hacia adentro: que se caiga la de
+   * vencimientos no tiene por qué esconder los aspectos sin tratar.
+   */
+  useEffect(() => {
+    // **Sin tenant se sale sin borrar lo que ya se sabía**, igual que el efecto
+    // de las matrices. La primera versión hacía `setDerivadas(null)` acá y era
+    // un defecto medido: la sesión pasa por `null` mientras se resuelve y
+    // **vuelve a pasar por `null` después**, así que el panel se llenaba y se
+    // vaciaba solo. Se veía como "no hay nada que atender" —ningún vencimiento,
+    // ningún equipo sin operador— con las tres matrices cargadas al lado.
+    //
+    // Un cambio real de empresa no necesita el borrado: el efecto se vuelve a
+    // ejecutar con el tenant nuevo y sobrescribe.
+    if (!tenantId) return;
+    let vigente = true;
+    const opts = { tenantId };
+
+    Promise.allSettled([
+      api.get<Record<string, unknown>[]>('/iso14001/aspects/significant-untreated', opts),
+      api.get<Record<string, unknown>>('/iso14001/equipment/expiring', opts),
+      api.get<Record<string, unknown>[]>('/iso14001/equipment/sin-operador', opts),
+    ]).then(([sinTratar, vencimientos, sinOperador]) => {
+      if (!vigente) return;
+
+      const fallidas = [sinTratar, vencimientos, sinOperador].filter(
+        (r) => r.status === 'rejected',
+      );
+      // **Se dice cuáles fallaron en vez de mostrar cero.** Un cero dibujado
+      // sobre una consulta que no volvió afirma "no hay nada que atender", que
+      // es justo lo contrario de lo que se sabe.
+      setErrorDerivadas(
+        fallidas.length
+          ? mensajeDeError((fallidas[0] as PromiseRejectedResult).reason)
+          : null,
+      );
+
+      const v =
+        vencimientos.status === 'fulfilled'
+          ? (vencimientos.value as Record<string, unknown>)
+          : null;
+
+      setDerivadas({
+        sinTratar:
+          sinTratar.status === 'fulfilled' && Array.isArray(sinTratar.value)
+            ? sinTratar.value.map((x) => ({
+                id: String(x.id),
+                actividad: String(x.activity ?? ''),
+                aspecto: String(x.aspect ?? ''),
+                puntajeTotal: x.total_score == null ? null : Number(x.total_score),
+                facilityId: String(x.facility_id ?? ''),
+              }))
+            : [],
+        inscripciones: Array.isArray(v?.equipos)
+          ? (v!.equipos as Record<string, unknown>[]).map((x) => ({
+              equipmentId: String(x.equipment_id),
+              userId: null,
+              nombre: String(x.name ?? ''),
+              detalle: x.registration_number == null ? null : String(x.registration_number),
+              venceEl: String(x.expires_at),
+              diasRestantes: Number(x.dias_restantes),
+            }))
+          : [],
+        certificaciones: Array.isArray(v?.operadores)
+          ? (v!.operadores as Record<string, unknown>[]).map((x) => ({
+              equipmentId: String(x.equipment_id),
+              userId: String(x.user_id),
+              nombre: String(x.certification_class ?? ''),
+              detalle: x.certification_number == null ? null : String(x.certification_number),
+              venceEl: String(x.expires_at),
+              diasRestantes: Number(x.dias_restantes),
+            }))
+          : [],
+        sinOperador:
+          sinOperador.status === 'fulfilled' && Array.isArray(sinOperador.value)
+            ? sinOperador.value.map((x) => ({
+                equipmentId: String(x.equipment_id),
+                facilityId: x.facility_id == null ? null : String(x.facility_id),
+                nombre: String(x.name ?? ''),
+                tipo: x.equipment_type == null ? null : String(x.equipment_type),
+                motivo: x.motivo === 'certificacion_vencida'
+                  ? 'certificacion_vencida'
+                  : 'sin_operador',
+                operadoresAsignados: Number(x.operadores_asignados ?? 0),
+                ultimaCertificacion:
+                  x.ultima_certificacion == null ? null : String(x.ultima_certificacion),
+              }))
+            : [],
+        diasDeAviso: v?.dias == null ? null : Number(v.dias),
+      });
+      })
+      // **Sin este `catch` una excepción acá desaparece.** `allSettled` no
+      // rechaza nunca, así que lo único que puede fallar es el mapeo — y sin
+      // atraparlo el estado se queda en `null` para siempre, que la pantalla
+      // muestra como "todavía cargando". Un error silencioso disfrazado de
+      // espera es peor que un error a la vista.
+      .catch((e: unknown) => {
+        if (!vigente) return;
+        setErrorDerivadas(mensajeDeError(e));
+        setDerivadas({
+          sinTratar: [],
+          inscripciones: [],
+          certificaciones: [],
+          sinOperador: [],
+          diasDeAviso: null,
+        });
+      });
+
+    return () => {
+      vigente = false;
+    };
+  }, [tenantId, reintento]);
+
   const recargar = useCallback(() => setReintento((n) => n + 1), []);
 
   /**
@@ -323,6 +536,8 @@ export function IsoProvider({ children }: { children: ReactNode }) {
       cargando,
       truncado,
       errorDeCarga,
+      derivadas,
+      errorDerivadas,
       recargar,
 
       crearAspecto: (d) =>
@@ -331,6 +546,12 @@ export function IsoProvider({ children }: { children: ReactNode }) {
         escribir(() => api.patch(`/iso14001/aspects/${id}`, d, opts), 'Aspecto actualizado.'),
       borrarAspecto: (id) =>
         escribir(() => api.delete(`/iso14001/aspects/${id}`, opts), 'Aspecto eliminado.'),
+
+      evaluarSignificancia: (id, puntajes) =>
+        escribir(
+          () => api.post(`/iso14001/aspects/${id}/evaluate`, puntajes, opts),
+          'Significancia evaluada.',
+        ),
 
       crearRiesgo: (d) =>
         escribir(() => api.post('/iso14001/risks', d, opts), 'Registro creado.'),
@@ -346,7 +567,24 @@ export function IsoProvider({ children }: { children: ReactNode }) {
       borrarEquipo: (id) =>
         escribir(() => api.delete(`/iso14001/equipment/${id}`, opts), 'Equipo eliminado.'),
     }),
-    [aspectos, riesgos, equipos, plantas, cargando, truncado, errorDeCarga, recargar, escribir, opts],
+    // `derivadas` y `errorDerivadas` van acá o el `useMemo` sirve para siempre
+    // el primer valor —`null`— y las cuatro vistas nunca aparecen. **No falla
+    // nada**: la pantalla se ve como una empresa sin nada que atender, que es
+    // la lectura más tranquilizadora y la más falsa.
+    [
+      aspectos,
+      riesgos,
+      equipos,
+      plantas,
+      cargando,
+      truncado,
+      errorDeCarga,
+      derivadas,
+      errorDerivadas,
+      recargar,
+      escribir,
+      opts,
+    ],
   );
 
   return <IsoContext.Provider value={value}>{children}</IsoContext.Provider>;

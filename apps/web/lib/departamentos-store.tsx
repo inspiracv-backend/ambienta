@@ -185,17 +185,36 @@ export function DepartamentosProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const tenantId = user.tenantId;
+    // **Primero el departamento organizativo, después el proceso colgado de él.**
+    //
+    // Hasta el 14-sep solo se creaba el proceso. Pero el perfil de empresa
+    // (RF-10) se da por completo cuando existe una fila en `departments`, y las
+    // personas internas (RF-11) exigen un `department_id` de esa tabla: una
+    // empresa nueva completaba este paso y **seguía con el perfil incompleto**,
+    // sin poder escribir en Matriz Legal ni Obligaciones y sin poder invitar a
+    // nadie con departamento. Las empresas del seed traían departamentos, por
+    // eso no se había visto.
     api
       .post<Record<string, unknown>>(
-        '/processes/',
-        {
-          code: codigoDesdeNombre(input.nombre),
-          name: input.nombre,
-          process_type: PROCESS_TYPE_POR_TIPO[input.tipo],
-          description: input.descripcion ?? null,
-          responsible_user_id: input.responsableId ?? null,
-        },
-        { tenantId: user.tenantId },
+        '/departments/',
+        // `DEP-` y no `PROC-`: es otra tabla y otro concepto, aunque nazcan juntos.
+        { code: codigoDesdeNombre(input.nombre).replace(/^PROC-/, 'DEP-'), name: input.nombre },
+        { tenantId },
+      )
+      .then((unidad) =>
+        api.post<Record<string, unknown>>(
+          '/processes/',
+          {
+            code: codigoDesdeNombre(input.nombre),
+            name: input.nombre,
+            process_type: PROCESS_TYPE_POR_TIPO[input.tipo],
+            description: input.descripcion ?? null,
+            responsible_user_id: input.responsableId ?? null,
+            department_id: String(unidad.id),
+          },
+          { tenantId },
+        ),
       )
       .then((creado) => {
         const persistido = mapApiProceso(creado);
@@ -218,22 +237,46 @@ export function DepartamentosProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * **Esto no llega a la base, y no es un olvido.**
+   * Reclasifica un proceso en el mapa. **Ahora llega a la base.**
    *
-   * `ProcessUpdate` no expone `process_type` (`apps/api/app/schemas/organization.py`),
-   * así que la API no acepta reclasificar un proceso — justo la operación que
-   * hace esta pantalla. La columna existe y es `NOT NULL` sin marca de
-   * inmutabilidad, así que parece un descuido del esquema, no una decisión.
+   * Acá decía que `ProcessUpdate` no expone `process_type`, así que la API no
+   * aceptaba reclasificar — y que por eso ni se llamaba, porque *"un 200 que no
+   * guarda nada es peor que no llamar"*. Ese diagnóstico era correcto: la
+   * columna existía, `ProcessRead` **sí la devolvía**, y sólo faltaba
+   * declararla del lado de la escritura. Se podía leer y no escribir.
    *
-   * Reclasificar sigue funcionando en pantalla y se pierde al recargar. Se deja
-   * así en vez de mandar un `PATCH` que la API ignoraría en silencio: un 200
-   * que no guarda nada es peor que no llamar.
+   * ## Es optimista, y revierte si falla
+   *
+   * Reclasificar se hace arrastrando en el mapa: esperar la respuesta antes de
+   * mover la tarjeta se siente roto. Se mueve, y si la API rechaza vuelve a su
+   * lugar **y se dice por qué** — el silencio es lo que hacía que el cambio
+   * pareciera guardado.
    */
   function updateTipo(departamentoId: string, tipo: TipoProceso) {
     const anterior = departamentos.find((d) => d.id === departamentoId);
     if (!anterior || anterior.tipo === tipo) return;
+    const tipoPrevio = anterior.tipo;
 
     setDepartamentos((prev) => prev.map((d) => (d.id === departamentoId ? { ...d, tipo } : d)));
+
+    if (user?.tenantId) {
+      api
+        .patch<Record<string, unknown>>(
+          `/processes/${departamentoId}`,
+          { process_type: PROCESS_TYPE_POR_TIPO[tipo] },
+          { tenantId: user.tenantId },
+        )
+        .catch((error: unknown) => {
+          setDepartamentos((prev) =>
+            prev.map((d) => (d.id === departamentoId ? { ...d, tipo: tipoPrevio } : d)),
+          );
+          mostrarToast({
+            tipo: 'error',
+            mensaje: 'No se pudo reclasificar el proceso',
+            descripcion: mensajeDeError(error),
+          });
+        });
+    }
 
     registrar({
       entidadTipo: 'departamento',

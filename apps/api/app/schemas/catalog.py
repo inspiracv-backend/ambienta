@@ -223,6 +223,10 @@ class NormSyncRunRead(OrmBase):
     norms_updated: int
     versions_created: int
     error_detail: str | None
+    #: Lo que trajo la corrida: normas encontradas, las que cambiaron de version
+    #: vigente y los terminos que **no** encontraron su norma. Solo nombres de
+    #: terminos y codigos de normas publicas; ningun dato de una empresa.
+    response_metadata: dict = {}
 
 
 # ── FacilityNormAssignment ────────────────────────────────────────────────

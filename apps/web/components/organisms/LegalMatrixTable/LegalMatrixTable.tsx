@@ -12,13 +12,15 @@ import {
   countArticulosSinEvaluar,
   normSemaforoDe,
 } from '@/lib/legal-matrix';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import type { LegalMatrixTableProps } from './LegalMatrixTable.types';
 
 const FUENTE_LABEL = { BCN: 'Pública (BCN)', ISO: 'ISO interna', RCA: 'RCA del tenant' } as const;
 
 /** S-08 Listado de Matriz Legal: filtros por planta/estado/tipo (H6), semáforo por norma (H1+H2). */
 export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [estadoFiltro, setEstadoFiltro] = useState('todos');
   const [tipoFiltro, setTipoFiltro] = useState('todos');

@@ -1,5 +1,6 @@
 'use client';
 
+import { visibleEnAlcance } from '@/lib/alcance';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarDays, GanttChartSquare, Kanban } from 'lucide-react';
@@ -15,7 +16,7 @@ import {
 import { useSession } from '@/lib/session';
 import { useObligations } from '@/lib/obligations-store';
 import { useTenants } from '@/lib/tenants-store';
-import { mockUsers } from '@/mocks/users';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 
 type ViewMode = 'calendario' | 'gantt' | 'kanban';
 
@@ -37,6 +38,9 @@ export default function CalendarioPage() {
   const { obligations } = useObligations();
   const [view, setView] = useState<ViewMode>('calendario');
   const [selected, setSelected] = useState<TicketRef | null>(null);
+  // Personas de la base (`/users/`), no `mockUsers`: el responsable es una
+  // clave foránea y un id de ejemplo hacía que la API rechazara la escritura.
+  const { personas } = usePersonasAsignables();
 
   useEffect(() => {
     if (!cargando && user === null) router.replace('/login');
@@ -55,7 +59,7 @@ export default function CalendarioPage() {
   const tickets: TicketRef[] = useMemo(() => {
     if (!user) return [];
     return obligations
-      .filter((o) => o.tenantId === user.tenantId && scopedPlants.some((p) => p.id === o.plantId))
+      .filter((o) => o.tenantId === user.tenantId && visibleEnAlcance(o.plantId, scopedPlants))
       .flatMap((obligation) => obligation.tasks.map((task) => ({ obligation, task })));
   }, [obligations, user, scopedPlants]);
 
@@ -67,7 +71,7 @@ export default function CalendarioPage() {
     );
   }
 
-  const responsableOptions = mockUsers.filter((u) => u.tenantId === user.tenantId).map((u) => ({ id: u.id, nombre: u.nombre }));
+  const responsableOptions = personas;
 
   return (
     <div className="flex flex-col gap-6">

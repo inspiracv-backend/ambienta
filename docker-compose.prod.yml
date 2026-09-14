@@ -83,6 +83,15 @@ services:
       - ./db/21_significancia_del_aspecto.sql:/docker-entrypoint-initdb.d/21-significancia-del-aspecto.sql:ro
       - ./db/22_crm.sql:/docker-entrypoint-initdb.d/22-crm.sql:ro
       - ./db/23_normativa_transversal.sql:/docker-entrypoint-initdb.d/23-normativa-transversal.sql:ro
+      - ./db/24_datos_por_tipo_de_registro.sql:/docker-entrypoint-initdb.d/24-datos-por-tipo.sql:ro
+      - ./db/25_catalogos_de_mejora.sql:/docker-entrypoint-initdb.d/25-catalogos-de-mejora.sql:ro
+      - ./db/26_informe_por_proceso.sql:/docker-entrypoint-initdb.d/26-informe-por-proceso.sql:ro
+      - ./db/27_vinculos_de_documentos.sql:/docker-entrypoint-initdb.d/27-vinculos-de-documentos.sql:ro
+      - ./db/28_comentarios.sql:/docker-entrypoint-initdb.d/28-comentarios.sql:ro
+      - ./db/29_normativa_propia.sql:/docker-entrypoint-initdb.d/29-normativa-propia.sql:ro
+      - ./db/30_etapas_de_mejora.sql:/docker-entrypoint-initdb.d/30-etapas-de-mejora.sql:ro
+      - ./db/31_tareas_del_plan_de_accion.sql:/docker-entrypoint-initdb.d/31-tareas-del-plan-de-accion.sql:ro
+      - ./db/32_admin_empresa_sin_departamento_obligatorio.sql:/docker-entrypoint-initdb.d/32-admin-empresa-sin-departamento.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s

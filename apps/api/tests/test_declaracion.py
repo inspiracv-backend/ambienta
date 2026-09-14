@@ -460,6 +460,20 @@ def _avisos_de(db, obligacion_id) -> list[dict]:
     return list(filas)
 
 
+def _en_dias_de_calendario(dias: int):
+    """Un instante que cae `dias` dias mas adelante **en el calendario chileno**.
+
+    Se fija a mediodia local a proposito: lejos de las dos medianoches, asi que
+    ni el huso ni un cambio de hora pueden moverlo de dia.
+    """
+    from datetime import time
+    from zoneinfo import ZoneInfo
+
+    chile = ZoneInfo("America/Santiago")
+    dia = (datetime.now(chile) + timedelta(days=dias)).date()
+    return datetime.combine(dia, time(12, 0), tzinfo=chile)
+
+
 class TestElRecordatorioLlevaSuPlantilla:
     """#117 — el aviso de vencimiento adjunta la plantilla del sistema.
 
@@ -560,7 +574,19 @@ class TestElRecordatorioLlevaSuPlantilla:
         ).scalar_one()
         declaracion.status = "open"
         declaracion.owner_user_id = persona
-        declaracion.due_at = datetime.now(timezone.utc) + timedelta(days=7)
+        # **Siete dias de CALENDARIO, no 7x24 horas.**
+        #
+        # `datetime.now(utc) + timedelta(days=7)` suma 168 horas, y eso no es
+        # "dentro de siete dias" cuando hay un cambio de hora en el medio: Chile
+        # pasa a horario de verano el primer sabado de septiembre, asi que a
+        # comienzos de mes 168 horas caen en el **dia siguiente** al que una
+        # persona llamaria "en una semana". Estas dos pruebas fallaron por eso, y
+        # el mensaje —"no se genero el aviso"— acusaba al generador.
+        #
+        # El generador tiene razon: compara fechas del calendario en el huso de
+        # la empresa, que es lo que significa "avisar 7 dias antes". La prueba
+        # ahora habla el mismo idioma.
+        declaracion.due_at = _en_dias_de_calendario(7)
         db.flush()
 
         generar(db, EMPRESA_A, ventanas=(7,))
@@ -582,7 +608,19 @@ class TestElRecordatorioLlevaSuPlantilla:
         declaracion.status = "open"
         declaracion.owner_user_id = persona
         declaracion.retc_system_id = sistema_id
-        declaracion.due_at = datetime.now(timezone.utc) + timedelta(days=7)
+        # **Siete dias de CALENDARIO, no 7x24 horas.**
+        #
+        # `datetime.now(utc) + timedelta(days=7)` suma 168 horas, y eso no es
+        # "dentro de siete dias" cuando hay un cambio de hora en el medio: Chile
+        # pasa a horario de verano el primer sabado de septiembre, asi que a
+        # comienzos de mes 168 horas caen en el **dia siguiente** al que una
+        # persona llamaria "en una semana". Estas dos pruebas fallaron por eso, y
+        # el mensaje —"no se genero el aviso"— acusaba al generador.
+        #
+        # El generador tiene razon: compara fechas del calendario en el huso de
+        # la empresa, que es lo que significa "avisar 7 dias antes". La prueba
+        # ahora habla el mismo idioma.
+        declaracion.due_at = _en_dias_de_calendario(7)
         db.flush()
 
         generar(db, EMPRESA_A, ventanas=(7,))

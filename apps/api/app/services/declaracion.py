@@ -42,7 +42,9 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from ..models.obligations import Obligation
+from sqlalchemy import func, select
+
+from ..models.obligations import DeclarationSubmission, Obligation
 
 #: Que estados se puede alcanzar desde cada uno. Lo que no esta, no se puede.
 #:
@@ -140,6 +142,125 @@ def urgencia(obligacion: Obligation, ahora: datetime | None = None) -> Urgencia:
     return Urgencia("vigente", dias)
 
 
+#: El estado de una presentacion mientras espera respuesta del portal.
+PRESENTADA = "submitted"
+
+
+def presentacion_vigente(
+    db: Session, obligacion: Obligation
+) -> DeclarationSubmission | None:
+    """La ultima presentacion de esta obligacion, si hay alguna.
+
+    "Ultima" por `version_no` y no por fecha: dos presentaciones del mismo dia
+    tienen la misma fecha y distinto numero, y el numero es el que ordena.
+    """
+    return db.scalars(
+        select(DeclarationSubmission)
+        .where(
+            DeclarationSubmission.obligation_id == obligacion.id,
+            DeclarationSubmission.deleted_at.is_(None),
+        )
+        .order_by(DeclarationSubmission.version_no.desc())
+    ).first()
+
+
+def _periodo(obligacion: Obligation) -> str | None:
+    """El periodo declarado, en texto. `None` si la obligacion no lo tiene.
+
+    `Obligation` guarda `period_start` y `period_end`, no una etiqueta. La
+    primera version de esto escribia `obligacion.period_label` con un `hasattr`
+    delante, o sea que **habria guardado `None` siempre y en silencio** — el
+    mismo defecto de campo descartado que este repositorio ya sufrio dos veces
+    con `planned_start_date` y con `process_id`.
+    """
+    if obligacion.period_start is None and obligacion.period_end is None:
+        return None
+    desde = obligacion.period_start.isoformat() if obligacion.period_start else "?"
+    hasta = obligacion.period_end.isoformat() if obligacion.period_end else "?"
+    return f"{desde} a {hasta}"
+
+
+def _abrir_presentacion(
+    db: Session, obligacion: Obligation, user_id: UUID | None
+) -> DeclarationSubmission:
+    """Anota **un intento mas** de presentar esta declaracion.
+
+    ## Por que la obligacion no alcanza
+
+    `obligations.external_receipt` guarda **un solo folio**. Una declaracion que
+    se rechaza y se vuelve a presentar produce dos, y con una sola columna el
+    primero se pierde al escribir el segundo — sin ningun error, y sin que nada
+    diga que existio.
+
+    Eso importa porque el folio **es el comprobante**: lo unico que la empresa
+    puede mostrarle a un fiscalizador para sostener que declaro. Perder el de un
+    intento rechazado borra la prueba de que ese intento ocurrio, y con ella la
+    fecha en que se presento por primera vez — que es exactamente lo que se
+    discute cuando hay un plazo de por medio.
+
+    El numero de version es `max + 1` **por obligacion**, asi que el historial
+    se lee como lo que es: v1 rechazada, v2 aceptada.
+    """
+    ultimo = db.scalar(
+        select(func.max(DeclarationSubmission.version_no)).where(
+            DeclarationSubmission.obligation_id == obligacion.id
+        )
+    )
+    presentacion = DeclarationSubmission(
+        tenant_id=obligacion.tenant_id,
+        obligation_id=obligacion.id,
+        # Se copian de la obligacion en vez de dejarlos vacios: la planta y el
+        # periodo de una declaracion pueden cambiar despues, y el historial
+        # tiene que decir contra que se presento **entonces**.
+        facility_id=obligacion.facility_id,
+        period_label=_periodo(obligacion),
+        version_no=(ultimo or 0) + 1,
+        status=PRESENTADA,
+        prepared_by=user_id,
+        submitted_by=user_id,
+        submitted_at=datetime.now(timezone.utc),
+    )
+    db.add(presentacion)
+    db.flush()
+    return presentacion
+
+
+def _cerrar_presentacion(
+    db: Session,
+    obligacion: Obligation,
+    *,
+    estado: str,
+    user_id: UUID | None,
+    folio: str | None = None,
+    motivo: str | None = None,
+) -> DeclarationSubmission | None:
+    """Marca como resuelto el ultimo intento. `None` si no habia ninguno.
+
+    **Devuelve `None` en vez de crear uno**, y eso es deliberado. Las
+    obligaciones que ya estaban en `submitted` antes de que este historial
+    existiera no tienen fila, y fabricarles una seria inventar una presentacion
+    que nadie registro — con su fecha, su version y su autor, los tres falsos.
+    El historial empieza vacio para ellas y dice la verdad.
+    """
+    presentacion = presentacion_vigente(db, obligacion)
+    if presentacion is None:
+        return None
+
+    presentacion.status = estado
+    presentacion.reviewed_by = user_id
+    if folio:
+        presentacion.external_folio = folio
+    if motivo:
+        # `submission_data` es jsonb: se reemplaza el diccionario entero, o
+        # SQLAlchemy no detecta el cambio y el `UPDATE` sale sin esta clave.
+        presentacion.submission_data = {
+            **(presentacion.submission_data or {}),
+            "motivo_rechazo": motivo,
+        }
+    db.flush()
+    return presentacion
+
+
 def _mover(db: Session, obligacion: Obligation, destino: str) -> Obligation:
     permitidos = TRANSICIONES.get(obligacion.status, set())
     if destino not in permitidos:
@@ -158,6 +279,12 @@ def enviar(db: Session, *, obligacion: Obligation, user_id: UUID | None = None) 
     obligacion.submitted_at = datetime.now(timezone.utc)
     if user_id is not None:
         obligacion.updated_by = user_id
+    # **El historial lo escribe el servicio, no el router.** Hay cuatro caminos
+    # que mueven una declaracion y cada uno esta en un endpoint distinto; si el
+    # rastro se dejara arriba, un endpoint nuevo se olvidaria y **no fallaria
+    # nada** — simplemente esa presentacion no existiria. Es la misma razon por
+    # la que el registro de actividades se engancha al `flush` de la sesion.
+    _abrir_presentacion(db, obligacion, user_id)
     return _mover(db, obligacion, "submitted")
 
 
@@ -184,6 +311,13 @@ def aprobar(
     obligacion.external_receipt = folio_final
     if user_id is not None:
         obligacion.updated_by = user_id
+    # La obligacion conserva el **ultimo** folio —es lo que lee la pantalla— y
+    # el historial se queda con el de cada intento. Los dos, no uno: quitar la
+    # columna rompe el frontend, y dejar solo la columna es el problema que este
+    # historial existe para resolver.
+    _cerrar_presentacion(
+        db, obligacion, estado="accepted", user_id=user_id, folio=folio_final
+    )
     return _mover(db, obligacion, "accepted")
 
 
@@ -206,6 +340,13 @@ def rechazar(
     obligacion.data = {**(obligacion.data or {}), "motivo_rechazo": motivo}
     if user_id is not None:
         obligacion.updated_by = user_id
+    # El motivo queda tambien en la presentacion rechazada. En la obligacion se
+    # sobrescribe con el del proximo rechazo; en el historial cada intento
+    # conserva el suyo, que es lo que permite ver **por que** hicieron falta
+    # tres vueltas.
+    _cerrar_presentacion(
+        db, obligacion, estado="rejected", user_id=user_id, motivo=motivo
+    )
     return _mover(db, obligacion, "rejected")
 
 

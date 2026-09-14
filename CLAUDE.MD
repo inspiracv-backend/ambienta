@@ -205,8 +205,8 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Auth — Google SSO | **Verificado en local el 17-ago.** Entrada con `oauth_google`, el claim `tenant_id` viaja y la API responde 200. **Falta para produccion:** credenciales propias (hoy usa las compartidas de Clerk) y el webhook. Ver abajo |
 | Auth — Microsoft SSO | **Sin configurar.** Exige registro en Entra ID, y ahi el tipo de cuenta tiene que ser *cualquier directorio + cuentas personales*: con "solo este directorio" ningun cliente puede entrar |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
-| Frontend — escrituras | **74 %.** 29 de 39 acciones llegan a la base. Las 10 restantes tienen causa documentada en su propio docstring. El conteo anterior (26 de 37) estaba mal por dentro: decia 10 pendientes y listaba 11 — ver `docs/escrituras-del-frontend.md` |
-| RBAC | **Funcionando.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers de negocio, y rol `servicio_lectura` para integraciones. Falta la pantalla de administracion |
+| Frontend — escrituras | **85 %.** 33 de 39 acciones llegan a la base. **El 74 % anterior estaba mal en las dos direcciones**: decia 29 y eran 30 —`users.updatePermisos` ya estaba conectada desde que se hizo la pantalla de permisos— y tres de las "bloqueadas" habian dejado de estarlo al cerrar otros bloques, sin que nadie releyera la tabla. Las 6 que quedan tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
+| RBAC | **Completo desde el 10-sep, alcance incluido.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers, rol `servicio_lectura`, pantalla en `/usuarios`, **acotamiento por instalacion aplicado** (`app/alcance.py`) y **el Admin Global ya no edita contenido de una empresa**. Los dos ultimos eran reglas escritas en este archivo y en el spec que no aplicaba nadie. Es el primer modulo cuyo spec vivo existe: `openspec/specs/rbac/spec.md`, 6 requisitos |
 | Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas sincronizar-bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
@@ -227,6 +227,58 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | CRM comercial | **Usable desde el 3-sep, y hasta ese dia no lo era.** La API tiene **28 operaciones** y la interfaz llamaba a **dos** —`/crm/pipeline` y mover de etapa—, en una sola pantalla: el kanban. Se podia mirar el tablero y arrastrar una tarjeta, y nada mas — no dar de alta una empresa, ni un contacto, ni una oportunidad, ni anotar una llamada, ni promover un trato ganado. O sea que las tarjetas del kanban solo podian existir si alguien las creaba por fuera del sistema. Ahora hay cartera (`/crm/empresas`), ficha por empresa con contactos, oportunidades, linea de tiempo, responsables, retiro y promocion a contrato, y configuracion de etapas (`/crm/etapas`). **Y al construirlo aparecio que casi nada del modulo funcionaba**: 26 llamadas con la firma equivocada dejaban en 500 todo lo direccionado por id, incluido mover una tarjeta del kanban — ver abajo |
 | worker | **No existe como servicio, a proposito.** El trabajo en segundo plano vive en `apps/api/app/tareas/` y lo dispara cron. Ver `apps/worker/README.md` |
 | ai-service | Sin implementar |
+
+**Acotar un rol a una planta ya acota, y hasta el 10-sep no acotaba nada.**
+`user_roles.facility_id` y `department_id` existen desde el principio,
+`alcance_del_usuario()` los resuelve y `/me` los devuelve — o sea que la
+pantalla mostraba "acotado a Planta Calama" con toda confianza. Y esa funcion
+tenia **un solo llamador: `/me`, que lo informaba**. Medido por la API con el rol
+acotado a una planta: devolvia **172 filas de las otras dos**.
+
+No era una fuga entre empresas —RLS es la unica barrera entre tenants y sigue
+firme— pero el acotamiento *dentro* de la empresa era decorativo, y eso se
+promete en una venta y se contesta en una auditoria de accesos.
+
+**Se aplica en `CRUDBase._visibles()`**, junto al filtro de borrado logico y por
+el mismo motivo que dejo escrito ese archivo: los recursos de la API son
+instancias directas de `CRUDBase`, asi que repartir el filtro por veinte routers
+serian veinte lugares donde olvidarlo — y olvidarlo no falla, devuelve de mas.
+Ver `app/alcance.py`. Tres reglas que conviene no invertir:
+
+1. **Sin acotamiento no se filtra nada.** Vacio es "toda la empresa", no
+   "ninguna planta" — confundirlo deja a los administradores viendo una pantalla
+   en blanco, que es lo que el docstring de `/me` ya advertia.
+2. **Una fila sin instalacion se ve igual.** `facility_id IS NULL` no es "de
+   otra planta": **36 de las 41 obligaciones del seed** son de la empresa
+   entera, y esconderlas le ocultaria a un encargado de planta lo que tambien le
+   aplica.
+3. **Escribir fuera del alcance responde 403.** Filtrar solo la lectura seria de
+   las guardas que hacen creer que protegen: una fila creada en la planta ajena
+   existe, cuenta en sus totales y es invisible para quien la escribio. Es la
+   leccion del `PATCH` que se saltaba la comprobacion de las etapas del CRM.
+
+**Y el navegador invertia la regla 2 hasta el 13-sep.** Seis pantallas filtraban
+con `plantas.some((p) => p.id === fila.plantId)`, y una fila sin planta llega con
+`plantId: ''`: no coincidia con nada y desaparecia. Medido: **51 de las 56
+obligaciones** de la empresa A no se veian en obligaciones, calendario, dashboard
+ni reportes. Ahora todas usan `lib/alcance.ts::visibleEnAlcance`, y
+`alcance-visible.test.ts` barre `app/` y `components/` para que el filtro viejo no
+vuelva.
+
+**Y el Admin Global ya no edita contenido de una empresa.** §4 lo declara entre
+las reglas no negociables y el spec de RBAC tiene su escenario, y **no lo
+aplicaba nada**: `users.tenant_id` es NOT NULL, asi que un `platform_admin`
+pertenece a una empresa y su sesion la declara. La guarda vive en
+`exigir_permiso_de_la_ruta` y el limite en una constante,
+`permisos_de_rutas.RAICES_DE_PLATAFORMA` = `{tenants, users}`: dar de alta
+empresas y administrar cuentas. Responde **403 con codigo propio**
+(`plataforma_no_edita_contenido`) y no `permiso_insuficiente` — no le falta un
+permiso que alguien pueda concederle.
+
+**Ojo con probarlo:** las dos guardas viven detras de
+`if not clerk_configured: return user`, y el resto de la suite corre en modo
+desarrollo. Sin `test_admin_global_no_edita.py`, que simula Clerk configurado,
+la guarda estaria escrita, en verde y sin ejecutarse nunca.
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
 leerlo con cuidado porque son dos estados distintos con arreglos opuestos:
@@ -266,8 +318,11 @@ agregar un `PATCH`**. Es un viaje de ida y vuelta, y hacer solo un lado engana
 igual: `tenants` leia `limiteUsuarios: 50` escrito a mano, asi que guardarlo sin
 tocar la lectura daba un "guardado" que se deshacia al recargar.
 
-Queda **un store que pide datos y descarta la respuesta**: `plan-accion` con
-las tareas, que ademas no existen en el modelo. `audits` y `legal-matrix` ya
+**Las tareas del plan de accion existen desde el 14-sep** (#169, `db/31`): una
+columna `action_plan_id` en `tasks` —la misma tabla de las obligaciones, para no
+tener dos conceptos de tarea— con `ck_tasks_un_solo_padre` (como maximo uno). Se
+cargan en la ficha del plan (`lib/tareas-del-plan.ts`), no en el listado, y las
+rutas `/action-plans/tasks/...` van declaradas **antes** de `/action-plans/{plan_id}`. `audits` y `legal-matrix` ya
 mapean lo suyo desde el 17-ago. Ver `docs/escrituras-del-frontend.md`.
 
 **El SSO no deja un usuario utilizable por si solo.** Entrar con Google crea la
@@ -610,6 +665,299 @@ Manda un correo de verdad. El error mas comun —dominio del remitente sin
 verificar en Resend— **no se detecta hasta el primer envio**, que sin esto seria
 el primer aviso de vencimiento de un cliente. Y "aceptado por Resend" no es
 "entregado": si no llega, el problema esta en SPF/DKIM.
+
+**El cron de avisos estaba configurado a la unica hora a la que no avisaba.**
+Medido el 4-sep. `generar()` buscaba los vencimientos dentro de una banda de
+**±12 h** alrededor de `ahora + N dias`. Un plazo legal vence a las **23:59**, y
+`HORA_AVISOS` vale **07**: entre los dos hay 17 horas, o sea fuera de la banda.
+
+| hora del cron | avisos, en cualquiera de las cuatro ventanas |
+|---|---|
+| **07:00 — la configurada** | **0** |
+| 12:00, 18:00, 23:00 | 2 |
+
+Desplegado tal cual, un sistema cuya unica funcion es avisar de vencimientos
+**no habria avisado nunca**, y la corrida habria informado "0 avisos nuevos" —
+identico a lo que informa un dia en que de verdad no vence nada. Doce horas
+parecen una precaucion razonable y cubren medio dia; el medio que quedaba afuera
+era el de la mañana, que es justo cuando uno quiere que salga.
+
+Ahora se comparan **fechas del calendario en el huso de la empresa**
+(`countries.default_timezone`, cinco husos distintos) y no instantes: "avisar 15
+dias antes" quiere decir un dia, no un intervalo de horas. Ensanchar el margen a
+24 h no era el arreglo — haria que un mismo vencimiento cayera en dos ventanas
+contiguas y la persona recibiera dos correos por lo mismo.
+`test_hora_del_cron_de_avisos.py` barre las cuatro ventanas por cuatro horas del
+dia, porque **una sola prueba a mediodia pasa con el codigo roto**.
+
+**Y los vencimientos del seed eran fechas fijas, asi que la demostracion se
+vencia sola.** El mas cercano quedaba a 27 dias — fuera de las ventanas
+15/7/3/1 — asi que el cron corria y no generaba nada; unos meses mas y las cinco
+obligaciones quedan en el pasado. Ademas `OBL-REP-NFU-2026` decia `overdue` con
+fecha futura: el estado era verdadero el dia que se escribio.
+
+Ahora `db/02_seed.sql` las siembra relativas a `CURRENT_DATE` conservando las
+distancias que tenian entre si, y `sembrar_demo` **reancla una base que ya
+existe** —02_seed corre una sola vez, al crear el volumen—. La mas cercana entra
+en la ventana de 15 y baja a 7, 3 y 1 los dias siguientes, asi que la
+demostracion produce avisos nuevos varias veces y no uno solo.
+
+**Para verlo en local:**
+
+```bash
+docker compose exec api python -m app.tareas.sembrar_demo   # reancla los vencimientos
+docker compose run --rm avisos                              # corre el cron una vez
+```
+
+El servicio `avisos` del compose de desarrollo va detras de un `profile`, asi
+que `docker compose up -d` levanta lo mismo de siempre. **No recibe
+`RESEND_API_KEY` a proposito:** los usuarios sembrados tienen correos reales y
+los avisos escalan a los administradores, asi que correrlo "para ver como se
+ven" mandaria correo de verdad a esa gente. Las notificaciones in-app se
+entregan igual —que es lo que se quiere mirar— y los correos quedan encolados.
+
+**Los catalogos del registro de mejora son de cada empresa desde el 4-sep, y
+el CHECK de la severidad sigue donde estaba.** La escala era
+`minor | major | critical`: la misma para todos y solo en ingles, mientras el
+cliente dice `Alta` y `Mayor` y el siguiente dira otra cosa (#41, RF-100,
+decision S-14). `db/25` agrega `improvement_severities` —etiqueta, orden y
+**dias para cerrar**— y `improvement_methodologies`.
+
+Tres cosas que conviene saber antes de tocarlo:
+
+- **El catalogo se monta ENCIMA del CHECK, no lo reemplaza.** Cambiar
+  `nonconformities.severity` por una clave foranea es un paso aparte y mas
+  riesgoso: hay filas escritas, el frontend traduce esos tres valores en
+  `CRITICIDAD_POR_SEVERITY`, y la escala definitiva es una de las tres
+  decisiones abiertas (#57). Son dos barreras: la de la base admite los tres de
+  siempre, la de la empresa es mas estrecha.
+- **Los plazos nacen en NULL a proposito.** Sembrar 60/30/15 seria inventarle el
+  compromiso a la empresa, y un plazo falso en cumplimiento produce una fecha
+  limite que nadie acordo — la empresa cree que va a tiempo. Mismo criterio que
+  la `periodicidad` vacia de `retc_systems`. Mientras este vacio, `due_date` se
+  sigue pidiendo a mano; en cuanto la empresa lo declara, el sistema la calcula.
+  Y eso es lo que hace que el catalogo no sea decorativo: **`due_date` existia
+  desde el principio y nadie la calculaba**.
+- **`POST /tenants/` tambien los siembra**, porque el `CROSS JOIN tenants` de la
+  migracion corre una sola vez — la leccion de `22_crm.sql`, que dejo sin etapas
+  a toda empresa creada despues. Una prueba **lee el archivo SQL** y exige que
+  las dos listas coincidan.
+
+**Y las etapas tipadas existen desde el 12-sep** (`db/30`, decision #57).
+Esta linea decia que no y que su modelo dependia de una decision abierta: se
+tomo el 10-sep y fue **tabla**, no JSONB. El motivo no es purismo — con JSONB el
+responsable de cada etapa es un texto sin clave foranea, y el generador de
+avisos tendria que leer dentro del JSON para saber a quien escribirle, que es
+exactamente como este repositorio ya se quemo con las obligaciones sin
+responsable.
+
+Tres cosas que conviene saber de `improvement_stage_entries`:
+
+- **No migro datos, y se midio.** Las 293 no conformidades tenian
+  `improvement_stages = '{}'` —292 borradas logicamente— asi que la parte
+  riesgosa de una migracion no existia. La columna JSONB **se conserva**:
+  quitarla es un paso aparte.
+- **El ciclo nace con el registro.** `POST /nonconformities/` siembra las cinco
+  etapas —o tres, si el tipo es `riesgo` u `oportunidad`— con su fecha limite
+  derivada del catalogo de severidades. Una etapa que todavia no existe no se
+  puede asignar ni avisar.
+- **Los cinco campos del seguimiento son tri-estado y el CHECK lo exige.**
+  `NULL` = sin verificar, que **no** es "No": en tres de las cuatro preguntas
+  "No" es la respuesta favorable, asi que el defecto silencioso cerraria la
+  verificacion a favor. El cierre compara contra `True`, no contra truthy.
+
+**Un registro sin ciclo sembrado no queda bloqueado**, y es deliberado: los
+anteriores al 12-sep no tienen etapas y exigirselas los dejaria sin poder
+cerrarse con el mensaje "faltan etapas", sin forma de entender por que. Esos
+siguen con la regla anterior —al menos un plan de accion verificado— y la
+excepcion se agota sola porque todo registro nuevo nace con su ciclo. No es una
+puerta trasera: **no existe el borrado de una etapa**, justamente por esto.
+
+**Y hasta el 13-sep ningun registro nuevo se podia cerrar**, por tres defectos
+que se tapaban entre si:
+
+1. **La etapa `registro` nacia vacia** y ninguna pantalla la completa, asi que
+   `puede-cerrarse` respondia "sin completar: registro" para siempre. Ahora nace
+   completada, con la fecha de deteccion.
+2. **`/close` exigia ademas un plan de accion verificado**, que el ciclo no crea.
+   Con ciclo, la verificacion de §10.2.1 d) es el seguimiento; el plan verificado
+   solo se exige a los registros sin etapas. Los planes **pendientes** bloquean
+   siempre. La regla vive en `services/audits.py::impedimento_por_planes` y la
+   llaman `/close` **y** `/puede-cerrarse` — con dos copias, la pantalla
+   habilitaba un cierre que el endpoint rechazaba.
+3. **El panel escribia el JSONB** `improvement_stages`, que el cierre no mira, con
+   responsables de `mockUsers` (422 contra la clave foranea) y la severidad
+   `Alta/Media/Baja` escrita a mano. Ahora usa `lib/etapas-mejora.ts` contra
+   `/etapas`, el catalogo de la empresa y `/users/`. El cierre se habilita con lo
+   que responde `puede-cerrarse`, **no con lo escrito en el formulario**: marcar
+   SI sin guardar no habilita nada.
+
+`test_etapas_de_mejora.py::test_con_los_cuerpos_de_la_pantalla_se_cierra` manda
+los cuerpos literales de `cuerpoDe` y termina en un registro cerrado: si cambia
+uno de los dos lados, falla.
+
+**Y cada etapa avisa a su responsable desde el 13-sep** (RF-99, #40):
+`services/avisos_de_etapas.py`, llamado por el mismo cron de avisos y en la
+misma transaccion. Tres avisos —asignacion, por vencer (7/3/1 o las reglas
+`improvement_stage_due` de la empresa) y vencida—, cada uno una sola vez por
+destinatario y en los dos canales. Sin responsable, los de fecha **se escalan**
+a los administradores. **Mientras `days_to_close` siga en NULL las etapas no
+tienen fecha limite**, asi que hoy solo sale el de asignacion: es a proposito,
+no un defecto del generador.
+
+**Y dos detectores me cazaron a mi** dentro de la misma hora: `exigir_cierre()`
+quedo escrita sin llamador —el patron de `bcn.sincronizar()`, otra vez— y
+`calcular_due_date` usaba `date.today()` en vez de `hoy_de`. Los dos arreglados;
+vale como recordatorio de que `herramientas/auditar.py` conviene correrlo
+**antes** de dar algo por terminado, no despues.
+
+**Y una leccion sobre el guardian de las dos listas:** su primera version
+comparaba con una expresion regular y **perdio una fila en silencio**. El nombre
+sembrado es `Diagrama de Ishikawa (causa-efecto)` y los parentesis del nombre se
+leyeron como el fin del registro. Esta vez fallo del lado util; si hubiera
+faltado del otro, la prueba habria pasado verde comparando dos listas
+incompletas. Ahora recorre caracter por caracter respetando comillas.
+
+**El informe de auditoria existe desde el 4-sep, y lo que faltaba no era el
+endpoint: `audit_items` no tenia proceso.** El design de RF-101 dice que las tres
+primeras columnas de la matriz "son derivables", y no lo eran — no habia de
+donde. Una auditoria sabia que preguntas hizo y que hallazgos salieron, y **no a
+que proceso pertenecia cada pregunta**, asi que no podia decir como quedo
+ninguno. El dueno de un proceso no lee la lista de hallazgos de toda la planta;
+lee su fila.
+
+`db/26` agrega `audit_items.process_id` —**nulable**, porque un requisito general
+del sistema de gestion no es de ningun proceso y forzarlo inventaria una
+pertenencia— y `audit_process_results` con lo que **escribe el auditor**:
+clasificacion, conclusion y evidencia revisada.
+
+**Los conteos no se guardan.** Se derivan al pedir `GET /audits/{id}/informe`.
+Guardarlos seria mas rapido de leer y es la forma mas corta de que el informe y
+el sistema digan cosas distintas — y el que miente es siempre el guardado,
+porque el otro se actualiza solo.
+
+**Y aca el error del cero volvia a estar servido, tres veces.** Es el que este
+repositorio ya cometio cuatro veces (`normSemaforo(0)`, el tablero con las
+plantas sin evaluar, la cobertura, los reportes):
+
+| situacion | el cero se leeria como | lo que devuelve |
+|---|---|---|
+| Auditoria sin nada evaluado | "cumple 0 %" | `conformidad: null` |
+| Proceso sin veredicto | "no conforme" | `no_auditado`, explicito |
+| Ciclo anterior sin hallazgos | "no cerraron nada" | `null` + `motivo_sin_tasa` |
+
+El tercero es el peor: un 0 % de tasa de cierre es una **acusacion**, y los tres
+casos que lo producirian —no hay auditoria anterior, la anterior no encontro
+nada, la anterior sigue abierta— no son ninguno un incumplimiento. Por eso el
+informe dice ademas **cual de los tres es**.
+
+**Dos trampas que aparecieron construyendolo, las dos de la misma familia:**
+un campo que la API **descarta en silencio**.
+
+1. `POST /audits/` acepta `planned_start_date` y lo tira: el campo es
+   `planned_start`. Mis sondas y una prueba propia lo mandaban mal y pasaban
+   igual, dejando todas las auditorias con `planned_start` en NULL — y la tasa
+   de cierre depende de esa fecha para saber cual es la anterior.
+2. El alta anidada de un item **rebota por `AuditItemCreate`**, asi que un campo
+   que ese schema no declare desaparece aunque el anidado si lo tenga. Es lo que
+   pasaba con `process_id`: la peticion respondia 201 y el proceso no se
+   guardaba.
+
+Y una prueba mia fallo por una premisa falsa: **el seed tiene una auditoria
+interna cerrada** (`AUD-2026-001`, 2026-06-01), asi que "sin ciclo anterior" no
+era cierto. El mensaje de fallo apuntaba al codigo y el error era de la prueba.
+
+**Un Gestor ya puede trabajar sobre sus clientes, y RLS no se toco.** Medido el
+4-sep antes de empezar: `EcoGestion` es `tenant_type = 'manager'`, tiene el
+contrato `ECOG-2026-001` con Minera Andes, y al entrar veia un sistema vacio —
+`/obligations/` devolvia **0 filas** y no existia **ni una ruta** que nombrara a
+un cliente o a un sub-tenant. El modelo sabia quien administra a quien y no
+habia ningun camino para actuar sobre ello. `parent_tenant_id` sigue con cero
+filas.
+
+Lo que se agrego es deliberadamente poco: `GET /gestor/clientes` y la cabecera
+**`X-Cliente-Id`**, que vale en cualquier endpoint. El resto de la API ya
+funcionaba; lo unico que faltaba era **poder declarar el otro tenant**.
+
+**La tentacion era ampliar la politica de RLS** —"o el tenant es cliente de mi
+gestor"— y habria sido la peor decision del proyecto: RLS no es la segunda
+barrera sino la unica (§4), y esa condicion hay que mantenerla correcta en 38
+tablas a la vez. Un error ahi no da una pantalla vacia: da una fuga. La barrera
+se queda donde estaba y delante se pone una puerta con llave (`deps.tenant_efectivo`).
+
+Cuatro cosas que conviene saber:
+
+- **Actuando por un cliente, el gestor NO ve lo suyo.** No es una vista
+  combinada, y no debe serlo: mezclar dos empresas en una consulta es justo lo
+  que RLS existe para impedir.
+- **La llave se comprueba en cada peticion**, no al entrar. Un contrato se
+  suspende, vence o se termina; si viviera en el token, revocarlo no haria nada
+  hasta que expire. Misma leccion que el acceso de invitado.
+- **Vale `active` y dentro de sus fechas.** Las dos cosas: un contrato al que se
+  le paso la fecha sin que nadie lo marcara `expired` sigue diciendo `active`. El
+  estado es una decision, la fecha es un hecho.
+- **Los dos rechazos se ven iguales.** Sin contrato y con contrato ajeno
+  responden el mismo 403 con el mismo texto: distinguirlos convertiria la
+  cabecera en un oraculo para averiguar con quien trabaja otro gestor.
+
+**Y una mutacion sobrevivio, en la guarda que mas importa.** Al desconectar
+`es_gestor` las quince pruebas seguian en verde: el unico caso negativo —una
+empresa normal suplantando al gestor— tambien lo frena la *otra* puerta, porque
+no hay contrato en esa direccion. **Las dos guardas estaban tapadas por la misma
+prueba y una se podia quitar sin que nada avisara.** La prueba nueva le quita el
+tipo `manager` a la empresa **dejando el contrato intacto**, que es lo unico que
+las separa.
+
+**"Departamento" nombra dos tablas distintas, y hasta el 14-sep la web las
+cruzaba.** `departamentos-store` es el **mapa de procesos** (`/processes/`, ISO
+9001 §4.4); `users.department_id` y el criterio de perfil completo (RF-10) usan
+**`departments`**, la unidad organizativa. El asistente de Perfil Empresa solo
+creaba procesos —una empresa nueva **nunca completaba el perfil**— y el alta de
+usuarios ofrecia procesos como departamento, que la API rechaza. Ahora cada
+"departamento" del asistente crea la unidad y el proceso colgado de ella, y el
+selector de usuarios lee `lib/unidades-organizativas.ts`. No se veia porque las
+empresas del seed ya traian departamentos.
+
+**Y hasta el 14-sep ninguna empresa nueva podia tener a nadie trabajando.** Tres
+defectos juntos, todos invisibles con el seed:
+
+1. **Sin roles.** `db/09` los siembra con `CROSS JOIN tenants`, y
+   `docker-compose.prod.yml` no carga el seed: en produccion corre con cero
+   empresas. `POST /tenants/` ahora llama a `services/roles_de_sistema.py`, y una
+   prueba lee `db/09` para que las listas no se separen.
+2. **El administrador exigia departamento**, y los departamentos los crea el.
+   `db/32` deja el CHECK solo para `internal` (RF-11 dice *Usuario Interno*).
+3. **Nadie pedia la invitacion a Clerk.** La pantalla hacia `POST /users/` y
+   decia "Invitacion creada"; el correo nunca salia. Y el alta de empresa invitaba
+   con el id local inventado — con Clerk, la API lo ignora y usa la empresa **de
+   la sesion**.
+
+Ahora `POST /users/invitaciones` y `POST /tenants/` con `administrador` crean
+fila, rol e invitacion **en una transaccion**: si Clerk no responde, no queda
+nada. Por eso **sin `CLERK_SECRET_KEY` no se puede invitar** (503), tampoco en
+local.
+
+**Y una fecha de calendario no se puede medir en horas: van tres veces.** El
+4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
+archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al
+generador, que tenia razon:
+
+| lo que decia la prueba | lo que significa |
+|---|---|
+| `now() + timedelta(days=7)` | 168 horas |
+| `now() + interval '7 days'` | 168 horas, en la zona de la sesion (UTC) |
+| `now() + make_interval(days => 7)` | idem |
+
+**Chile cambia de hora el primer sabado de septiembre**, asi que esa semana 168
+horas caen en el dia siguiente al que una persona llama "en una semana". Las
+pruebas ahora arman la fecha por calendario, a mediodia local — lejos de las dos
+medianoches.
+
+De ahi tambien `app/services/husos.py`: `date.today()` no es "hoy", es "hoy donde
+corre este proceso". La base va en UTC y el host en hora de Chile, asi que
+pasadas las 20:00 estan en dias distintos — y con el reloj equivocado un contrato
+vencido ayer seguia habilitando acceso durante esas horas. `countries` tiene
+**cinco husos**, asi que no es una constante disfrazada.
 
 **El puente hacia el almacenamiento existe desde el 27-ago, y no guarda nada
 en disco local.** El CHECK de `document_versions.storage_provider` son cuatro
@@ -968,12 +1316,93 @@ y evaluaba 33— y dejaba 226 filas **sin planta asignada**. El tablero compara
 por instalacion, asi que una evaluacion sin planta existe en la base y es
 invisible en la pantalla.
 
+**La epica ISO 14001 (#28) esta cerrada desde el 6-sep, y a la API no le
+faltaba nada.** Cuatro de las cinco tareas abiertas ya estaban escritas en
+`services/iso14001.py` — significancia (#44), vinculo aspecto→riesgo (#49),
+vencimientos a 30 dias (#47) y equipos sin operador habilitado (#48). Lo que
+faltaba era **exponer una y que la interfaz llamara a las cuatro**.
+
+`equipos_sin_operador_habilitado()` llevaba escrita y probada desde el 12-ago
+sin un solo endpoint. Mismo patron que `bcn.sincronizar()`.
+
+**Tres defectos que aparecieron al conectarlo, ninguno de los cuales fallaba:**
+
+1. **El endpoint nuevo quedo ensombrecido.** Puesto al final del router,
+   `/equipment/{id}` se lo comio y respondia 422 leyendo `sin-operador` como
+   UUID. Es un error de **orden de lineas**, invisible leyendo la funcion.
+   `test_vistas_derivadas_iso.py` lo fija para las tres rutas fijas.
+2. **El `useMemo` del store no listaba `derivadas` en sus dependencias**, asi
+   que servia para siempre el primer valor —`null`— y las cuatro vistas no
+   aparecian nunca.
+3. **El efecto borraba las derivadas al perder el tenant un instante.** Medido
+   con una traza: la sesion pasa por `null`, se llenan, y **vuelve a pasar por
+   `null`** y se vaciaban. El efecto de las matrices nunca borro nada al perder
+   el tenant; esa asimetria era todo el defecto.
+
+**Las derivadas se piden en un efecto aparte del de las matrices**, y esa
+separacion es deliberada: en el mismo `Promise.all`, un fallo en una vista
+secundaria dejaria aspectos, riesgos y equipos en blanco y la pantalla diria
+"esta empresa no tiene aspectos".
+
+**`PanelDeAtencion` existe por el estado vacio, no por la lista.** Tres estados
+que se ven casi iguales y solo uno significa "todo bien":
+
+| estado | significa | muestra |
+|---|---|---|
+| `null` | la consulta no volvio | "Comprobando…" |
+| error | no se pudo preguntar | el motivo, en alerta |
+| `[]` | se pregunto y no hay nada | el vacio, en verde |
+
+Y **el contador no se dibuja mientras no se sabe**: un `0` junto al titulo es la
+afirmacion mas fuerte de la pantalla.
+
+**La semilla de QA (#50) siembra los dos lados de cada panel.** Antes los tres
+salian siempre en el mismo estado —los 3 aspectos sin tratar, cero equipos en
+incumplimiento— y **un panel que solo se sabe ver vacio no esta revisado**. Ahora
+`sembrar_demo` enlaza un aspecto significativo a un riesgo y crea dos equipos
+`[QA]`, uno por cada motivo de incumplimiento. El prefijo no es decoracion: un
+equipo inventado sin marcar, en un modulo que se exporta a un auditor, se lee
+como un equipo de la empresa.
+
+Y al mutarla aparecio que **la base ya exigia la coherencia**: el CHECK
+`ck_risks_origen_aspecto` impide que un riesgo apunte a un aspecto y declare otro
+origen. Poner `origin` en la semilla no era cosmetico — sin eso el `INSERT`
+habria fallado.
+
+**Hay detectores para las clases de defecto que este repositorio ya sufrio.**
+`herramientas/auditar.py`, sin dependencias y en segundos:
+
+| detector | la clase que caza |
+|---|---|
+| endpoints que el frontend nunca llama | el CRM: 28 operaciones, la interfaz llamaba a 2 |
+| funciones de servicio sin llamador | `bcn.sincronizar()`, `control_documental.py` |
+| frontend que importa `mocks/` | las tres pantallas ISO leyendo datos de ejemplo |
+| fechas de calendario medidas en horas | la banda de ±12 h del cron, `date.today()` |
+| columnas que ninguna respuesta expone | el ciclo de vida documental, invisible |
+
+**Entrega candidatos, no acusaciones.** Hay endpoints que legitimamente solo
+consume una tarea o un webhook. El juicio lo pone una persona; lo que la
+herramienta aporta es no tener que acordarse de mirar.
+
+**Cada detector declara casos verificados a mano y se niega a informar si no los
+reproduce** — la regla de "los medidores tambien mienten", aplicada a si mismo.
+Ademas declara lo que **no** debe marcar: la primera version del detector de
+huerfanas marcaba 29 y **veinte eran falsas**, porque excluia el propio archivo
+de la busqueda y toda funcion auxiliar usada por su vecina salia como huerfana.
+Se cazo porque `tasa_de_cierre()` la llama `construir()` veinte lineas mas abajo.
+
+Y por que existe esto y no una flota de agentes: se intento primero con quince
+en paralelo. **Gastaron 4,4 millones de tokens en seis minutos y devolvieron
+cero** por un limite de gasto. Casi todo lo que se les pedia no necesitaba
+criterio, necesitaba `grep`.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 
 ## Verificacion
 
 ```bash
+python herramientas/auditar.py          # los detectores de las clases de defecto ya sufridas
 npm run spec:check                      # los 4 artefactos de cada cambio
 cd apps/api && python -m pytest         # 1053 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
 cd apps/web && npx vitest run           # 633 pruebas, 55 archivos

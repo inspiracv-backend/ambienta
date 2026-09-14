@@ -201,6 +201,11 @@ function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
         ? { articuloOrigenId: String(raw.article_compliance_id) }
         : {}),
       ...(raw.matrix_norm_id ? { normaOrigenId: String(raw.matrix_norm_id) } : {}),
+      // El estado del flujo, **sin mapear**. `estado` es el semaforo y se
+      // deriva de este; el crudo se conserva porque el mapeo pierde
+      // informacion que la ficha necesita — ver `estadoDeclaracion` en
+      // `packages/shared`.
+      ...(raw.status ? { estadoDeclaracion: String(raw.status) as Obligation['estadoDeclaracion'] } : {}),
       ...(raw.external_receipt ? { folio: String(raw.external_receipt) } : {}),
       ...(motivoRechazo ? { motivoRechazo } : {}),
       ...(urlDelSistema ? { sistemaUrl: urlDelSistema } : {}),

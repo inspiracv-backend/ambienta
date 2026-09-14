@@ -9,7 +9,7 @@ function formatFecha(iso: string) {
 }
 
 /** S-21 Detalle de Auditoría: procesos, departamentos, normativas asociadas y hallazgos generados desde ella. */
-export function AuditDetailView({ audit, plant, normativas, hallazgos }: AuditDetailViewProps) {
+export function AuditDetailView({ audit, plant, normativas, hallazgos, errorHallazgos }: AuditDetailViewProps) {
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-card border border-slate-200 bg-white p-6">
@@ -31,6 +31,7 @@ export function AuditDetailView({ audit, plant, normativas, hallazgos }: AuditDe
           <p className="mt-1 text-sm text-slate-700">{audit.procesos.join(', ')}</p>
         </div>
 
+        {normativas !== null && (
         <div className="mt-4">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Normativas asociadas</h2>
           {normativas.length === 0 ? (
@@ -47,6 +48,7 @@ export function AuditDetailView({ audit, plant, normativas, hallazgos }: AuditDe
             </ul>
           )}
         </div>
+        )}
       </div>
 
       <div className="rounded-card border border-slate-200 bg-white p-6">
@@ -59,7 +61,11 @@ export function AuditDetailView({ audit, plant, normativas, hallazgos }: AuditDe
           </Link>
         </div>
 
-        {hallazgos.length === 0 ? (
+        {errorHallazgos ? (
+          <p className="mt-3 text-sm text-semaforo-no-cumple">No se pudieron cargar los hallazgos: {errorHallazgos}</p>
+        ) : hallazgos === null ? (
+          <p className="mt-3 text-sm text-slate-500">Cargando hallazgos…</p>
+        ) : hallazgos.length === 0 ? (
           <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
             Sin hallazgos registrados todavía.
           </p>

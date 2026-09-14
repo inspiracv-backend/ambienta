@@ -115,6 +115,21 @@ Clerk ya tiene en `public_metadata`. El sistema se repara solo.
 **Lo que se pierde:** una invitación de Clerk huérfana si el fallo es total.
 Es basura visible en el dashboard, no un usuario roto.
 
+**Cómo quedó implementado (14-sep).** Dentro de una sola transacción: la fila y
+su rol se escriben con `flush` —así las restricciones de la base saltan antes—,
+después se llama a Clerk y al final se hace `commit`. Si Clerk rechaza o no
+responde no hay commit y no queda nada. Si Clerk acepta y el commit fallara, es
+exactamente la invitación huérfana de arriba. Es el mismo resultado que el orden
+"Clerk primero", con una ventaja: un correo repetido o un departamento que falta
+se rechazan **sin** haber mandado un correo.
+
+### D4b. El Admin Empresa no necesita departamento (`db/32`)
+
+La migración 13 exigía departamento a `tenant_admin`, y eso hacía imposible dar
+de alta una empresa: el administrador es quien crea los departamentos (RF-10) y
+el Admin Global no puede crearlos. RF-11 habla de *Usuario Interno* y RF-08
+lista Admin Empresa por separado. `internal` sigue exigiéndolo.
+
 ### D5. El RUT se guarda también en `users.rut_tax_id`
 
 Duplicado respecto al `username` de Clerk, a propósito.
