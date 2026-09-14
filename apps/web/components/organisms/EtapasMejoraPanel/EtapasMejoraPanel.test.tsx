@@ -53,7 +53,7 @@ const ETAPAS = ['registro', 'correccion', 'analisis_causa', 'accion_correctiva',
   k === 'registro' ? etapa(k, { fecha_ejecucion: '2026-09-01', completada_en: '2026-09-01T12:00:00Z' }) : etapa(k),
 );
 
-let cierre = { puede: false, motivo: 'Hay etapas sin completar: correccion.' };
+let cierre: { puede: boolean; motivo: string | null } = { puede: false, motivo: 'Hay etapas sin completar: correccion.' };
 
 function wrapper({ children }: { children: ReactNode }) {
   return (

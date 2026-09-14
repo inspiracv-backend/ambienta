@@ -106,6 +106,22 @@ describe('qué se manda al guardar', () => {
   });
 });
 
+describe('la fecha límite', () => {
+  it('viaja en el cuerpo, y vacía como null', () => {
+    const ciclo = cicloDesdeApi([fila('correccion', { due_date: '2026-09-20' })]);
+    expect(cuerpoDe('correccion', ciclo)!.due_date).toBe('2026-09-20');
+    ciclo.limites = { correccion: '' };
+    expect(cuerpoDe('correccion', ciclo)!.due_date).toBeNull();
+  });
+
+  it('cambiarla cuenta como cambio de la etapa', () => {
+    const filas = [fila('correccion'), fila('seguimiento')];
+    const ciclo = cicloDesdeApi(filas);
+    ciclo.limites = { ...ciclo.limites, seguimiento: '2026-10-01' };
+    expect(etapasCambiadas(filas, ciclo).map((c) => c.etapa.kind)).toEqual(['seguimiento']);
+  });
+});
+
 describe('qué etapas hay', () => {
   it('las decide la base: un riesgo nace sin corrección ni análisis', () => {
     const ciclo = cicloDesdeApi([fila('registro'), fila('accion_correctiva'), fila('seguimiento')]);

@@ -153,12 +153,14 @@ class TestElCicloSeSiembra:
         cuerpos = {
             "correccion": {
                 "responsable_user_id": None,
+                "due_date": None,
                 "fecha_ejecucion": "2026-09-02",
                 "evidencia_urls": [],
                 "datos": {"correccionInmediata": "Se aislo el derrame", "evidencia": ""},
             },
             "analisis_causa": {
                 "responsable_user_id": None,
+                "due_date": None,
                 "metodologia_id": None,
                 "fecha_ejecucion": "2026-09-04",
                 "datos": {
@@ -169,6 +171,7 @@ class TestElCicloSeSiembra:
             },
             "accion_correctiva": {
                 "responsable_user_id": None,
+                "due_date": None,
                 "fecha_ejecucion": "2026-09-08",
                 "evidencia_urls": [],
                 "datos": {
@@ -181,6 +184,7 @@ class TestElCicloSeSiembra:
             },
             "seguimiento": {
                 "responsable_user_id": None,
+                "due_date": None,
                 "fecha_ejecucion": "2026-09-12",
                 "observaciones": None,
                 "evidencia_urls": [],

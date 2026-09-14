@@ -29,6 +29,7 @@ import {
   type EtapaApi,
   type Metodologia,
   type Severidad,
+  type TipoEtapa,
 } from '@/lib/etapas-mejora';
 
 const INPUT = 'h-11 w-full rounded-lg border border-slate-300 px-3 text-sm';
@@ -218,6 +219,24 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
     );
   }
 
+  function campoLimite(kind: TipoEtapa) {
+    return (
+      <FormField
+        label="Fecha límite"
+        htmlFor={`${htmlId}-lim-${kind}`}
+        hint="Con fecha límite, el responsable recibe avisos antes de que venza."
+      >
+        <input
+          id={`${htmlId}-lim-${kind}`}
+          type="date"
+          className={INPUT}
+          value={ciclo.limites?.[kind] ?? ''}
+          onChange={(e) => setCiclo((c) => ({ ...c, limites: { ...c.limites, [kind]: e.target.value } }))}
+        />
+      </FormField>
+    );
+  }
+
   function estadoEtapa(kind: string) {
     const fila = filas?.find((f) => f.kind === kind);
     if (!fila) return null;
@@ -299,6 +318,7 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
                 onChange={(e) => setCorreccion({ ...correccion, evidencia: e.target.value })} />
             </FormField>
             {selectResponsable(correccion.responsableEtapaId, (v) => setCorreccion({ ...correccion, responsableEtapaId: v }), 'rc')}
+            {campoLimite('correccion')}
           </div>
         </fieldset>
       )}
@@ -324,6 +344,7 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
                 onChange={(e) => setAnalisis({ ...analisis, fechaEjecucion: e.target.value })} />
             </FormField>
             {selectResponsable(analisis.responsableEtapaId, (v) => setAnalisis({ ...analisis, responsableEtapaId: v }), 'ra')}
+            {campoLimite('analisis_causa')}
           </div>
 
           {metodologia?.forma === 'cinco_porques' && (
@@ -415,6 +436,7 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
                 onChange={(e) => setCapa({ ...capa, fechaFinalizacion: e.target.value })} />
             </FormField>
             {selectResponsable(capa.responsableEtapaId, (v) => setCapa({ ...capa, responsableEtapaId: v }), 'rk')}
+            {campoLimite('accion_correctiva')}
           </div>
         </fieldset>
       )}
@@ -509,6 +531,7 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
                 onChange={(e) => setSeguimiento({ ...seguimiento, observaciones: e.target.value })} />
             </FormField>
             {selectResponsable(seguimiento.responsableEtapaId, (v) => setSeguimiento({ ...seguimiento, responsableEtapaId: v }), 'rs')}
+            {campoLimite('seguimiento')}
           </div>
         </fieldset>
       )}

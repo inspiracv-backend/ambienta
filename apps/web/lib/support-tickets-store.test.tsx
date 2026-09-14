@@ -109,6 +109,10 @@ describe('createTicket', () => {
   it('si la base lo rechaza, rechaza y no lo agrega a la lista', async () => {
     post.mockRejectedValue(new ApiError(422, 'Unprocessable Entity', { detail: 'Un ticket necesita autor' }));
     const { result } = await montar();
+    // Se espera la lista antes de contar: `loading` baja una vez sin empresa
+    // declarada y la sesión llega después. Contar antes daba 0 y, con la
+    // suite cargada, la lista aparecía entre la cuenta y la aserción.
+    await waitFor(() => expect(result.current.tickets).toHaveLength(1));
     const antes = result.current.tickets.length;
 
     await act(async () => {

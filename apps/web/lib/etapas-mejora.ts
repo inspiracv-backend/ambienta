@@ -45,6 +45,12 @@ export interface EtapaApi {
 }
 
 export interface CicloEnPantalla {
+  /**
+   * La fecha límite de cada etapa, aparte porque los esquemas compartidos no la
+   * tienen. Se calcula del plazo de la severidad **si la empresa lo declaró**;
+   * si no, se escribe a mano. Sin ella no hay avisos de vencimiento.
+   */
+  limites?: Partial<Record<TipoEtapa, string>>;
   correccion?: EtapaCorreccion;
   analisisCausa?: EtapaAnalisisCausa;
   accionCorrectiva?: EtapaAccionCorrectiva;
@@ -73,7 +79,9 @@ const vacioANull = (v: string | undefined): string | null => (v ? v : null);
 
 export function cicloDesdeApi(filas: EtapaApi[]): CicloEnPantalla {
   const por = new Map(filas.map((f) => [f.kind, f]));
-  const ciclo: CicloEnPantalla = {};
+  const ciclo: CicloEnPantalla = {
+    limites: Object.fromEntries(filas.map((f) => [f.kind, f.due_date ?? ''])),
+  };
 
   const c = por.get('correccion');
   if (c) {
@@ -145,6 +153,11 @@ export function cicloDesdeApi(filas: EtapaApi[]): CicloEnPantalla {
  * vacía no es "sin fecha" para Pydantic.
  */
 export function cuerpoDe(kind: TipoEtapa, ciclo: CicloEnPantalla): Record<string, unknown> | null {
+  const cuerpo = cuerpoSinLimite(kind, ciclo);
+  return cuerpo ? { ...cuerpo, due_date: vacioANull(ciclo.limites?.[kind]) } : null;
+}
+
+function cuerpoSinLimite(kind: TipoEtapa, ciclo: CicloEnPantalla): Record<string, unknown> | null {
   switch (kind) {
     case 'correccion': {
       const e = ciclo.correccion;
