@@ -171,10 +171,14 @@ class TestUnSoloPadre:
 class TestResponsables:
     def test_dos_tareas_del_mismo_plan_con_responsables_distintos(self, cliente, plan) -> None:
         uno, otro = _personas(EMPRESA_A)
+        dueno_antes = cliente.get(f"{PLANES}/{plan}").json()["owner_user_id"]
         _tarea(cliente, plan, assignee_user_id=uno)
         _tarea(cliente, plan, assignee_user_id=otro)
         responsables = {t["assignee_user_id"] for t in cliente.get(f"{PLANES}/{plan}/tasks").json()}
         assert responsables == {uno, otro}
+        assert cliente.get(f"{PLANES}/{plan}").json()["owner_user_id"] == dueno_antes, (
+            "asignar tareas cambio el responsable del plan"
+        )
 
     def test_lo_de_una_persona_entre_planes_y_sin_lo_de_otra(self, cliente, plan, registro) -> None:
         uno, otro = _personas(EMPRESA_A)

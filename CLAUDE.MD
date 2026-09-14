@@ -318,8 +318,11 @@ agregar un `PATCH`**. Es un viaje de ida y vuelta, y hacer solo un lado engana
 igual: `tenants` leia `limiteUsuarios: 50` escrito a mano, asi que guardarlo sin
 tocar la lectura daba un "guardado" que se deshacia al recargar.
 
-Queda **un store que pide datos y descarta la respuesta**: `plan-accion` con
-las tareas, que ademas no existen en el modelo. `audits` y `legal-matrix` ya
+**Las tareas del plan de accion existen desde el 14-sep** (#169, `db/31`): una
+columna `action_plan_id` en `tasks` —la misma tabla de las obligaciones, para no
+tener dos conceptos de tarea— con `ck_tasks_un_solo_padre` (como maximo uno). Se
+cargan en la ficha del plan (`lib/tareas-del-plan.ts`), no en el listado, y las
+rutas `/action-plans/tasks/...` van declaradas **antes** de `/action-plans/{plan_id}`. `audits` y `legal-matrix` ya
 mapean lo suyo desde el 17-ago. Ver `docs/escrituras-del-frontend.md`.
 
 **El SSO no deja un usuario utilizable por si solo.** Entrar con Google crea la
