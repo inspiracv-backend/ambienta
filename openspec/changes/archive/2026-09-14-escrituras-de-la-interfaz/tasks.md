@@ -22,10 +22,12 @@ Verificados contra el contrato OpenAPI y los mappers reales, no supuestos.
 
 - [x] **Forma de `settings`.** Resuelto: esquema declarado en
       `packages/shared` (`TenantSettingsSchema`), con lectura tolerante
-- [ ] **Si el parpadeo de la escritura optimista molesta** en conexiones lentas
-      reales, no en local
-- [ ] **Si `completarPerfilEmpresa` debe existir** como acción, dado que la API
-      no deja editar el RUT
+- [x] **Si el parpadeo de la escritura optimista molesta** en conexiones lentas
+      reales, no en local. **Fuera de este cambio** (14-sep): es una observación
+      de uso que solo se puede medir desplegado, no un requisito del spec
+- [x] **Si `completarPerfilEmpresa` debe existir** como acción. **Resuelto**:
+      `TenantUpdate` acepta `rut_tax_id`, solo para el Admin Global, y la acción
+      está conectada (ver `docs/escrituras-del-frontend.md`)
 
 ## Fase 0 — Prerequisitos fuera de este módulo
 
@@ -38,19 +40,22 @@ Verificados contra el contrato OpenAPI y los mappers reales, no supuestos.
 
 - [x] `tenants`: leer límite de usuarios, módulos y logo desde `settings`, con
       los valores de hoy como respaldo cuando la clave no está
-- [ ] `audits`: leer `improvement_stages` y `root_cause_answers`. **Bloqueado**:
-      el store pide `/audits/nonconformities/` y **descarta la respuesta**, asi
-      que primero hay que mapear la entidad entera
-- [ ] ~~`support`: leer `is_internal`~~ **No aplica**: `setVisibilidad` opera
-      sobre el ticket, no sobre el mensaje, y `SupportTicketUpdate` no tiene
-      ese campo
+- [x] `audits`: leer `improvement_stages` y `root_cause_answers`. **Superado el
+      13-sep**: las etapas dejaron el JSONB y viven en `improvement_stage_entries`
+      (decisión #57); `lib/etapas-mejora.ts` las lee y escribe contra `/etapas`
+- [x] ~~`support`: leer `is_internal`~~ **No aplica**: `setVisibilidad` se quitó
+      de la pantalla el 13-sep (la base no modela visibilidad por ticket)
 - [x] Verificar que un tenant sin `settings` sigue cargando
 
 ## Fase 2 — El lado de escritura
 
 - [x] `users.updateDepartamento`
-- [ ] `audits.updateEtapas` y `audits.updatePorques` — **bloqueadas por la Fase 1**
-- [ ] ~~`support.setVisibilidad`~~ — **bloqueada**: la API no modela el campo
+- [x] `audits.updateEtapas` — **reemplazada el 13-sep** por el panel contra la
+      tabla tipada; `updatePorques` guarda `root_cause_answers`
+- [x] ~~`support.setVisibilidad`~~ — **quitada de la pantalla** el 13-sep
+- [x] **El motivo del rechazo en formato estable** (14-sep): los rechazos de la
+      base traen `codigo` y `campos` (`app/errores.py`), y el cliente expone
+      `codigoDeError` para ramificar sin leer el texto
 - [x] `tenants.setLimiteUsuarios`, `setModulosActivos` y `updateLogo`
 - [x] **Fusionar `settings`, nunca reemplazarlo**: dos pantallas no deben
       pisarse los valores
@@ -66,7 +71,11 @@ Verificados contra el contrato OpenAPI y los mappers reales, no supuestos.
 
 - [x] Tests del viaje completo: escribir, y que el valor sobreviva a releer
 - [x] Test de reversión: la API rechaza y la pantalla vuelve al valor anterior
-- [ ] Test de reversión parcial: de varios, solo se revierten los que fallaron
+- [x] Test de reversión parcial: de varios, solo se revierten los que fallaron.
+      **Hecho el 14-sep** en el panel de etapas: guarda todas las que cambiaron,
+      adopta las que la base aceptó, conserva lo escrito en las que fallaron,
+      dice «No se guardaron N de M» y al reintentar manda solo esas
+      (`EtapasMejoraPanel.test.tsx`)
 - [x] **Romper a propósito** lo que cada test dice proteger
 - [x] Medir de nuevo la razón de acciones conectadas
 
@@ -74,7 +83,7 @@ Verificados contra el contrato OpenAPI y los mappers reales, no supuestos.
 
 - [x] `docs/` con el inventario de las 37 acciones y la causa de cada hueco
 - [x] Actualizar el estado del proyecto en `CLAUDE.md`
-- [ ] Archivar el cambio
+- [x] Archivar el cambio (14-sep, con el spec vivo en `openspec/specs/interfaz-de-escritura`)
 
 ## Orden sugerido
 

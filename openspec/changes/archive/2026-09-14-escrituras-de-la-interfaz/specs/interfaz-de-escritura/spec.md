@@ -60,7 +60,8 @@ sobre él se rompe la primera vez que alguien mejora la redacción.
 
 #### Scenario: Un valor duplicado
 - **WHEN** una escritura choca con un valor que ya existe
-- **THEN** la persona ve un mensaje que nombra el valor duplicado
+- **THEN** la persona ve un mensaje que nombra el campo cuyo valor ya existe
+- **AND** la respuesta no incluye valores de la fila existente
 
 #### Scenario: Un campo inválido
 - **WHEN** una escritura se rechaza por validación
