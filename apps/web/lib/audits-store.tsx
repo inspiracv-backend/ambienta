@@ -21,15 +21,19 @@ interface AuditsContextValue {
    * ve igual que "esta empresa no tiene ninguno".
    */
   errorDeCarga: string | null;
+  /** Rechaza si la base no lo creó; devuelve el registro con el id real. */
   addNonConformity: (input: {
     tenantId: string;
     plantId: string;
-    auditId?: string;
     hallazgo: string;
-    criticidad: NonConformity['criticidad'];
+    severidad: string;
     responsableId: string;
     tipoRegistro?: TipoRegistroMejora;
-  }) => NonConformity;
+    origen?: string;
+    auditItemId?: string;
+    productData?: Record<string, string>;
+    complaintData?: Record<string, string>;
+  }) => Promise<NonConformity>;
   updatePorques: (ncId: string, cincoPorques: string[]) => void;
   closeNonConformity: (ncId: string, responsableId: string) => void;
 }
@@ -222,64 +226,64 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       });
   }
 
-  function addNonConformity(input: {
+  /**
+   * Registra un hallazgo **y espera a la base** antes de darlo por hecho.
+   *
+   * Hasta el 13-sep era optimista y no funcionaba en ningún caso real: el
+   * formulario pedía origen, datos del producto y del reclamo y **no se
+   * mandaba ninguno** —salida no conforme y reclamo respondían 422 siempre—,
+   * el responsable salía de `mockUsers` y la pantalla navegaba a
+   * `nc-<timestamp>`, un id que la base nunca tuvo. Ahora devuelve el
+   * registro que la API creó, con su id y sus etapas sembradas, o rechaza.
+   */
+  async function addNonConformity(input: {
     tenantId: string;
     plantId: string;
-    auditId?: string;
     hallazgo: string;
-    criticidad: NonConformity['criticidad'];
+    /** Código de la escala de la empresa (`minor`, `major`, `critical`). */
+    severidad: string;
     responsableId: string;
     tipoRegistro?: TipoRegistroMejora;
-  }): NonConformity {
-    const nc: NonConformity = {
-      id: `nc-${Date.now()}`,
+    origen?: string;
+    auditItemId?: string;
+    productData?: Record<string, string>;
+    complaintData?: Record<string, string>;
+  }): Promise<NonConformity> {
+    const borrador: NonConformity = {
+      id: 'nuevo',
       tenantId: input.tenantId,
       plantId: input.plantId,
-      auditId: input.auditId,
       hallazgo: input.hallazgo,
-      criticidad: input.criticidad,
+      criticidad: CRITICIDAD_POR_SEVERITY[input.severidad] ?? 'media',
       estado: 'abierta',
       fechaDeteccion: new Date().toISOString(),
       responsableId: input.responsableId,
       cincoPorques: [],
       tipoRegistro: input.tipoRegistro,
     };
-    setNonConformities((prev) => [...prev, nc]);
 
-    // `code` y `title` son NOT NULL y no se mandaban: la fila no entraba.
-    // El codigo lleva la marca de tiempo porque hay un UNIQUE (tenant, code) y
-    // dos hallazgos del mismo dia tienen que poder convivir.
-    api
-      .post<Record<string, unknown>>(
-        '/audits/nonconformities/',
-        {
-          code: `NC-${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}`,
-          title: etiqueta(nc),
-          description: input.hallazgo,
-          severity: SEVERITY_POR_CRITICIDAD[input.criticidad],
-          ...(input.plantId ? { facility_id: input.plantId } : {}),
-          ...(input.responsableId ? { owner_user_id: input.responsableId } : {}),
-          ...(input.tipoRegistro ? { record_type: input.tipoRegistro } : {}),
-        },
-        { tenantId: input.tenantId },
-      )
-      .then((creada) => {
-        // El id local era `nc-<timestamp>`, que la API no conoce: sin este
-        // reemplazo toda escritura posterior sobre este hallazgo apuntaria a
-        // una fila inexistente y volveria a fallar en silencio.
-        const real = mapApiNonConformity(creada);
-        if (real) setNonConformities((prev) => prev.map((x) => (x.id === nc.id ? real : x)));
-      })
-      .catch((error) => {
-        // Revertir: mostrar un hallazgo que la base no tiene es peor que no
-        // mostrarlo, porque nadie vuelve a registrarlo.
-        setNonConformities((prev) => prev.filter((x) => x.id !== nc.id));
-        mostrarToast({
-          tipo: 'error',
-          mensaje: 'No se pudo registrar el hallazgo',
-          descripcion: mensajeDeError(error),
-        });
-      });
+    const creada = await api.post<Record<string, unknown>>(
+      '/audits/nonconformities/',
+      {
+        // `code` lleva la marca de tiempo: hay un UNIQUE (tenant, code) y dos
+        // hallazgos del mismo día tienen que poder convivir.
+        code: `NC-${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}`,
+        title: etiqueta(borrador),
+        description: input.hallazgo,
+        severity: input.severidad,
+        ...(input.plantId ? { facility_id: input.plantId } : {}),
+        ...(input.responsableId ? { owner_user_id: input.responsableId } : {}),
+        ...(input.tipoRegistro ? { record_type: input.tipoRegistro } : {}),
+        ...(input.origen ? { detection_origin: input.origen } : {}),
+        ...(input.auditItemId ? { audit_item_id: input.auditItemId } : {}),
+        ...(input.productData ? { product_data: input.productData } : {}),
+        ...(input.complaintData ? { complaint_data: input.complaintData } : {}),
+      },
+      { tenantId: input.tenantId },
+    );
+    const nc = mapApiNonConformity(creada);
+    if (!nc) throw new Error('La API respondió sin un registro reconocible.');
+    setNonConformities((prev) => [...prev, nc]);
 
     registrar({
       entidadTipo: 'no_conformidad',
@@ -289,9 +293,8 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       accion: 'creado',
       resumen: 'Registró el hallazgo',
       cambios: [
-        { campo: 'Criticidad', antes: null, despues: CRITICIDAD_LABEL[input.criticidad] },
+        { campo: 'Criticidad', antes: null, despues: CRITICIDAD_LABEL[nc.criticidad] },
         { campo: 'Estado', antes: null, despues: NC_ESTADO_LABEL.abierta },
-        ...(input.auditId ? [{ campo: 'Auditoría de origen', antes: null, despues: input.auditId }] : []),
       ],
       motivo: input.hallazgo,
     });
