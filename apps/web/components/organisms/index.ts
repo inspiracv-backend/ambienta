@@ -35,6 +35,7 @@ export * from './NonConformityDetailView';
 export * from './RegisterFindingForm';
 export * from './EtapasMejoraPanel';
 export * from './CierreNoConformidadPanel';
+export * from './InformeDeAuditoriaPanel';
 export * from './CatalogNormsTable';
 export * from './AssignNormsToPlant';
 export * from './SubTenantsListTable';

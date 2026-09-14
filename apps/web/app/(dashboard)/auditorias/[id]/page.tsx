@@ -2,7 +2,7 @@
 
 import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { AuditDetailView, HistorialTimeline } from '@/components/organisms';
+import { AuditDetailView, HistorialTimeline, InformeDeAuditoriaPanel } from '@/components/organisms';
 import { useAudits } from '@/lib/audits-store';
 import { useTenants } from '@/lib/tenants-store';
 import { mockLegalNorms } from '@/mocks/catalog';
@@ -22,6 +22,9 @@ export default function AuditDetailPage({ params }: { params: { id: string } }) 
     <div className="flex flex-col gap-4">
       <Breadcrumbs items={[{ label: 'Auditorías', href: '/auditorias' }, { label: plant?.nombre ?? audit.plantId }]} />
       <AuditDetailView audit={audit} plant={plant} normativas={normativas} hallazgos={hallazgos} />
+
+      {/* RF-101: lo que se entrega al cerrar la auditoría. */}
+      <InformeDeAuditoriaPanel auditId={audit.id} />
 
       {/* Se combinan los eventos de la auditoria con los de sus hallazgos:
           lo que se audita despues es la secuencia completa, no la auditoria
