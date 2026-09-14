@@ -908,6 +908,16 @@ prueba y una se podia quitar sin que nada avisara.** La prueba nueva le quita el
 tipo `manager` a la empresa **dejando el contrato intacto**, que es lo unico que
 las separa.
 
+**"Departamento" nombra dos tablas distintas, y hasta el 14-sep la web las
+cruzaba.** `departamentos-store` es el **mapa de procesos** (`/processes/`, ISO
+9001 §4.4); `users.department_id` y el criterio de perfil completo (RF-10) usan
+**`departments`**, la unidad organizativa. El asistente de Perfil Empresa solo
+creaba procesos —una empresa nueva **nunca completaba el perfil**— y el alta de
+usuarios ofrecia procesos como departamento, que la API rechaza. Ahora cada
+"departamento" del asistente crea la unidad y el proceso colgado de ella, y el
+selector de usuarios lee `lib/unidades-organizativas.ts`. No se veia porque las
+empresas del seed ya traian departamentos.
+
 **Y una fecha de calendario no se puede medir en horas: van tres veces.** El
 4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
 archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al
