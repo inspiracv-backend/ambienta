@@ -50,6 +50,12 @@ export interface NuevoTenantInput {
   diasVigencia: number;
   limiteUsuarios: number;
   modulosActivos: ModuloPlataforma[];
+  /**
+   * Quien administrará la empresa. Se crea con el rol `admin_empresa` y recibe
+   * la invitación de Clerk **en el mismo pedido**: si la invitación no sale,
+   * la empresa tampoco se crea.
+   */
+  administrador?: { nombre: string; email: string };
 }
 
 interface TenantsContextValue {
@@ -57,7 +63,8 @@ interface TenantsContextValue {
   loading: boolean;
   /** Por que la lista esta vacia, si es que fallo (#208). `null` = se pregunto. */
   errorDeCarga: string | null;
-  createTenant: (input: NuevoTenantInput) => Tenant;
+  /** Rechaza si la API no la creó; en ese caso no queda nada escrito. */
+  createTenant: (input: NuevoTenantInput) => Promise<Tenant>;
   setEstado: (tenantId: string, estado: Tenant['estado']) => void;
   setLimiteUsuarios: (tenantId: string, limite: number) => void;
   setModulosActivos: (tenantId: string, modulos: ModuloPlataforma[]) => void;
@@ -193,77 +200,35 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
-  function createTenant(input: NuevoTenantInput): Tenant {
-    const ahora = new Date();
-    const termino = new Date(ahora);
-    termino.setDate(termino.getDate() + input.diasVigencia);
-
-    const nuevo: Tenant = {
-      id: `tenant-${Date.now()}`,
-      nombre: input.nombre,
-      identificacion: { tipo: documentoDePais(input.pais), numero: input.numeroIdentificacion },
-      pais: input.pais,
-      sector: input.sector,
-      sectorId: input.sectorId,
-      tramo: input.tramo,
-      giro: input.giro,
-      direccion: input.direccion,
-      sitioWeb: input.sitioWeb,
-      numeroTrabajadores: input.numeroTrabajadores,
-      certificaciones: input.certificaciones,
-      contactoComercial: input.contactoComercial,
-      notasComerciales: input.notasComerciales,
-      esGestor: input.esGestor,
-      estado: 'activo',
-      perfilEmpresaCompleto: false,
-      suscripcion: {
-        plan: input.plan,
-        fechaInicio: ahora.toISOString(),
-        fechaTermino: termino.toISOString(),
-        limiteUsuarios: input.limiteUsuarios,
-      },
-      modulosActivos: input.modulosActivos,
-      plants: [],
-    };
-
-    setTenants((prev) => [...prev, nuevo]);
-
-    api
-      .post<Record<string, unknown>>('/tenants/', {
-        legal_name: input.nombre,
-        rut_tax_id: input.numeroIdentificacion,
-        tenant_type: input.esGestor ? 'manager' : 'company',
-        business_activity: input.sector,
-        sector_id: input.sectorId ?? null,
-        size_bracket: input.tramo ?? null,
-        country_id: 1,
-      })
-      .then((creado) => {
-        // **El id local es inventado.** Sin reconciliarlo, la fila que quedaba
-        // en pantalla apuntaba a `tenant-1723...`, que no existe en la base:
-        // cualquier accion posterior sobre la empresa recien creada —cambiar
-        // su plan, agregarle una planta— iba a un id inexistente y fallaba sin
-        // explicacion. Se reemplaza por el que devuelve la API.
-        const real = mapApiTenant(creado);
-        if (real) setTenants((prev) => prev.map((t) => (t.id === nuevo.id ? real : t)));
-      })
-      .catch((error) => {
-        // Antes esto era `.catch(() => {})`: la empresa quedaba en la lista
-        // como si existiera y desaparecia al recargar, sin que nadie supiera
-        // por que. Es el mismo silencio que escondio que el alta de no
-        // conformidades nunca habia funcionado.
-        setTenants((prev) => prev.filter((t) => t.id !== nuevo.id));
-        mostrarToast({
-          tipo: 'error',
-          mensaje: 'No se pudo crear la empresa',
-          descripcion: mensajeDeError(error),
-        });
-      });
+  async function createTenant(input: NuevoTenantInput): Promise<Tenant> {
+    // **Sin fila optimista, a propósito.** Antes la empresa aparecía con un id
+    // inventado (`tenant-1723…`) y el administrador se invitaba con ese id: la
+    // API lo rechazaba —o, con Clerk, lo ignoraba y usaba la empresa de la
+    // sesión—, así que **ninguna empresa nueva recibía a su administrador**.
+    // Ahora empresa, roles, administrador e invitación son un solo pedido.
+    const creado = await api.post<Record<string, unknown>>('/tenants/', {
+      legal_name: input.nombre,
+      rut_tax_id: input.numeroIdentificacion,
+      tenant_type: input.esGestor ? 'manager' : 'company',
+      business_activity: input.sector,
+      sector_id: input.sectorId ?? null,
+      size_bracket: input.tramo ?? null,
+      country_id: 1,
+      // Sin esto el límite y los módulos elegidos en el alta se perdían al
+      // recargar: la lectura sale de `settings` (TenantSettingsSchema).
+      settings: { limiteUsuarios: input.limiteUsuarios, modulosActivos: input.modulosActivos },
+      administrador: input.administrador
+        ? { full_name: input.administrador.nombre, email: input.administrador.email }
+        : null,
+    });
+    const real = mapApiTenant(creado);
+    if (!real) throw new Error('La API respondió sin la empresa creada.');
+    setTenants((prev) => [...prev, real]);
 
     registrar({
       entidadTipo: 'tenant',
-      entidadId: nuevo.id,
-      entidadLabel: nuevo.nombre,
+      entidadId: real.id,
+      entidadLabel: real.nombre,
       tenantId: null,
       accion: 'creado',
       resumen: input.plan === 'demo' ? 'Dio de alta una demo' : 'Dio de alta la empresa',
@@ -273,10 +238,13 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
         { campo: 'Plan', antes: null, despues: input.plan === 'demo' ? `Demo (${input.diasVigencia} días)` : 'Contrato' },
         { campo: 'Límite de usuarios', antes: null, despues: String(input.limiteUsuarios) },
         { campo: 'Módulos habilitados', antes: null, despues: String(input.modulosActivos.length) },
+        ...(input.administrador
+          ? [{ campo: 'Administrador invitado', antes: null, despues: input.administrador.email }]
+          : []),
       ],
     });
 
-    return nuevo;
+    return real;
   }
 
   function setEstado(tenantId: string, estado: Tenant['estado']) {

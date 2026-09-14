@@ -918,6 +918,25 @@ usuarios ofrecia procesos como departamento, que la API rechaza. Ahora cada
 selector de usuarios lee `lib/unidades-organizativas.ts`. No se veia porque las
 empresas del seed ya traian departamentos.
 
+**Y hasta el 14-sep ninguna empresa nueva podia tener a nadie trabajando.** Tres
+defectos juntos, todos invisibles con el seed:
+
+1. **Sin roles.** `db/09` los siembra con `CROSS JOIN tenants`, y
+   `docker-compose.prod.yml` no carga el seed: en produccion corre con cero
+   empresas. `POST /tenants/` ahora llama a `services/roles_de_sistema.py`, y una
+   prueba lee `db/09` para que las listas no se separen.
+2. **El administrador exigia departamento**, y los departamentos los crea el.
+   `db/32` deja el CHECK solo para `internal` (RF-11 dice *Usuario Interno*).
+3. **Nadie pedia la invitacion a Clerk.** La pantalla hacia `POST /users/` y
+   decia "Invitacion creada"; el correo nunca salia. Y el alta de empresa invitaba
+   con el id local inventado — con Clerk, la API lo ignora y usa la empresa **de
+   la sesion**.
+
+Ahora `POST /users/invitaciones` y `POST /tenants/` con `administrador` crean
+fila, rol e invitacion **en una transaccion**: si Clerk no responde, no queda
+nada. Por eso **sin `CLERK_SECRET_KEY` no se puede invitar** (503), tampoco en
+local.
+
 **Y una fecha de calendario no se puede medir en horas: van tres veces.** El
 4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
 archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al

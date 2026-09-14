@@ -290,6 +290,26 @@ class TestRf11UsuarioInternoConDepartamento:
         db.flush()  # no lanza
         db.rollback()
 
+    def test_un_admin_empresa_SI_puede_no_tener_departamento(self, db: Session) -> None:
+        """`db/32`: el Admin Empresa es quien **crea** los departamentos (RF-10).
+
+        Con la regla anterior no se podia dar de alta a ninguna empresa nueva:
+        para crear a su administrador hacia falta un departamento que solo el
+        podia crear. RF-08 lista Admin Empresa y Usuario Interno por separado.
+        """
+        db.execute(
+            text("SELECT set_config('ambienta.tenant_id', :t, true)"), {"t": TENANT_1}
+        )
+        db.execute(
+            text(
+                "INSERT INTO users (tenant_id, email, full_name, user_type) "
+                "VALUES (:t, :e, 'Admin Nueva', 'tenant_admin')"
+            ),
+            {"t": TENANT_1, "e": f"rf11-tadmin-{uuid.uuid4()}@prueba.cl"},
+        )
+        db.flush()  # no lanza
+        db.rollback()
+
     def test_quitarle_el_departamento_a_un_interno_tampoco(self, db: Session) -> None:
         """La restriccion tambien vale al editar, no solo al crear.
 
@@ -299,7 +319,7 @@ class TestRf11UsuarioInternoConDepartamento:
         alguien = db.execute(
             text(
                 "SELECT id FROM users WHERE tenant_id = :t "
-                "AND user_type IN ('internal','tenant_admin') "
+                "AND user_type = 'internal' "
                 "AND deleted_at IS NULL LIMIT 1"
             ),
             {"t": TENANT_1},

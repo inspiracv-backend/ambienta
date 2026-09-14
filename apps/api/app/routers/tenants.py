@@ -19,9 +19,12 @@ from ..config import get_settings
 from ..crud.organization import crud_tenant
 from ..deps import declarar, exigir_admin_global, get_current_user, get_db
 from ..models.organization import User
-from ..schemas.organization import TenantCreate, TenantRead, TenantUpdate
+from ..schemas.organization import AltaDeEmpresa, TenantCreate, TenantRead, TenantUpdate
 from ..services import catalogos_de_mejora as svc_catalogos
 from ..services import crm as svc_crm
+from ..services import invitacion_de_usuario as svc_invitacion
+from ..services import roles_de_sistema as svc_roles
+from ..services.clave_local import ClerkNoDisponible
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -86,7 +89,7 @@ def get_tenant(
 
 @router.post("/", response_model=TenantRead, status_code=status.HTTP_201_CREATED)
 def create_tenant(
-    data: TenantCreate,
+    data: AltaDeEmpresa,
     _: CurrentUser = Depends(exigir_admin_global),
     db: Session = Depends(get_db),
 ):
@@ -105,19 +108,56 @@ def create_tenant(
     severidad activo y registrar un hallazgo respondera 409 — otra forma de
     quedar inservible sin que nada falle.
 
+    **Y con sus cuatro roles** (`services/roles_de_sistema.py`). `db/09` los
+    siembra con otro `CROSS JOIN tenants`, y en produccion —sin el seed de
+    demo— esa migracion corre con cero empresas: toda empresa nacia sin roles y
+    su administrador recibia 403 en todo.
+
+    **Y con su administrador, si viene** (RF-03). Se crea con `admin_empresa` y
+    se le manda la invitacion de Clerk dentro de la misma transaccion: si la
+    invitacion no sale, **la empresa tampoco se crea**. Antes la pantalla hacia
+    `POST /users/` aparte, con el id local inventado de la empresa, y con Clerk
+    configurado la API lo ignoraba y usaba la empresa **de la sesion**.
+
     Se declara el tenant antes de sembrar porque `crm_stages` y los dos
     catalogos **si** llevan RLS: esta sesion es `get_db` —sin empresa
     declarada— y el `INSERT` no pasaria el `WITH CHECK` de la politica. Va en la
     **misma transaccion** que el alta: una empresa a medias, creada pero sin
     pipeline ni catalogos, es justo el estado que esto existe para evitar.
     """
-    obj = crud_tenant.create(db, obj_in=data)
+    datos = TenantCreate(**data.model_dump(exclude={"administrador"}, exclude_unset=True))
+    obj = crud_tenant.create(db, obj_in=datos)
     declarar(db, obj.id)
     svc_crm.sembrar_etapas_por_defecto(db, obj.id)
     svc_catalogos.sembrar_por_defecto(db, obj.id)
-    db.commit()
+    svc_roles.sembrar_roles_de_sistema(db, obj.id)
+
+    if data.administrador is not None:
+        try:
+            svc_invitacion.registrar_e_invitar(
+                db,
+                obj.id,
+                full_name=data.administrador.full_name.strip(),
+                email=data.administrador.email.strip(),
+                user_type="tenant_admin",
+                department_id=None,
+                role_code="admin_empresa",
+            )
+        except svc_invitacion.YaInvitado as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+        except svc_invitacion.ErrorDeInvitacion as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            ) from None
+        except ClerkNoDisponible as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            ) from None
+
     db.refresh(obj)
-    return obj
+    leida = TenantRead.model_validate(obj)
+    db.commit()
+    return leida
 
 
 @router.patch("/{tenant_id}", response_model=TenantRead)

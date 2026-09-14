@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { UsersProvider, useUsers } from './users-store';
+import { UsersProvider, cuerpoDeInvitacion, useUsers } from './users-store';
 import { AuditLogProvider } from './audit-log-store';
 import { ToastProvider } from './toast-store';
 import { SessionProvider } from './session';
@@ -14,7 +14,8 @@ import { SessionProvider } from './session';
  * distintas:
  *
  * - `inviteUser` mandaba `display_name`, y la API exige `full_name`. Eso es un
- *   **422**: la invitación se veía hecha y no creaba a nadie.
+ *   **422**: la invitación se veía hecha y no creaba a nadie. Y arreglado eso,
+ *   seguía sin pedirle la invitación a Clerk: la persona no recibía correo.
  * - `updateNombre` mandaba `display_name` en un `PATCH`. Eso es peor: Pydantic
  *   descarta los campos que no declara y el `UPDATE` sale vacío, así que la API
  *   responde **200 sin cambiar nada**. Nadie revierte y nadie se entera hasta
@@ -76,27 +77,72 @@ beforeEach(() => {
 });
 
 describe('invitar a una persona', () => {
-  it('manda full_name, que es lo que la API exige', () => {
+  const INVITACION = {
+    tenantId: TENANT,
+    nombre: 'Carolina Pérez',
+    email: 'carolina@ejemplo.cl',
+    role: 'usuario_interno' as const,
+    departamentoId: 'd0000000-0000-0000-0000-000000000001',
+  };
+
+  it('pide la invitación a /users/invitaciones, con su rol', async () => {
+    // Antes solo hacía `POST /users/`: la fila quedaba "Invitada" y **nadie le
+    // pedía la invitación a Clerk**, así que la persona nunca recibía el correo.
+    post.mockResolvedValue({
+      user: {
+        id: 'u0000000-0000-0000-0000-0000000000aa',
+        tenant_id: TENANT,
+        full_name: 'Carolina Pérez',
+        email: 'carolina@ejemplo.cl',
+        user_type: 'internal',
+        status: 'invited',
+        department_id: INVITACION.departamentoId,
+      },
+      clerk_invitation_id: 'inv_1',
+    });
     const { result } = renderHook(() => useUsers(), { wrapper });
 
-    act(() => {
-      result.current.inviteUser({
-        tenantId: TENANT,
-        nombre: 'Carolina Pérez',
-        email: 'carolina@ejemplo.cl',
-        role: 'usuario_interno',
-        plantIds: [],
-        departamentoId: null,
-      });
+    let creado: Awaited<ReturnType<typeof result.current.inviteUser>> | undefined;
+    await act(async () => {
+      creado = await result.current.inviteUser(INVITACION);
     });
 
     const [ruta, cuerpo, opciones] = post.mock.calls.at(-1)!;
-    expect(ruta).toBe('/users/');
-    // `full_name` es obligatorio en `UserCreate`. Con `display_name` la
-    // respuesta era 422 y la persona nunca se creaba.
-    expect(cuerpo).toMatchObject({ full_name: 'Carolina Pérez' });
-    expect(cuerpo).not.toHaveProperty('display_name');
+    expect(ruta).toBe('/users/invitaciones');
+    // `role_code` es obligatorio: sin rol la persona entra y recibe 403 en todo.
+    expect(cuerpo).toEqual({
+      full_name: 'Carolina Pérez',
+      email: 'carolina@ejemplo.cl',
+      user_type: 'internal',
+      department_id: INVITACION.departamentoId,
+      role_code: 'encargado_ambiental',
+    });
     expect(opciones).toEqual({ tenantId: TENANT });
+    expect(creado?.estado).toBe('invitado');
+    expect(result.current.users.some((u) => u.id === 'u0000000-0000-0000-0000-0000000000aa')).toBe(true);
+  });
+
+  it('el administrador va sin departamento y con admin_empresa', () => {
+    expect(cuerpoDeInvitacion({ ...INVITACION, role: 'admin_empresa', departamentoId: null })).toMatchObject({
+      user_type: 'tenant_admin',
+      department_id: null,
+      role_code: 'admin_empresa',
+    });
+  });
+
+  it('si la API rechaza, rechaza y NO deja a nadie en la lista', async () => {
+    // La fila optimista con id inventado se veía "Invitada" aunque la API
+    // hubiera dicho que no.
+    post.mockRejectedValue(new Error('Falta CLERK_SECRET_KEY'));
+    const { result } = renderHook(() => useUsers(), { wrapper });
+    const antes = result.current.users.length;
+
+    await act(async () => {
+      await expect(result.current.inviteUser(INVITACION)).rejects.toThrow('CLERK_SECRET_KEY');
+    });
+
+    expect(result.current.users).toHaveLength(antes);
+    expect(result.current.users.some((u) => u.email === 'carolina@ejemplo.cl')).toBe(false);
   });
 });
 

@@ -10,14 +10,12 @@ import { CLERK_HABILITADO } from '@/lib/clerk-config';
 interface UsersContextValue {
   users: User[];
   loading: boolean;
-  inviteUser: (input: {
-    tenantId: string | null;
-    nombre: string;
-    email: string;
-    role: Role;
-    plantIds: string[];
-    departamentoId: string | null;
-  }) => User;
+  /**
+   * Registra a la persona **con su rol** y le manda la invitación de Clerk, en
+   * un solo acto (`POST /users/invitaciones`). Rechaza si no salió: en ese
+   * caso la API no dejó nada escrito.
+   */
+  inviteUser: (input: NuevaInvitacion) => Promise<User>;
   updateRole: (userId: string, role: Role) => void;
   /** Las plantas a las que está acotada. Vacía = todas. Rechaza si falla. */
   leerAlcance: (userId: string, tenantId: string) => Promise<string[]>;
@@ -29,6 +27,32 @@ interface UsersContextValue {
     userId: string,
     estado: UserEstado,
   ) => Promise<{ ok: boolean; error?: string }>;
+}
+
+export interface NuevaInvitacion {
+  tenantId: string;
+  nombre: string;
+  email: string;
+  role: Role;
+  departamentoId: string | null;
+}
+
+/**
+ * El cuerpo de `POST /users/invitaciones`, literal.
+ *
+ * **El rol va explícito**: sin rol la persona entra y recibe 403 en todo. El
+ * criterio es el de `db/09` —administrador → `admin_empresa`, el resto →
+ * `encargado_ambiental`— y se ajusta después en la pantalla de permisos.
+ */
+export function cuerpoDeInvitacion(input: NuevaInvitacion) {
+  const esAdmin = input.role === 'admin_empresa';
+  return {
+    full_name: input.nombre,
+    email: input.email,
+    user_type: esAdmin ? 'tenant_admin' : 'internal',
+    department_id: input.departamentoId ?? null,
+    role_code: esAdmin ? 'admin_empresa' : 'encargado_ambiental',
+  };
 }
 
 const UsersContext = createContext<UsersContextValue | null>(null);
@@ -167,53 +191,20 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
-  function inviteUser(input: {
-    tenantId: string | null;
-    nombre: string;
-    email: string;
-    role: Role;
-    plantIds: string[];
-    departamentoId: string | null;
-  }): User {
-    const nuevo: User = {
-      id: `user-${Date.now()}`,
-      tenantId: input.tenantId,
-      nombre: input.nombre,
-      email: input.email,
-      role: input.role,
-      plantIds: input.plantIds,
-      departamentoId: input.departamentoId,
-      estado: 'invitado',
-      ultimaActividad: null,
-    };
-    setUsers((prev) => [...prev, nuevo]);
-
-    if (input.tenantId) {
-      // `full_name`, no `display_name`. **La API exige `full_name` y no lo
-      // tenia**, asi que esta llamada devolvia 422 y el `.catch` vacio se lo
-      // tragaba: la invitacion se veia hecha en pantalla y no creaba a nadie.
-      api
-        .post(
-          '/users/',
-          {
-            full_name: input.nombre,
-            email: input.email,
-            user_type: input.role === 'admin_empresa' ? 'tenant_admin' : 'internal',
-            department_id: input.departamentoId ?? null,
-          },
-          { tenantId: input.tenantId },
-        )
-        .catch((error) => {
-          setUsers((prev) => prev.filter((u) => u.id !== nuevo.id));
-          mostrarToast({
-            tipo: 'error',
-            mensaje: 'No se pudo invitar a la persona',
-            descripcion: mensajeDeError(error),
-          });
-        });
-    }
-
-    return nuevo;
+  async function inviteUser(input: NuevaInvitacion): Promise<User> {
+    // **Sin fila optimista.** Antes se agregaba a la lista con un id inventado
+    // y se hacía solo `POST /users/`: la persona quedaba "Invitada" en pantalla
+    // y **nunca recibía el correo**, porque nadie le pedía la invitación a
+    // Clerk. Ahora la lista muestra lo que la API confirmó.
+    const respuesta = await api.post<{ user: Record<string, unknown> }>(
+      '/users/invitaciones',
+      cuerpoDeInvitacion(input),
+      { tenantId: input.tenantId },
+    );
+    const creado = mapApiUser(respuesta.user);
+    if (!creado) throw new Error('La API respondió sin la persona invitada.');
+    setUsers((prev) => [...prev, creado]);
+    return creado;
   }
 
   /**

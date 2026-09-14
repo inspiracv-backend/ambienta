@@ -79,11 +79,12 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
       if (!nombre.trim()) next.nombre = 'Ingresa un nombre.';
       if (!/^\S+@\S+\.\S+$/.test(email)) next.email = 'Ingresa un correo válido.';
     }
-    if (role === 'usuario_interno' && !departamentoId) next.departamentoId = 'Selecciona un departamento (RF-11).';
+    if (role !== 'admin_empresa' && !departamentoId) next.departamentoId = 'Selecciona un departamento (RF-11).';
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
-    const depto = role === 'usuario_interno' ? departamentoId : null;
+    // Solo el administrador puede no tener departamento: es quien los crea.
+    const depto = role !== 'admin_empresa' ? departamentoId : null;
 
     if (esEdicion && user) {
       // Se registra un evento por dimensión cambiada, no uno genérico
@@ -120,22 +121,33 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
       }
       mostrarToast({ tipo: 'exito', mensaje: `${user.nombre} actualizado`, descripcion: 'Los cambios quedaron en su historial.' });
     } else {
-      const nuevo = inviteUser({
-        tenantId,
-        nombre: nombre.trim(),
-        email: email.trim(),
-        role,
-        // Sin planta al invitar: el alcance se guarda en los roles de permisos,
-        // y una persona recién invitada todavía no tiene ninguno.
-        plantIds: [],
-        departamentoId: depto,
-      });
-      registrar(eventoUsuarioInvitado(nuevo));
-      mostrarToast({
-        tipo: 'exito',
-        mensaje: `Invitación creada para ${nuevo.nombre}`,
-        descripcion: 'Aparecerá como "Invitado" hasta que ingrese por primera vez.',
-      });
+      if (!tenantId) {
+        setErrors({ envio: 'No hay una empresa seleccionada a la que invitar.' });
+        return;
+      }
+      setGuardando(true);
+      try {
+        const nuevo = await inviteUser({
+          tenantId,
+          nombre: nombre.trim(),
+          email: email.trim(),
+          role,
+          departamentoId: depto,
+        });
+        registrar(eventoUsuarioInvitado(nuevo));
+        mostrarToast({
+          tipo: 'exito',
+          mensaje: `Invitación enviada a ${nuevo.email}`,
+          descripcion: 'Aparecerá como "Invitado" hasta que cree su cuenta desde el correo.',
+        });
+      } catch (err) {
+        // El formulario queda abierto con lo escrito: la API no dejó nada, así
+        // que reintentar es volver a enviar.
+        setErrors({ envio: `No se envió la invitación: ${mensajeDeError(err)}` });
+        return;
+      } finally {
+        setGuardando(false);
+      }
     }
     onOpenChange(false);
   }
@@ -216,7 +228,7 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
               </FormField>
             )}
 
-            {role === 'usuario_interno' && (
+            {role !== 'admin_empresa' && (
               <FormField label="Departamento" htmlFor={`${formId}-depto`} required error={errors.departamentoId}>
                 <select
                   id={`${formId}-depto`}
@@ -234,11 +246,17 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
               </FormField>
             )}
 
+            {errors.envio && (
+              <p role="alert" className="text-sm text-semaforo-no-cumple">
+                {errors.envio}
+              </p>
+            )}
+
             <div className="mt-2 flex justify-end gap-2">
               <Dialog.Close asChild>
                 <Button type="button" variant="secondary">Cancelar</Button>
               </Dialog.Close>
-              <Button type="submit" disabled={guardando}>{esEdicion ? (guardando ? 'Guardando…' : 'Guardar cambios') : 'Enviar invitación'}</Button>
+              <Button type="submit" disabled={guardando}>{esEdicion ? (guardando ? 'Guardando…' : 'Guardar cambios') : (guardando ? 'Enviando…' : 'Enviar invitación')}</Button>
             </div>
           </form>
         </Dialog.Content>

@@ -17,7 +17,7 @@ Conviene decirlo aca porque cuesta caro confundirlos:
 
 | Campo | Valores | Para que sirve |
 |---|---|---|
-| `users.user_type` | `platform_admin`, `tenant_admin`, `internal`, `guest`, `manager` | **Que clase de cuenta es.** Decide si pertenece a un departamento (`ck_users_interno_con_departamento`), si es un invitado, si administra la plataforma |
+| `users.user_type` | `platform_admin`, `tenant_admin`, `internal`, `guest`, `manager` | **Que clase de cuenta es.** Decide si debe pertenecer a un departamento (`ck_users_interno_con_departamento`, solo `internal`), si es un invitado, si administra la plataforma |
 | `roles.code` | `admin_empresa`, `encargado_ambiental`, `operador`, y los que cree la empresa | **Que puede hacer.** Es lo que se cruza con `role_permissions` |
 
 `09_roles_por_codigo.sql` derivo el segundo del primero **una vez**, para que

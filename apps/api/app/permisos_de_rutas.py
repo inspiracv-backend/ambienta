@@ -222,6 +222,8 @@ FAMILIA_POR_SUBRUTA: dict[tuple[str, str], str] = {
     ("users", "roles"): "role.manage",
     # Acotar a alguien a una planta decide que puede ver: mismo criterio.
     ("users", "alcance"): "role.manage",
+    # Invitar a alguien lo crea **con un rol**: mismo criterio que asignarlo.
+    ("users", "invitaciones"): "role.manage",
 }
 
 _ESCRITURAS = frozenset({"POST", "PATCH", "PUT", "DELETE"})

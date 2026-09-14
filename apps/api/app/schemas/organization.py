@@ -32,6 +32,25 @@ class TenantCreate(BaseModel):
     settings: dict = Field(default_factory=dict)
 
 
+class AdministradorInicial(BaseModel):
+    """Quien administrara la empresa que se esta dando de alta."""
+
+    full_name: str = Field(min_length=1)
+    email: str = Field(min_length=3)
+
+
+class AltaDeEmpresa(TenantCreate):
+    """El alta de empresa, opcionalmente **con su administrador**.
+
+    Sin administrador la empresa nace sin nadie que pueda entrar. Con el, la
+    persona se crea con el rol `admin_empresa` y recibe la invitacion de Clerk
+    en la misma transaccion: si la invitacion no sale, la empresa tampoco se
+    crea — una empresa a medias es justo lo que el alta existe para evitar.
+    """
+
+    administrador: AdministradorInicial | None = None
+
+
 class TenantRead(OrmBase):
     id: UUID
     country_id: int
@@ -230,6 +249,27 @@ class InvitacionEnviada(BaseModel):
     email: str
     #: El identificador de Clerk, para rastrear la invitacion en su consola sin
     #: tener que buscarla por correo. `None` si Clerk no lo devolvio.
+    clerk_invitation_id: str | None = None
+
+
+class InvitarPersona(BaseModel):
+    """Alta de una persona de la empresa **con su invitacion** (RF-03)."""
+
+    full_name: str = Field(min_length=1)
+    email: str = Field(min_length=3)
+    #: `internal` o `tenant_admin`. Los demas tipos no se invitan desde una
+    #: empresa.
+    user_type: str
+    #: Obligatorio para `internal` (RF-11); el administrador puede no tenerlo,
+    #: porque es quien crea los departamentos.
+    department_id: UUID | None = None
+    #: Codigo del rol con que entra: `admin_empresa`, `encargado_ambiental`,
+    #: `operador`, o uno propio de la empresa. Sin rol recibiria 403 en todo.
+    role_code: str = Field(min_length=1)
+
+
+class PersonaInvitada(BaseModel):
+    user: UserRead
     clerk_invitation_id: str | None = None
 
 

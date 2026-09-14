@@ -57,6 +57,7 @@ run "$DIR/28_comentarios.sql"
 run "$DIR/29_normativa_propia.sql"
 run "$DIR/30_etapas_de_mejora.sql"
 run "$DIR/31_tareas_del_plan_de_accion.sql"
+run "$DIR/32_admin_empresa_sin_departamento_obligatorio.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"

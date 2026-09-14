@@ -196,6 +196,11 @@ SIN_CRUD_COMPLETO = {
         "borrar una corrida por la API seria falsificar de donde salio el "
         "catalogo; solo se lista"
     ),
+    "/users/invitaciones": (
+        "no es un recurso: es la accion de dar de alta a una persona **con su "
+        "rol y su invitacion** en un solo acto (RF-03). Lo que crea es un "
+        "usuario, que ya tiene su CRUD completo en `/users`"
+    ),
     "/users/alcance": (
         "no es un recurso sino un atributo de la persona, guardado en sus roles "
         "vigentes: el PUT describe el estado final (una planta, o `null` para "

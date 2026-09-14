@@ -91,6 +91,7 @@ services:
       - ./db/29_normativa_propia.sql:/docker-entrypoint-initdb.d/29-normativa-propia.sql:ro
       - ./db/30_etapas_de_mejora.sql:/docker-entrypoint-initdb.d/30-etapas-de-mejora.sql:ro
       - ./db/31_tareas_del_plan_de_accion.sql:/docker-entrypoint-initdb.d/31-tareas-del-plan-de-accion.sql:ro
+      - ./db/32_admin_empresa_sin_departamento_obligatorio.sql:/docker-entrypoint-initdb.d/32-admin-empresa-sin-departamento.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s
