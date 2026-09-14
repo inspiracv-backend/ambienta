@@ -44,7 +44,6 @@ export * from './ContractsListView';
 export * from './SubTenantDeclarationsView';
 export * from './NotificationCenter';
 export * from './NotificationPreferencesForm';
-export * from './ExcelTemplatesList';
 export * from './ChatbotPanel';
 export * from './TenantsManagementTable';
 export * from './TenantConfigView';
