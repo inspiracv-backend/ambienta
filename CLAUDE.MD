@@ -950,6 +950,18 @@ Crea la empresa `platform`, sus roles, la cuenta `platform_admin` con
 empresas— y la invitacion de Clerk. **Se niega si ya hay uno**: sumar gente al
 equipo de plataforma es RF-84, sin definir.
 
+**La cartera y los campos de plataforma (14-sep).** Con Clerk, `GET /tenants/` le
+devolvia al Admin Global solo la empresa de la plataforma; ahora, con identidad
+comprobada, todas. En `PATCH /tenants/{id}` el RUT, el estado, `limiteUsuarios`
+y `modulosActivos` son **de la plataforma** —una empresa ya no se los cambia
+sola— y el resto es **de la empresa**: el Admin Global recibe
+`plataforma_no_edita_contenido`. Se rechaza *cambiar*, no *mandar*: la pantalla
+reenvia `settings` completo al guardar el logo.
+
+**Ojo: suspender una empresa todavia no bloquea nada.** Medido: el servidor no
+mira `tenants.status` salvo en el acceso de invitados, ni el tope de usuarios ni
+los modulos. Son marcas que la interfaz muestra, no barreras.
+
 **Y una fecha de calendario no se puede medir en horas: van tres veces.** El
 4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
 archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al

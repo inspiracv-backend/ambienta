@@ -253,11 +253,11 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, estado } : t)));
 
+    // Antes era `.catch(() => {})`: si la API rechazaba, la empresa se veía
+    // suspendida, el historial lo anotaba y al recargar seguía activa.
     api.patch(`/tenants/${tenantId}`, {
       status: estado === 'activo' ? 'active' : 'suspended',
-    }).catch(() => {});
-
-    registrar({
+    }).then(() => registrar({
       entidadTipo: 'tenant',
       entidadId: tenantId,
       entidadLabel: anterior.nombre,
@@ -271,6 +271,13 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
           despues: estado === 'activo' ? 'Activa' : 'Suspendida',
         },
       ],
+    })).catch((error) => {
+      setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, estado: anterior.estado } : t)));
+      mostrarToast({
+        tipo: 'error',
+        mensaje: estado === 'suspendido' ? 'No se suspendió la empresa' : 'No se reactivó la empresa',
+        descripcion: mensajeDeError(error),
+      });
     });
   }
 

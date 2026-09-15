@@ -444,3 +444,22 @@ describe('lo que se manda de verdad al guardar el perfil', () => {
     expect(patch).not.toHaveBeenCalled();
   });
 });
+
+describe('suspender una empresa', () => {
+  it('si la API rechaza, vuelve a como estaba y dice por qué', async () => {
+    // Antes era `.catch(() => {})`: la empresa se veía suspendida y al recargar
+    // seguía activa. Desde el 14-sep la API rechaza que una empresa cambie su
+    // propio estado, así que el rechazo es un caso real, no teórico.
+    patch.mockRejectedValue(
+      new ApiError(403, 'Forbidden', { detail: 'Solo el Admin Global puede cambiar status de una empresa.' }),
+    );
+    const { result } = await montar({});
+    const empresa = result.current.t.tenants[0];
+
+    act(() => result.current.t.setEstado(empresa.id, 'suspendido'));
+
+    await waitFor(() => expect(result.current.toast.toasts.length).toBeGreaterThan(0));
+    expect(result.current.t.tenants[0].estado).toBe(empresa.estado);
+    expect(result.current.toast.toasts[0].descripcion).toContain('Solo el Admin Global');
+  });
+});
