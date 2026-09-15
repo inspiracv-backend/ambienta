@@ -3,6 +3,7 @@
     python -m app.tareas rotar-auditoria [--mes AAAA-MM] [--en-seco]
     python -m app.tareas sincronizar-bcn [--en-seco]
     python -m app.tareas avisos [--solo-despachar]
+    python -m app.tareas crear-admin-global --correo C --nombre N [--razon-social R --rut X]
 
 ## Por que un modulo y no un script suelto
 
@@ -32,6 +33,7 @@ from pathlib import Path
 from ..config import get_settings
 from ..db import AdminSessionLocal
 from .avisos import correr as correr_avisos
+from .crear_admin_global import ErrorDeArranque, crear as crear_admin
 from .rotar_auditoria import mes_anterior, rotar
 from .sincronizar_bcn import sincronizar as sincronizar_bcn
 
@@ -144,6 +146,41 @@ def avisos(args) -> int:
     return 1 if informe.hay_que_mirarlo() else 0
 
 
+def crear_admin_global(args) -> int:
+    """Crea e invita al primer Admin Global. Ver `crear_admin_global.py`.
+
+    Sale con 1 si no corresponde (ya hay uno, falta el RUT) o si Clerk no
+    acepto la invitacion; en los dos casos no queda nada escrito.
+    """
+    from ..services.clave_local import ClerkNoDisponible
+    from ..services.invitacion_de_usuario import ErrorDeInvitacion
+
+    with AdminSessionLocal() as db:
+        try:
+            r = crear_admin(
+                db,
+                correo=args.correo,
+                nombre=args.nombre,
+                razon_social=args.razon_social,
+                rut=args.rut,
+            )
+        except (ErrorDeArranque, ErrorDeInvitacion, ClerkNoDisponible) as exc:
+            db.rollback()
+            logger.error("No se creo el Admin Global: %s", exc)
+            return 1
+        db.commit()
+
+    logger.info(
+        "Admin Global creado e invitado: %s (empresa %s%s, invitacion %s). "
+        "Tiene que aceptar el correo de Clerk para entrar.",
+        args.correo,
+        r.tenant_id,
+        ", nueva" if r.empresa_nueva else "",
+        r.clerk_invitation_id or "sin id",
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.tareas")
     sub = parser.add_subparsers(dest="tarea", required=True)
@@ -184,6 +221,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Genera los avisos de vencimiento del dia y despacha lo encolado.",
     )
     a.set_defaults(func=avisos)
+
+    g = sub.add_parser(
+        "crear-admin-global",
+        help="Crea e invita al primer Admin Global. Una sola vez, al desplegar.",
+    )
+    g.add_argument("--correo", required=True, help="Correo al que llega la invitacion de Clerk.")
+    g.add_argument("--nombre", required=True, help="Nombre completo.")
+    g.add_argument(
+        "--razon-social",
+        help="De la empresa de la plataforma. Solo si todavia no existe.",
+    )
+    g.add_argument("--rut", help="De la empresa de la plataforma. Solo si todavia no existe.")
+    g.set_defaults(func=crear_admin_global)
 
     args = parser.parse_args(argv)
     return args.func(args)

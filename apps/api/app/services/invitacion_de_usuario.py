@@ -176,7 +176,34 @@ def registrar_e_invitar(
         raise NoCorrespondeInvitar(
             f"El tipo de cuenta «{user_type}» no se invita desde una empresa."
         )
+    return crear_cuenta_e_invitar(
+        db,
+        tenant_id,
+        full_name=full_name,
+        email=email,
+        user_type=user_type,
+        department_id=department_id,
+        role_code=role_code,
+    )
 
+
+def crear_cuenta_e_invitar(
+    db: Session,
+    tenant_id: UUID,
+    *,
+    full_name: str,
+    email: str,
+    user_type: str,
+    department_id: UUID | None,
+    role_code: str,
+) -> tuple[User, dict[str, Any]]:
+    """El acto en si, sin mirar si el tipo se invita desde una empresa.
+
+    Separado de `registrar_e_invitar` para el primer Admin Global
+    (`tareas/crear_admin_global.py`): es un `platform_admin`, que ninguna empresa
+    puede invitar por la API, pero se crea con exactamente el mismo orden —fila
+    y rol con `flush`, Clerk al final, commit de quien llama—.
+    """
     rol = db.scalar(
         select(Role).where(
             Role.tenant_id == tenant_id,

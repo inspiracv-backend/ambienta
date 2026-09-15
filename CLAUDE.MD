@@ -937,6 +937,19 @@ fila, rol e invitacion **en una transaccion**: si Clerk no responde, no queda
 nada. Por eso **sin `CLERK_SECRET_KEY` no se puede invitar** (503), tampoco en
 local.
 
+**Y el primer Admin Global no lo podia crear nadie.** Dar de alta empresas exige
+serlo, y en produccion la base arranca vacia (tampoco la de desarrollo tiene uno:
+sin Clerk no se nota). Se crea **una vez**, al desplegar:
+
+```bash
+docker compose exec api python -m app.tareas crear-admin-global --correo persona@ambienta.cl --nombre "Nombre Apellido" --razon-social "Ambienta SpA" --rut 76.123.456-7
+```
+
+Crea la empresa `platform`, sus roles, la cuenta `platform_admin` con
+`admin_empresa` —la guarda de rutas pide `company_profile.write` para dar de alta
+empresas— y la invitacion de Clerk. **Se niega si ya hay uno**: sumar gente al
+equipo de plataforma es RF-84, sin definir.
+
 **Y una fecha de calendario no se puede medir en horas: van tres veces.** El
 4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
 archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al
