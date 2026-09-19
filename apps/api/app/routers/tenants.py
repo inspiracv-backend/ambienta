@@ -96,6 +96,34 @@ CAMPOS_DE_PLATAFORMA: frozenset[str] = frozenset({"rut_tax_id", "status"})
 #: y ningun modulo, que es lo que muestra la pantalla. `logoUrl` es de la empresa.
 AJUSTES_DE_PLATAFORMA: dict[str, object] = {"limiteUsuarios": 50, "modulosActivos": []}
 
+#: Espejo de `MODULOS_PLATAFORMA` (`packages/shared/src/schemas/tenant.ts`).
+#: `test_cartera_del_admin_global.py` lee ese archivo y exige que coincidan.
+MODULOS_PLATAFORMA: frozenset[str] = frozenset({
+    "matriz-legal", "obligaciones", "calendario", "auditorias", "no-conformidades",
+    "catalogo-normativo", "gestores", "reportes", "notificaciones", "usuarios-roles",
+    "chatbot",
+})
+
+_AUSENTE = object()
+
+
+def _lo_que_ve_la_pantalla(clave: str, guardados: dict) -> object:
+    """El valor de un ajuste de plataforma tal como lo muestra la web.
+
+    `leerTenantSettings` **descarta** una clave guardada que no valida y la
+    pantalla muestra el valor por defecto. Al guardar reenvia ese defecto, y
+    compararlo contra lo guardado en bruto se leeria como un cambio que nadie
+    pidio — un 403 al guardar el logo de una empresa con un dato viejo.
+    """
+    valor = guardados.get(clave, _AUSENTE)
+    if clave == "limiteUsuarios":
+        valido = isinstance(valor, int) and not isinstance(valor, bool) and valor > 0
+    else:
+        valido = isinstance(valor, list) and all(
+            isinstance(m, str) and m in MODULOS_PLATAFORMA for m in valor
+        )
+    return valor if valido else AJUSTES_DE_PLATAFORMA[clave]
+
 
 @router.get("/", response_model=list[TenantRead])
 def list_tenants(
@@ -248,27 +276,37 @@ def update_tenant(
     guardados = dict(obj.settings or {})
     nuevos = dict(cambios["settings"] or {}) if "settings" in cambios else None
 
+    # Se compara contra lo guardado en los dos lados: **reenviar no es cambiar**,
+    # ni un campo de la plataforma ni uno de la empresa.
     de_plataforma = {
         c for c in CAMPOS_DE_PLATAFORMA if c in cambios and cambios[c] != getattr(obj, c)
     }
-    de_empresa = {c for c in cambios if c not in CAMPOS_DE_PLATAFORMA and c != "settings"}
+    de_empresa = {
+        c
+        for c in cambios
+        if c not in CAMPOS_DE_PLATAFORMA and c != "settings" and cambios[c] != getattr(obj, c)
+    }
     if nuevos is not None:
-        for clave, defecto in AJUSTES_DE_PLATAFORMA.items():
-            if clave not in nuevos:
-                # No mandarla no es borrarla: se conserva la del contrato.
-                if clave in guardados:
-                    nuevos[clave] = guardados[clave]
-            elif nuevos[clave] != guardados.get(clave, defecto):
+        for clave in AJUSTES_DE_PLATAFORMA:
+            if clave in nuevos and nuevos[clave] != _lo_que_ve_la_pantalla(clave, guardados):
                 de_plataforma.add(clave)
-            elif clave not in guardados:
-                # Es el valor por defecto que la pantalla reenvia: no se escribe.
-                del nuevos[clave]
+            elif clave in guardados:
+                # No mandarla, o reenviar lo que la pantalla ve, no la cambia: se
+                # conserva lo guardado tal cual.
+                nuevos[clave] = guardados[clave]
+            else:
+                # El valor por defecto reenviado no se escribe como un contrato.
+                nuevos.pop(clave, None)
 
-        def propios(d: dict) -> dict:
-            return {k: v for k, v in d.items() if k not in AJUSTES_DE_PLATAFORMA}
-
-        if propios(nuevos) != propios(guardados):
-            de_empresa.add("settings")
+        for clave, valor in nuevos.items():
+            if clave not in AJUSTES_DE_PLATAFORMA and guardados.get(clave, _AUSENTE) != valor:
+                de_empresa.add("settings")
+        for clave, valor in guardados.items():
+            # **No mandar una clave no es borrarla.** La web omite las que no
+            # sabe leer —un logo vacio, una clave vieja— y reemplazar `settings`
+            # entero las borraba sin que nadie lo pidiera. Para quitar un logo se
+            # manda `""`, que es un valor.
+            nuevos.setdefault(clave, valor)
 
     if propia and de_plataforma and not puede_lo_de_plataforma:
         # 403 y no 404: la empresa es suya; lo que se le niega es **un campo**, y

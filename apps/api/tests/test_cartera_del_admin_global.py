@@ -183,3 +183,63 @@ class TestUnaEmpresaSobreSiMisma:
         # El valor por defecto reenviado no se escribe como si fuera un contrato.
         for clave in ("limiteUsuarios", "modulosActivos"):
             assert (clave in r.settings) == (clave in guardados)
+
+
+class TestReenviarNoEsCambiar:
+    """Los dos defectos que encontro la revision del 19-sep, confirmados antes de
+    arreglarlos: la regla decia "se rechaza cambiar, no mandar" y en dos caminos
+    rechazaba mandar."""
+
+    def test_el_tope_se_cambia_aunque_haya_un_logo_que_la_web_no_sabe_leer(self, s, con_clerk) -> None:
+        """Un logo vacio se guarda, `leerTenantSettings` lo descarta, y la web ya
+        no lo reenvia. Comparado con reemplazo, eso era "borrar el logo": 403."""
+        empresa = s.get(Tenant, EMPRESA_B)
+        empresa.settings = {"logoUrl": ""}
+        s.flush()
+
+        r = _patch(
+            s,
+            _cuenta(s, "platform_admin"),
+            EMPRESA_B,
+            settings={"limiteUsuarios": 9, "modulosActivos": []},
+        )
+
+        assert r.settings["limiteUsuarios"] == 9
+        assert r.settings["logoUrl"] == "", "se borro una clave que nadie mando"
+
+    def test_reenviar_la_razon_social_no_es_editar_contenido(self, s, con_clerk) -> None:
+        empresa = s.get(Tenant, EMPRESA_B)
+
+        r = _patch(
+            s, _cuenta(s, "platform_admin"), EMPRESA_B,
+            status="suspended", legal_name=empresa.legal_name,
+        )
+
+        assert r.status == "suspended"
+
+    def test_un_tope_guardado_invalido_no_bloquea_el_logo(self, s, con_clerk) -> None:
+        """La pantalla muestra 50 cuando lo guardado no valida, y lo reenvia."""
+        empresa = s.get(Tenant, EMPRESA_A)
+        empresa.settings = {"limiteUsuarios": "sin numero"}
+        s.flush()
+
+        r = _patch(
+            s,
+            _cuenta(s, "tenant_admin"),
+            EMPRESA_A,
+            settings={"limiteUsuarios": 50, "modulosActivos": [], "logoUrl": "https://ejemplo.cl/l.png"},
+        )
+
+        assert r.settings["logoUrl"] == "https://ejemplo.cl/l.png"
+        assert r.settings["limiteUsuarios"] == "sin numero", "reenviar el defecto no es fijar un contrato"
+
+
+def test_los_modulos_son_los_de_packages_shared() -> None:
+    import re
+    from pathlib import Path
+
+    ts = (Path(__file__).resolve().parents[3] / "packages/shared/src/schemas/tenant.ts").read_text(
+        encoding="utf-8"
+    )
+    bloque = ts.split("export const MODULOS_PLATAFORMA = [", 1)[1].split("] as const", 1)[0]
+    assert set(re.findall(r"'([a-z-]+)'", bloque)) == router.MODULOS_PLATAFORMA
