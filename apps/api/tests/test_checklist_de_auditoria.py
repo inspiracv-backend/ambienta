@@ -64,10 +64,17 @@ def _como(t: str) -> dict[str, str]:
 
 @pytest.fixture
 def auditoria(cliente):
+    """Una auditoria **abierta**: el checklist de una cerrada no se toca.
+
+    Antes tomaba la primera del listado, que en el seed es `AUD-2026-001`, ya
+    cerrada: estas pruebas le agregaban y borraban preguntas a una auditoria
+    entregada. Desde el 19-sep la API responde 409, que es lo correcto.
+    """
     filas = cliente.get("/api/v1/audits/", headers=_como(EMPRESA_A)).json()
-    if not filas:
-        pytest.skip("El seed no dejo auditorias")
-    return filas[0]["id"]
+    abiertas = [f for f in filas if f["status"] not in ("closed", "cancelled")]
+    if not abiertas:
+        pytest.skip("El seed no dejo auditorias abiertas")
+    return abiertas[0]["id"]
 
 
 @pytest.fixture
