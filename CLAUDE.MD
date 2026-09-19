@@ -962,6 +962,42 @@ reenvia `settings` completo al guardar el logo.
 mira `tenants.status` salvo en el acceso de invitados, ni el tope de usuarios ni
 los modulos. Son marcas que la interfaz muestra, no barreras.
 
+**El ciclo de auditoria se puede ejecutar desde la pantalla desde el 19-sep.**
+La API tenia el alta, el checklist, la cobertura y el avance de estado, y
+**ninguna pantalla la llamaba**: no se podia crear una auditoria, cargarle
+preguntas, responderlas ni cerrarla — y sin preguntas no se podia registrar un
+hallazgo con origen en una auditoria. Ahora `lib/ciclo-de-auditoria.ts` y
+`CicloDeAuditoriaPanel` (una prueba lee `AUDIT_STATUS_TRANSITIONS` del servicio
+y exige que los botones coincidan: ofrecer una transicion que la API rechaza se
+lee como un fallo). Tres guardas que faltaban en la API:
+
+- **`PATCH /audits/{id}` escribia `status` directo**, saltandose las
+  transiciones que `/advance` si exige. La puerta trasera del `PATCH`, otra vez.
+- **El checklist y los veredictos por proceso se podian cambiar despues de
+  cerrar**, asi que el informe entregado y el sistema podian discrepar.
+- **`actual_start` y `actual_end` salieron del cuerpo**: son marcas del
+  servidor. Aceptarlas permitia cerrar con `actual_end: null` —una auditoria
+  cerrada sin fecha de cierre— o antedatarla. Mismo criterio que `assessed_at`.
+
+Y "Cerrada" ya no se pinta como **"Cumple"**: el estado del ciclo no dice si se
+cumplio, y una auditoria cancelada tambien salia verde.
+
+**Abrir o recargar cualquier ficha daba 404, y eso incluia compartir el enlace.**
+Las nueve fichas hacian `notFound()` antes de que su store cargara, y como eso
+desmonta la pagina, cuando los datos llegaban ya no habia donde mostrarlos. Ojo
+con el detalle que lo hace inevitable: **los stores bajan `loading` a `false` en
+cuanto no hay sesion**, asi que esperar solo a `loading` no alcanza.
+`FichaNoDisponible` espera a la sesion **y** al store, y si de verdad no esta lo
+dice sin desmontar. Una prueba barre las 46 paginas del tablero.
+
+**La significancia de un aspecto ya se puede evaluar (§6.1.2).** El endpoint
+estaba escrito, probado y sin llamador: todos los aspectos quedaban `pending` y
+el filtro "significativo sin tratar" no encontraba nada. Ademas el formulario de
+edicion pedia los tres puntajes y el `PATCH` los guarda **sin calcular el
+veredicto**: se podian cargar y el aspecto seguia sin evaluar. Los puntajes
+salieron de ese formulario — la significancia tiene un solo camino, y devuelve
+**por que** quedo asi.
+
 **Y una fecha de calendario no se puede medir en horas: van tres veces.** El
 4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
 archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al
