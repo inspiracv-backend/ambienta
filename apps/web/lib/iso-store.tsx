@@ -45,6 +45,17 @@ import { useToast } from '@/lib/toast-store';
  * `evidence_url`.
  */
 
+/**
+ * Lo que devuelve evaluar: el veredicto **y por qué**.
+ *
+ * Los motivos no son decoración: en una auditoría la pregunta no es si el
+ * aspecto es significativo sino en base a qué, y un aspecto de magnitud baja
+ * puede serlo igual porque hay un requisito legal.
+ */
+export type ResultadoDeSignificancia =
+  | { ok: true; significancia: string; motivos: string[] }
+  | { ok: false; error: string };
+
 export interface AspectoApi {
   id: string;
   facilityId: string;
@@ -287,7 +298,7 @@ interface IsoContextValue {
   evaluarSignificancia: (
     id: string,
     puntajes: { frequency_score: number; severity_score: number; legal_score: number },
-  ) => Promise<boolean>;
+  ) => Promise<ResultadoDeSignificancia>;
 
   crearRiesgo: (datos: Record<string, unknown>) => Promise<boolean>;
   editarRiesgo: (id: string, datos: Record<string, unknown>) => Promise<boolean>;
@@ -547,11 +558,29 @@ export function IsoProvider({ children }: { children: ReactNode }) {
       borrarAspecto: (id) =>
         escribir(() => api.delete(`/iso14001/aspects/${id}`, opts), 'Aspecto eliminado.'),
 
-      evaluarSignificancia: (id, puntajes) =>
-        escribir(
-          () => api.post(`/iso14001/aspects/${id}/evaluate`, puntajes, opts),
-          'Significancia evaluada.',
-        ),
+      evaluarSignificancia: async (id, puntajes) => {
+        if (!tenantId) return { ok: false, error: 'Sin empresa en la sesión.' };
+        try {
+          const r = await api.post<{ aspect?: Record<string, unknown>; motivos?: unknown }>(
+            `/iso14001/aspects/${id}/evaluate`,
+            puntajes,
+            opts,
+          );
+          // **Se recarga en vez de parchear**: el veredicto y el total los
+          // decide el servidor con el umbral de la empresa.
+          setReintento((n) => n + 1);
+          const significancia = String(r.aspect?.significance ?? 'pending');
+          return {
+            ok: true,
+            significancia,
+            motivos: Array.isArray(r.motivos) ? r.motivos.map(String) : [],
+          };
+        } catch (e: unknown) {
+          const error = mensajeDeError(e);
+          mostrarToast({ tipo: 'error', mensaje: error });
+          return { ok: false, error };
+        }
+      },
 
       crearRiesgo: (d) =>
         escribir(() => api.post('/iso14001/risks', d, opts), 'Registro creado.'),

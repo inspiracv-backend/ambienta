@@ -64,17 +64,39 @@ def _como(t: str) -> dict[str, str]:
 
 @pytest.fixture
 def auditoria(cliente):
-    """Una auditoria **abierta**: el checklist de una cerrada no se toca.
+    """Una auditoria **propia, abierta y de toda la empresa**.
 
-    Antes tomaba la primera del listado, que en el seed es `AUD-2026-001`, ya
+    Antes tomaba la primera del listado del seed, que es `AUD-2026-001`, ya
     cerrada: estas pruebas le agregaban y borraban preguntas a una auditoria
-    entregada. Desde el 19-sep la API responde 409, que es lo correcto.
+    entregada, y desde el 19-sep eso responde 409. Tomar "la primera abierta"
+    tampoco sirve: es la de otra planta, y la cobertura mide **los articulos
+    evaluados de la planta auditada**, asi que en una base recien creada daba
+    cero aplicables y la prueba fallaba en CI y no en local.
+
+    Sin planta, el denominador son los de toda la empresa. Se crea y se borra
+    aca para no depender de que el seed traiga una auditoria util.
     """
-    filas = cliente.get("/api/v1/audits/", headers=_como(EMPRESA_A)).json()
-    abiertas = [f for f in filas if f["status"] not in ("closed", "cancelled")]
-    if not abiertas:
-        pytest.skip("El seed no dejo auditorias abiertas")
-    return abiertas[0]["id"]
+    codigo = f"AUD-QA-{uuid.uuid4().hex[:6].upper()}"
+    r = cliente.post(
+        "/api/v1/audits/",
+        headers=_como(EMPRESA_A),
+        json={
+            "code": codigo,
+            "title": "[QA] Checklist y cobertura",
+            "audit_type": "internal",
+            "scope": "Cobertura",
+            "facility_id": None,
+        },
+    )
+    assert r.status_code == 201, r.text
+    creada = r.json()["id"]
+    yield creada
+    engine = create_engine(os.environ["DATABASE_URL"])
+    with engine.begin() as con:
+        con.execute(text("SELECT set_config('ambienta.tenant_id', :t, true)"), {"t": EMPRESA_A})
+        con.execute(text("DELETE FROM audit_items WHERE audit_id = :a"), {"a": creada})
+        con.execute(text("DELETE FROM audits WHERE id = :a"), {"a": creada})
+    engine.dispose()
 
 
 @pytest.fixture

@@ -31,6 +31,7 @@ export * from './PlanAccionDetailView';
 export * from './AuditsListTable';
 export * from './AuditDetailView';
 export * from './CicloDeAuditoriaPanel';
+export * from './EvaluarSignificanciaModal';
 export * from './FichaNoDisponible';
 export * from './NuevaAuditoriaModal';
 export * from './NonConformitiesListTable';

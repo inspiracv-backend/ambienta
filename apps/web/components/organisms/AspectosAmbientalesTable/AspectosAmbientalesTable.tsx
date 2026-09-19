@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Inbox, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Inbox, Pencil, Plus, Scale, Trash2 } from 'lucide-react';
 import { FEATURE_FLAGS } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
 import { ConfirmarBorrado, FormularioIso, type CampoIso } from '@/components/organisms/IsoForms';
+import { EvaluarSignificanciaModal } from '@/components/organisms/EvaluarSignificanciaModal';
 import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { aspectoSinTratar, useIso, type AspectoApi, type PlantaApi } from '@/lib/iso-store';
 
@@ -89,16 +90,6 @@ function campos(plants: PlantaApi[]): CampoIso[] {
       opciones: Object.entries(CONDICION_LABEL).map(([value, label]) => ({ value, label })),
       ayuda: 'Un aspecto de emergencia se evalúa distinto que uno de rutina.',
     },
-    {
-      nombre: 'severity_score',
-      etiqueta: 'Severidad',
-      tipo: 'numero',
-      min: 1,
-      max: 10,
-      ayuda: 'De 1 a 10. La base lo exige en ese rango.',
-    },
-    { nombre: 'frequency_score', etiqueta: 'Frecuencia', tipo: 'numero', min: 1, max: 10 },
-    { nombre: 'legal_score', etiqueta: 'Requisito legal', tipo: 'numero', min: 1, max: 10 },
   ];
 }
 
@@ -136,6 +127,7 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
   const [editando, setEditando] = useState<AspectoApi | null>(null);
   const [creando, setCreando] = useState(false);
   const [borrando, setBorrando] = useState<AspectoApi | null>(null);
+  const [evaluando, setEvaluando] = useState<AspectoApi | null>(null);
 
   const { riesgos, crearAspecto, editarAspecto, borrarAspecto } = useIso();
 
@@ -286,6 +278,15 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`Evaluar significancia de ${a.actividad}`}
+                        onClick={() => setEvaluando(a)}
+                        icon={<Scale className="h-4 w-4" aria-hidden />}
+                      >
+                        Evaluar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         aria-label={`Editar ${a.actividad}`}
                         onClick={() => setEditando(a)}
                         icon={<Pencil className="h-4 w-4" aria-hidden />}
@@ -331,13 +332,12 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
             aspect: editando.aspecto,
             impact_type: editando.tipoImpacto,
             operating_condition: editando.condicionOperacion,
-            severity_score: editando.puntajeSeveridad,
-            frequency_score: editando.puntajeFrecuencia,
-            legal_score: editando.puntajeLegal,
           }
         }
         onGuardar={(d) => (editando ? editarAspecto(editando.id, d) : Promise.resolve(false))}
       />
+
+      <EvaluarSignificanciaModal aspecto={evaluando} onOpenChange={() => setEvaluando(null)} />
 
       <ConfirmarBorrado
         open={borrando !== null}
