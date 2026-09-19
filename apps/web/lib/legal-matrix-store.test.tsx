@@ -448,6 +448,9 @@ describe('normativa propia de la empresa', () => {
 
     const { result } = renderHook(() => useLegalMatrix(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
+    // `loading` baja antes de que haya sesion: sin esperar la carga real, el
+    // alta llegaba primero y la carga inicial la pisaba (rojo en CI el 19-sep).
+    await waitFor(() => expect(result.current.norms.some((n) => n.id === NORMA)).toBe(true));
 
     let ok: boolean | undefined;
     await act(async () => {
@@ -476,6 +479,9 @@ describe('normativa propia de la empresa', () => {
 
     const { result } = renderHook(() => useLegalMatrix(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
+    // `loading` baja antes de que haya sesion: sin esperar la carga real, el
+    // alta llegaba primero y la carga inicial la pisaba (rojo en CI el 19-sep).
+    await waitFor(() => expect(result.current.norms.some((n) => n.id === NORMA)).toBe(true));
     await act(async () => {
       await result.current.addNorm({
         nombre: 'RCA de la empresa',
@@ -498,6 +504,9 @@ describe('normativa propia de la empresa', () => {
 
     const { result } = renderHook(() => useLegalMatrix(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
+    // `loading` baja antes de que haya sesion: sin esperar la carga real, el
+    // alta llegaba primero y la carga inicial la pisaba (rojo en CI el 19-sep).
+    await waitFor(() => expect(result.current.norms.some((n) => n.id === NORMA)).toBe(true));
 
     let ok: boolean | undefined;
     await act(async () => {
@@ -528,6 +537,9 @@ describe('normativa propia de la empresa', () => {
 
     const { result } = renderHook(() => useLegalMatrix(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
+    // `loading` baja antes de que haya sesion: sin esperar la carga real, el
+    // alta llegaba primero y la carga inicial la pisaba (rojo en CI el 19-sep).
+    await waitFor(() => expect(result.current.norms.some((n) => n.id === NORMA)).toBe(true));
     await waitFor(() => expect(result.current.norms).toHaveLength(2));
 
     const propia = result.current.norms.find((n) => n.id === RCA);
