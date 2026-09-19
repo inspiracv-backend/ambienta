@@ -39,6 +39,24 @@ AUDIT_STATUS_TRANSITIONS = {
 }
 
 
+#: Estados en que el checklist **ya no se toca**. Cerrar una auditoria es
+#: entregar su resultado: si despues se pudiera cambiar una respuesta, el
+#: informe entregado y el sistema dirian cosas distintas, y `assessed_at`
+#: fecharia una respuesta posterior al cierre como si fuera parte de ella.
+ESTADOS_FINALES = frozenset({"closed", "cancelled"})
+
+
+class ChecklistCerrado(ValueError):
+    """La auditoria esta cerrada o cancelada: su checklist no se modifica."""
+
+
+def exigir_checklist_abierto(audit: Audit) -> None:
+    if audit.status in ESTADOS_FINALES:
+        raise ChecklistCerrado(
+            "La auditoria esta cerrada o cancelada: su checklist ya no se modifica."
+        )
+
+
 def advance_audit_status(
     db: Session, audit_id: UUID, new_status: str, user_id: UUID | None = None
 ) -> Audit:

@@ -41,10 +41,19 @@ class AuditRead(OrmBase):
 
 
 class AuditUpdate(BaseModel):
+    """Lo que se puede editar de una auditoria.
+
+    **`actual_start` y `actual_end` se quitaron del cuerpo (19-sep).** Son las
+    marcas de cuando la auditoria empezo y termino de verdad, y las pone el
+    servidor al avanzar de estado. Aceptarlas permitia cerrarla **sin** fecha de
+    cierre —mandando `null` junto con el estado— o antedatarla, y esa fecha es
+    justo lo que mira un certificador para saber si el trabajo se hizo dentro
+    del periodo. Mismo criterio que `assessed_at` en una pregunta del checklist.
+    """
+
     title: str | None = None
+    #: Pasa por las mismas transiciones que `/advance`.
     status: str | None = None
-    actual_start: datetime | None = None
-    actual_end: datetime | None = None
     criteria: dict | None = None
 
 

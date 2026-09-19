@@ -37,6 +37,7 @@ export function RegisterFindingForm({
   responsableOptions,
   defaultPlantId,
   defaultAuditId,
+  defaultAuditItemId,
 }: RegisterFindingFormProps) {
   const router = useRouter();
   const { addNonConformity } = useAudits();
@@ -50,7 +51,7 @@ export function RegisterFindingForm({
   const [severidades, setSeveridades] = useState<Severidad[] | null>(null);
   const [severidad, setSeveridad] = useState('');
   const [preguntas, setPreguntas] = useState<{ id: string; texto: string }[]>([]);
-  const [auditItemId, setAuditItemId] = useState('');
+  const [auditItemId, setAuditItemId] = useState(defaultAuditItemId ?? '');
   const [guardando, setGuardando] = useState(false);
   const [responsableId, setResponsableId] = useState('');
   const [error, setError] = useState<string | null>(null);

@@ -64,6 +64,7 @@ function NuevaNoConformidadContent() {
         responsableOptions={responsableOptions}
         defaultPlantId={searchParams.get('plantId') ?? undefined}
         defaultAuditId={searchParams.get('auditId') ?? undefined}
+        defaultAuditItemId={searchParams.get('auditItemId') ?? undefined}
       />
     </div>
   );

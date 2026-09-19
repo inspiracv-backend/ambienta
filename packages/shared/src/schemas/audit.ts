@@ -7,9 +7,13 @@ export const AuditSchema = z.object({
   plantId: z.string(),
   tipo: z.enum(['interna', 'externa']),
   fecha: z.string(),
-  estado: z.enum(['planificada', 'en_curso', 'cerrada']),
+  estado: z.enum(['planificada', 'en_curso', 'cerrada', 'cancelada']),
   procesos: z.array(z.string()),
   normativaIds: z.array(z.string()),
+  /** `audits.code`. Opcional: los datos de ejemplo no lo traen. */
+  codigo: z.string().optional(),
+  /** `audits.title`. Sin él, una auditoría de toda la empresa no tenía nombre en la lista. */
+  titulo: z.string().optional(),
 });
 export type Audit = z.infer<typeof AuditSchema>;
 

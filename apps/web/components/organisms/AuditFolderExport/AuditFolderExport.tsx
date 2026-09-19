@@ -99,7 +99,7 @@ export function AuditFolderExport({ audits, plants, nonConformities }: AuditFold
             const plant = plants.find((p) => p.id === a.plantId);
             return (
               <option key={a.id} value={a.id}>
-                {plant?.nombre ?? a.plantId} — {new Date(a.fecha).toLocaleDateString('es-CL')}
+                {a.titulo || plant?.nombre || 'Toda la empresa'} — {a.fecha ? new Date(a.fecha).toLocaleDateString('es-CL') : 'sin fecha'}
               </option>
             );
           })}

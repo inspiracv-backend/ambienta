@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { Button, StatusBadge } from '@/components/atoms';
-import { auditSemaforo, AUDIT_ESTADO_LABEL, ncSemaforo, NC_ESTADO_LABEL } from '@/lib/audit-status';
+import { AUDIT_ESTADO_LABEL, ncSemaforo, NC_ESTADO_LABEL } from '@/lib/audit-status';
+import { fechaDeInstante } from '@/lib/fechas';
 import type { AuditDetailViewProps } from './AuditDetailView.types';
 
 function formatFecha(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
+  return iso ? fechaDeInstante(iso) : 'Sin fecha planificada';
 }
 
 /** S-21 Detalle de Auditoría: procesos, departamentos, normativas asociadas y hallazgos generados desde ella. */
@@ -16,20 +17,27 @@ export function AuditDetailView({ audit, plant, normativas, hallazgos, errorHall
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Auditoría {audit.tipo} · {plant?.nombre ?? audit.plantId}
+              Auditoría {audit.tipo} · {audit.plantId ? (plant?.nombre ?? audit.plantId) : 'Toda la empresa'}
+              {audit.codigo ? ` · ${audit.codigo}` : ''}
             </span>
-            <h1 className="mt-1 text-xl font-semibold text-slate-900">{formatFecha(audit.fecha)}</h1>
+            <h1 className="mt-1 text-xl font-semibold text-slate-900">{audit.titulo || formatFecha(audit.fecha)}</h1>
+            {audit.titulo && <p className="mt-0.5 text-sm text-slate-500">{formatFecha(audit.fecha)}</p>}
           </div>
           <div className="text-right">
-            <StatusBadge status={auditSemaforo(audit.estado)} />
-            <p className="mt-1 text-sm text-slate-500">{AUDIT_ESTADO_LABEL[audit.estado]}</p>
+            {/* Sin semaforo: "Cerrada" no es "Cumple". El resultado lo dicen los
+                hallazgos y el informe, no el estado del ciclo. */}
+            <p className="text-sm font-medium text-slate-600">{AUDIT_ESTADO_LABEL[audit.estado]}</p>
           </div>
         </div>
 
-        <div className="mt-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Procesos y departamentos</h2>
-          <p className="mt-1 text-sm text-slate-700">{audit.procesos.join(', ')}</p>
-        </div>
+        {/* La API no trae los procesos en la auditoría: están en cada pregunta
+            del checklist. Una sección siempre vacía se leía como "no audita nada". */}
+        {audit.procesos.length > 0 && (
+          <div className="mt-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Procesos y departamentos</h2>
+            <p className="mt-1 text-sm text-slate-700">{audit.procesos.join(', ')}</p>
+          </div>
+        )}
 
         {normativas !== null && (
         <div className="mt-4">

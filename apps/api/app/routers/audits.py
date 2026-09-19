@@ -103,9 +103,29 @@ def create_audit(
 
 @router.patch("/{audit_id}", response_model=AuditRead)
 def update_audit(audit_id: UUID, data: AuditUpdate, db: Session = Depends(get_tenant_db)):
+    """Editar la auditoria. **El estado pasa por las mismas transiciones que `/advance`.**
+
+    Hasta el 19-sep este `PATCH` escribia `status` directo: `/advance` rechazaba
+    `planned -> closed` y aca pasaba, sin fecha de cierre. Es la puerta trasera
+    que ya aparecio en las etapas del CRM — una guarda que solo mira un camino
+    no protege, hace creer que si.
+    """
     obj = crud_audit.get(db, audit_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audit not found")
+
+    # Cerrada o cancelada **no se edita**: el informe ya se entrego. Un `null`
+    # sobre una columna NOT NULL ya responde 422 por el traductor de errores de
+    # integridad (`campo_obligatorio`), asi que no se comprueba dos veces.
+    if data.model_dump(exclude_unset=True):
+        _checklist_abierto_o_409(obj)
+
+    if data.status is not None and data.status != obj.status:
+        try:
+            svc_audits.advance_audit_status(db, audit_id, data.status)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    # Ya validado y aplicado: escribirlo de nuevo con el resto deja el mismo valor.
     obj = crud_audit.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
@@ -584,6 +604,14 @@ def cobertura_de_auditoria(audit_id: UUID, db: Session = Depends(get_tenant_db))
 
 # ── Hallazgos de una auditoria ─────────────────────────────────────────────
 
+def _checklist_abierto_o_409(auditoria) -> None:
+    """409 y no 403: no le falta un permiso a nadie, la auditoria ya se entrego."""
+    try:
+        svc_audits.exigir_checklist_abierto(auditoria)
+    except svc_audits.ChecklistCerrado as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+
+
 @router.get("/{audit_id}/items", response_model=list[AuditItemRead], tags=["audits"])
 def list_audit_items(audit_id: UUID, db: Session = Depends(get_tenant_db)):
     obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
@@ -597,7 +625,8 @@ def create_audit_item(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
-    obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    auditoria = obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    _checklist_abierto_o_409(auditoria)
     # Claves foraneas del cuerpo: **no pasan por RLS**. Sin esto, una empresa
     # podria colgar su pregunta de la evaluacion de otra — la misma fuga que ya
     # se midio en `POST /obligations/`.
@@ -635,6 +664,7 @@ def get_audit_item(audit_id: UUID, item_id: UUID, db: Session = Depends(get_tena
 def update_audit_item(audit_id: UUID, item_id: UUID, data: AuditItemUpdate, db: Session = Depends(get_tenant_db)):
     obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
     verificar_padre(obj, audit_id, campo="audit_id")
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Audit"))
     validar_visible(
         crud_article_compliance,
         db,
@@ -642,6 +672,7 @@ def update_audit_item(audit_id: UUID, item_id: UUID, data: AuditItemUpdate, db: 
         campo="article_compliance_id",
     )
     validar_visible(crud_user, db, data.auditor_user_id, campo="auditor_user_id")
+    validar_visible(crud_process, db, data.process_id, campo="process_id")
 
     obj = crud_audit_item.update(db, db_obj=obj, obj_in=data)
     # **Al responder se anota cuando.** Sin esa marca no se puede decir si la
@@ -665,6 +696,7 @@ def delete_audit_item(audit_id: UUID, item_id: UUID, db: Session = Depends(get_t
     originado no se tocan: viven mas alla del hallazgo."""
     obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
     verificar_padre(obj, audit_id, campo="audit_id")
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Audit"))
     borrar_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
 
 
@@ -944,7 +976,7 @@ def create_veredicto(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
-    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria"))
     # La clave foranea a `processes` no pasa por RLS: solo exige que la fila
     # exista, no que sea de esta empresa.
     validar_visible(crud_process, db, data.process_id, campo="process_id")
@@ -995,7 +1027,7 @@ def update_veredicto(
     data: VeredictoDeProcesoUpdate,
     db: Session = Depends(get_tenant_db),
 ):
-    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria"))
     obj = obtener_o_404(
         crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
     )
@@ -1018,7 +1050,7 @@ def update_veredicto(
 def delete_veredicto(
     audit_id: UUID, veredicto_id: UUID, db: Session = Depends(get_tenant_db)
 ):
-    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria"))
     verificar_padre(
         obtener_o_404(
             crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"

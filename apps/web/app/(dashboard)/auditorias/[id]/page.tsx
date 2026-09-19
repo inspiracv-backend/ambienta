@@ -1,17 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { AuditDetailView, HistorialTimeline, InformeDeAuditoriaPanel } from '@/components/organisms';
+import {
+  AuditDetailView,
+  CicloDeAuditoriaPanel,
+  FichaNoDisponible,
+  HistorialTimeline,
+  InformeDeAuditoriaPanel,
+} from '@/components/organisms';
 import { useAudits } from '@/lib/audits-store';
+import { useDepartamentos } from '@/lib/departamentos-store';
 import { useTenants } from '@/lib/tenants-store';
 import { api, mensajeDeError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
 
 export default function AuditDetailPage({ params }: { params: { id: string } }) {
   const { tenants } = useTenants();
-  const { audits, nonConformities } = useAudits();
+  const { audits, nonConformities, actualizarEstadoAuditoria, loading } = useAudits();
+  // Los "departamentos" de este store son el mapa de procesos (`/processes/`),
+  // que es lo que `audit_items.process_id` referencia.
+  const { departamentos: procesos } = useDepartamentos();
   const audit = audits.find((a) => a.id === params.id);
   const { user } = useSession();
   // Las preguntas de la auditoría: los hallazgos se cuelgan de una pregunta
@@ -27,7 +36,7 @@ export default function AuditDetailPage({ params }: { params: { id: string } }) 
       .catch((e) => setErrorHallazgos(mensajeDeError(e)));
   }, [params.id, user?.tenantId]);
 
-  if (!audit) return notFound();
+  if (!audit) return <FichaNoDisponible cargando={loading} que="esta auditoría" volverA="/auditorias" volverEtiqueta="Volver a auditorías" />;
 
   const plant = tenants.flatMap((t) => t.plants).find((p) => p.id === audit.plantId);
   // Sin normativas de ejemplo: la auditoría no trae cuáles son, y mostrar las de
@@ -37,8 +46,20 @@ export default function AuditDetailPage({ params }: { params: { id: string } }) 
 
   return (
     <div className="flex flex-col gap-4">
-      <Breadcrumbs items={[{ label: 'Auditorías', href: '/auditorias' }, { label: plant?.nombre ?? audit.plantId }]} />
+      <Breadcrumbs items={[{ label: 'Auditorías', href: '/auditorias' }, { label: audit.titulo || plant?.nombre || 'Auditoría' }]} />
       <AuditDetailView audit={audit} plant={plant} normativas={normativas} hallazgos={hallazgos} errorHallazgos={errorHallazgos} />
+
+      {/* RF-92/93: el estado real, el checklist y su cobertura. */}
+      {user?.tenantId && (
+        <CicloDeAuditoriaPanel
+          auditId={audit.id}
+          tenantId={user.tenantId}
+          procesos={procesos
+            .filter((p) => p.tenantId === user.tenantId)
+            .map((p) => ({ id: p.id, nombre: p.nombre }))}
+          onEstadoCambiado={(estado) => actualizarEstadoAuditoria(audit.id, estado)}
+        />
+      )}
 
       {/* RF-101: lo que se entrega al cerrar la auditoría. */}
       <InformeDeAuditoriaPanel auditId={audit.id} />

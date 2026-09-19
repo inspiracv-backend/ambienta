@@ -36,6 +36,10 @@ interface AuditsContextValue {
   }) => Promise<NonConformity>;
   updatePorques: (ncId: string, cincoPorques: string[]) => void;
   closeNonConformity: (ncId: string, responsableId: string) => void;
+  /** Suma a la lista la auditoría que la API acaba de crear, con su id real. */
+  agregarAuditoria: (raw: Record<string, unknown>) => Audit | null;
+  /** Refleja en la lista el estado que la API confirmó (`planned`, `active`, ...). */
+  actualizarEstadoAuditoria: (auditId: string, statusDeLaApi: string) => void;
 }
 
 const AuditsContext = createContext<AuditsContextValue | null>(null);
@@ -57,7 +61,8 @@ const ESTADO_POR_STATUS: Record<string, Audit['estado']> = {
   active: 'en_curso',
   reporting: 'en_curso',
   closed: 'cerrada',
-  cancelled: 'cerrada',
+  // Cancelada no es cerrada: una no entrego resultado y la otra si.
+  cancelled: 'cancelada',
 };
 
 /**
@@ -142,12 +147,17 @@ function mapApiAudit(raw: Record<string, unknown>): Audit | null {
       tenantId: String(raw.tenant_id ?? ''),
       plantId: String(raw.facility_id ?? ''),
       tipo: TIPO_POR_AUDIT_TYPE[String(raw.audit_type ?? '')] ?? 'interna',
-      fecha: raw.planned_start ? String(raw.planned_start) : new Date().toISOString(),
+      // **Sin fecha planificada no se inventa la de hoy.** Antes una auditoría
+      // sin `planned_start` aparecía fechada el día en que se abría la pantalla,
+      // distinto cada día. Vacío se muestra como "Sin fecha".
+      fecha: raw.planned_start ? String(raw.planned_start) : '',
       estado: ESTADO_POR_STATUS[String(raw.status ?? '')] ?? 'planificada',
       // La API los tiene como `scope` (texto libre) y en tablas aparte; el
       // listado no los trae. Se pueblan al abrir el detalle.
       procesos: [],
       normativaIds: [],
+      ...(raw.code ? { codigo: String(raw.code) } : {}),
+      ...(raw.title ? { titulo: String(raw.title) } : {}),
     };
   } catch {
     return null;
@@ -397,8 +407,32 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  function agregarAuditoria(raw: Record<string, unknown>): Audit | null {
+    const nueva = mapApiAudit(raw);
+    if (nueva) setAudits((prev) => [...prev.filter((a) => a.id !== nueva.id), nueva]);
+    return nueva;
+  }
+
+  function actualizarEstadoAuditoria(auditId: string, statusDeLaApi: string) {
+    const estado = ESTADO_POR_STATUS[statusDeLaApi];
+    if (!estado) return;
+    setAudits((prev) => prev.map((a) => (a.id === auditId ? { ...a, estado } : a)));
+  }
+
   return (
-    <AuditsContext.Provider value={{ audits, nonConformities, loading, errorDeCarga, addNonConformity, updatePorques, closeNonConformity }}>
+    <AuditsContext.Provider
+      value={{
+        audits,
+        nonConformities,
+        loading,
+        errorDeCarga,
+        addNonConformity,
+        updatePorques,
+        closeNonConformity,
+        agregarAuditoria,
+        actualizarEstadoAuditoria,
+      }}
+    >
       {children}
     </AuditsContext.Provider>
   );
