@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { notFound } from 'next/navigation';
 import { FEATURE_FLAGS } from '@ambienta/shared';
 import { Breadcrumbs } from '@/components/molecules';
 import {
   CierreNoConformidadPanel,
   EtapasMejoraPanel,
+  FichaNoDisponible,
   HistorialTimeline,
   NonConformityDetailView,
 } from '@/components/organisms';
@@ -17,7 +17,7 @@ import type { EstadoDeCierre } from '@/lib/etapas-mejora';
 
 export default function NonConformityDetailPage({ params }: { params: { id: string } }) {
   const { tenants } = useTenants();
-  const { nonConformities } = useAudits();
+  const { nonConformities, loading: cargandoRegistros } = useAudits();
   // Lo que el servidor dice del cierre. Vive acá porque lo consulta el panel
   // de etapas —después de cargar y de cada guardado— y lo consume el Cierre.
   const [cierre, setCierre] = useState<EstadoDeCierre | null>(null);
@@ -26,7 +26,7 @@ export default function NonConformityDetailPage({ params }: { params: { id: stri
   const { personas } = usePersonasAsignables();
   const nc = nonConformities.find((n) => n.id === params.id);
 
-  if (!nc) return notFound();
+  if (!nc) return <FichaNoDisponible cargando={cargandoRegistros} que="este registro" volverA="/no-conformidades" volverEtiqueta="Volver a no conformidades" />;
 
   const plant = tenants.flatMap((t) => t.plants).find((p) => p.id === nc.plantId);
   const responsableOptions = personas;

@@ -1,18 +1,17 @@
 'use client';
 
-import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { HistorialTimeline, TenantConfigView } from '@/components/organisms';
+import { FichaNoDisponible, HistorialTimeline, TenantConfigView } from '@/components/organisms';
 import { useTenants } from '@/lib/tenants-store';
 import { useUsers } from '@/lib/users-store';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
 
 export default function TenantConfigPage({ params }: { params: { id: string } }) {
-  const { tenants } = useTenants();
+  const { tenants, loading: cargandoEmpresas } = useTenants();
   const { users, loading } = useUsers();
   const tenant = tenants.find((t) => t.id === params.id);
 
-  if (!tenant) return notFound();
+  if (!tenant) return <FichaNoDisponible cargando={cargandoEmpresas} que="esta empresa" volverA="/gestion-tenants" volverEtiqueta="Volver a la gestión de empresas" />;
 
   // **Solo se cuenta cuando se puede saber.** Antes salía de `mockUsers`, y
   // con empresas reales daba 0: el aviso de suspender decía «Los 0 usuarios

@@ -1,19 +1,18 @@
 'use client';
 
-import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { HistorialTimeline, ObligationDetailView } from '@/components/organisms';
+import { FichaNoDisponible, HistorialTimeline, ObligationDetailView } from '@/components/organisms';
 import { useObligations } from '@/lib/obligations-store';
 import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 
 export default function ObligationDetailPage({ params }: { params: { id: string } }) {
-  const { obligations } = useObligations();
+  const { obligations, loading: cargandoObligaciones } = useObligations();
   // Personas de la base (`/users/`), no `mockUsers`: el responsable es una
   // clave foránea y un id de ejemplo hacía que la API rechazara la escritura.
   const { personas } = usePersonasAsignables();
   const obligation = obligations.find((o) => o.id === params.id);
 
-  if (!obligation) return notFound();
+  if (!obligation) return <FichaNoDisponible cargando={cargandoObligaciones} que="esta obligación" volverA="/obligaciones" volverEtiqueta="Volver a obligaciones" />;
 
   const responsableOptions = personas;
 
