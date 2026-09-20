@@ -127,8 +127,8 @@ un supuesto por confirmar, y cambiarlo es editar `SinEmpresaScreen.tsx`.
 
 ## Fase 6 — Documentación
 
-- [ ] `docs/development/setup-local.md`: que el alta es manual mientras no
-      exista la invitación, y cómo se hace **(la premisa cambió: la invitación existe desde el 14-sep, `POST /users/invitaciones`; hay que reescribirlo, no marcarlo)**
+- [x] `docs/development/setup-local.md`: que el alta es manual mientras no
+      exista la invitación, y cómo se hace **(reescrito el 20-sep: la invitación existe, y se agregó `crear-admin-global` para una base vacía)**
 - [x] Anotar en `integracion-clerk-auth` que su Fase 5 la cubre este cambio **(sin efecto: `integracion-clerk-auth` ya esta archivado)**
 - [x] **Archivar `integracion-clerk-auth` ANTES que este cambio.** Este delta **(hecho el 10-sep: `openspec/changes/archive/2026-09-10-integracion-clerk-auth`)**
       lleva un `MODIFIED` sobre "Inicio de sesión con cuenta corporativa", que

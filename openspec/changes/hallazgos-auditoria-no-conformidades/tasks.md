@@ -98,7 +98,7 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 - [x] **Matriz de resultados por proceso**, con las tres primeras columnas derivadas de nota y checklist
 - [ ] Fichas de hallazgo con todos los campos del §2.5 del design
 - [x] Tasa de cierre del ciclo anterior
-- [ ] Exportación a PDF (se apoya en el módulo de reportes existente)
+- [x] Exportación a PDF (se apoya en el módulo de reportes existente) **(20-sep: `InformeDeAuditoriaPdf`, con el mismo informe que muestra el panel)**
 - [x] Cierre de auditoría
 
 ## Fase 6 — Registro de Mejora

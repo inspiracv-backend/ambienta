@@ -62,7 +62,7 @@ export default function AuditDetailPage({ params }: { params: { id: string } }) 
       )}
 
       {/* RF-101: lo que se entrega al cerrar la auditoría. */}
-      <InformeDeAuditoriaPanel auditId={audit.id} />
+      <InformeDeAuditoriaPanel auditId={audit.id} tenant={tenants.find((t) => t.id === audit.tenantId)} />
 
       {/* Se combinan los eventos de la auditoria con los de sus hallazgos:
           lo que se audita despues es la secuencia completa, no la auditoria

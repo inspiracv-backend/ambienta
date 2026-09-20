@@ -40,6 +40,7 @@ export * from './RegisterFindingForm';
 export * from './EtapasMejoraPanel';
 export * from './CierreNoConformidadPanel';
 export * from './InformeDeAuditoriaPanel';
+export * from './InformeDeAuditoriaPdf';
 export * from './SinEmpresaScreen';
 export * from './UltimaSincronizacionBcn';
 export * from './CatalogNormsTable';

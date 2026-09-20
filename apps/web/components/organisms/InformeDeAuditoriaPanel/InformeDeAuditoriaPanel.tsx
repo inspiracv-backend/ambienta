@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/atoms';
 import { mensajeDeError } from '@/lib/api-client';
+import type { Tenant } from '@ambienta/shared';
 import { useSession } from '@/lib/session';
+import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { InformeDeAuditoriaPdf } from '@/components/organisms/InformeDeAuditoriaPdf';
 import {
   CLASIFICACION_LABEL,
   cargarInforme,
@@ -27,8 +30,17 @@ const ESTILO: Record<Clasificacion, string> = {
  * cierre del ciclo anterior. El auditor escribe acá el veredicto de cada
  * proceso; los conteos los calcula el servidor al pedirlo.
  */
-export function InformeDeAuditoriaPanel({ auditId }: { auditId: string }) {
+export function InformeDeAuditoriaPanel({
+  auditId,
+  tenant,
+}: {
+  auditId: string;
+  /** La empresa que emite el documento. Sin ella no se ofrece el PDF: un
+      informe sin quien lo emite no sirve para entregar. */
+  tenant?: Tenant;
+}) {
   const { user } = useSession();
+  const registrar = useRegistrarAuditoria();
   const tenantId = user?.tenantId ?? null;
   const [informe, setInforme] = useState<InformeDeAuditoria | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,12 +85,38 @@ export function InformeDeAuditoriaPanel({ auditId }: { auditId: string }) {
     { label: 'Oportunidades de mejora', valor: String(r.oportunidades_de_mejora) },
   ];
 
+  function imprimir() {
+    if (!tenant || !user) return;
+    // Queda registrado: un documento entregado a un tercero es justo lo que
+    // RNF-26 pide poder rastrear.
+    registrar({
+      entidadTipo: 'auditoria',
+      entidadId: auditId,
+      entidadLabel: informe?.codigo ?? auditId,
+      tenantId: tenant.id,
+      accion: 'exportado',
+      resumen: `Emitió el informe de "${informe?.titulo ?? auditId}" en PDF`,
+      cambios: [],
+    });
+    window.print();
+  }
+
   return (
-    <section className="rounded-card border border-slate-200 bg-white p-6">
-      <h2 className="text-lg font-semibold text-slate-900">Informe de auditoría</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        {informe.codigo} · {informe.titulo}
-      </p>
+    <>
+    <section className="rounded-card border border-slate-200 bg-white p-6 print:hidden">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Informe de auditoría</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {informe.codigo} · {informe.titulo}
+          </p>
+        </div>
+        {tenant && user && (
+          <Button variant="secondary" size="sm" onClick={imprimir}>
+            Imprimir / Guardar PDF
+          </Button>
+        )}
+      </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
         {cifras.map((c) => (
@@ -123,6 +161,15 @@ export function InformeDeAuditoriaPanel({ auditId }: { auditId: string }) {
         </ul>
       )}
     </section>
+
+    {/* El documento entregable. Vive fuera de la pantalla y solo aparece al
+        imprimir, con el mismo informe que muestra el panel. */}
+    {tenant && user && (
+      <div className="solo-impresion">
+        <InformeDeAuditoriaPdf tenant={tenant} informe={informe} emitidoPor={user.nombre} />
+      </div>
+    )}
+    </>
   );
 }
 
