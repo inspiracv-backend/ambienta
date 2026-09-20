@@ -26,7 +26,7 @@ Probados contra el servicio real el 13-ago-2026, no leídos de la documentación
 
 - [ ] **Qué subconjunto de las 748.783 normas se trae.** Sin criterio, la
       ingesta no debe correr suelta. Bloquea la Fase 3
-- [ ] **Cuál de las cuatro formas de mandar la API key es la correcta**, cuando
+- [x] **Cuál de las cuatro formas de mandar la API key es la correcta**, cuando **(no aplica: el 401 era el `User-Agent`, no la clave (`bcn.py::NAVEGADOR`))**
       la BCN la active. Bloquea la Fase 5
 - [ ] **Qué gana cuando la fuente contradice lo cargado a mano**
 - [ ] **Cada cuánto sincroniza, y quién revisa lo que cambió.** Una norma
@@ -34,46 +34,46 @@ Probados contra el servicio real el 13-ago-2026, no leídos de la documentación
 
 ## Fase 0 — Prerequisitos fuera de este módulo
 
-- [ ] **`countries` sin endpoint de lectura** (#166). Toda norma necesita país;
+- [x] **`countries` sin endpoint de lectura** (#166). Toda norma necesita país;
       sin esto no se puede crear ninguna
-- [ ] Confirmar que `legal_sources` tiene una fila para la BCN, o crearla
-- [ ] Pedir a la BCN la activación de la API key, y preguntar de paso el formato
+- [x] Confirmar que `legal_sources` tiene una fila para la BCN, o crearla
+- [x] Pedir a la BCN la activación de la API key, y preguntar de paso el formato **(no aplica: el texto y el SPARQL bajan sin clave)**
       de autenticación
-- [ ] `BCN_API_KEY` en `.env.example` **con el nombre y sin el valor**, y en los
+- [x] `BCN_API_KEY` en `.env.example` **con el nombre y sin el valor**, y en los **(no aplica: no hay `BCN_API_KEY` que guardar)**
       dos compose
 
 ## Fase 1 — El cliente de consulta
 
-- [ ] Módulo aislado con las consultas SPARQL, sin lógica de negocio dentro
+- [x] Módulo aislado con las consultas SPARQL, sin lógica de negocio dentro
 - [ ] Prefijo fijado y validación de que la respuesta trae los campos esperados
-- [ ] **Cero resultados no es un éxito**: se distingue de "no había novedades"
+- [x] **Cero resultados no es un éxito**: se distingue de "no había novedades"
 - [ ] Reintento con espera creciente; un fallo de la fuente no rompe nada
 - [ ] Tests con la respuesta simulada, incluidas las malformadas
-- [ ] **Una prueba contra el servicio real**, no solo simulada. Es la lección del
+- [x] **Una prueba contra el servicio real**, no solo simulada. Es la lección del
       JWT Template: verificar el proveedor antes de construir encima
 
 ## Fase 2 — El mapeo
 
-- [ ] De propiedad BCN a columna, según la tabla del design
-- [ ] **Deduplicar por `leychileCode`, nunca por URI**: la URI identifica una
+- [x] De propiedad BCN a columna, según la tabla del design
+- [x] **Deduplicar por `leychileCode`, nunca por URI**: la URI identifica una
       representación, el código identifica la norma
 - [ ] Guardar la respuesta cruda en `source_payload`, para poder remapear sin
       volver a pedir
-- [ ] Extraer el organismo desde la ruta de la URI
-- [ ] Tests del mapeo con la Ley 20.920 como caso conocido
+- [x] Extraer el organismo desde la ruta de la URI
+- [x] Tests del mapeo con la Ley 20.920 como caso conocido
 
 ## Fase 3 — La sincronización
 
 **Bloqueada por el criterio de qué normas traer.**
 
-- [ ] Buscar por `external_norm_id`: si existe actualiza, si no crea
-- [ ] **Refrescar solo lo que la BCN es dueña.** Lo que decidió una persona
+- [x] Buscar por `external_norm_id`: si existe actualiza, si no crea
+- [x] **Refrescar solo lo que la BCN es dueña.** Lo que decidió una persona
       —alcance, responsables, qué artículos entran en el cálculo— no se toca
 - [ ] Relaciones entre normas a `legal_relations`
-- [ ] Versiones a `legal_norm_versions`, distinguiendo la vigente
+- [x] Versiones a `legal_norm_versions`, distinguiendo la vigente
 - [ ] Una relación hacia una norma ausente **no inventa la norma**: se registra
       sin resolver
-- [ ] Tests de idempotencia: correr dos veces no duplica ni pisa decisiones
+- [x] Tests de idempotencia: correr dos veces no duplica ni pisa decisiones
 
 ## Fase 4 — La bitácora
 
@@ -96,16 +96,16 @@ volvieron a mirar. Hay que auditarlas contra el código antes de archivar.
 
 **Bloqueada por la activación de la API key.**
 
-- [ ] Reintentar la autenticación cuando la BCN habilite la clave
-- [ ] Traer el texto por `leychileCode`, que es el `idNorma` del web service
-- [ ] Poblar `legal_articles`
-- [ ] Recién con esto la matriz legal se puede evaluar artículo por artículo
+- [x] Reintentar la autenticación cuando la BCN habilite la clave **(no aplica: nunca hizo falta autenticarse)**
+- [x] Traer el texto por `leychileCode`, que es el `idNorma` del web service
+- [x] Poblar `legal_articles`
+- [x] Recién con esto la matriz legal se puede evaluar artículo por artículo
 
 ## Fase 6 — Cómo se dispara
 
-- [ ] Comando manual, con la lógica **separada de cómo se invoca**
-- [ ] Que mudarlo al worker sea cambiar el disparador y nada más
-- [ ] Documentar cómo correrlo y cómo leer la bitácora
+- [x] Comando manual, con la lógica **separada de cómo se invoca**
+- [x] Que mudarlo al worker sea cambiar el disparador y nada más
+- [x] Documentar cómo correrlo y cómo leer la bitácora
 
 ## Orden sugerido
 

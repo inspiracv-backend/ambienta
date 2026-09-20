@@ -20,10 +20,10 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 
 ## Fase 2 — Datos de ejemplo
 
-- [x] `mocks/aspectos-ambientales.ts` con las tres condiciones de operación
+- [ ] `mocks/aspectos-ambientales.ts` con las tres condiciones de operación **(medido: hay 3 `normal` y 1 `emergencia`, ninguno `anormal`)**
 - [x] `mocks/riesgos-oportunidades.ts` con riesgos y oportunidades reales
 - [x] `mocks/equipos-regulados.ts` con caldera y grupo electrógeno
-- [x] Enriquecer `mocks/catalog.ts` con los campos nuevos en al menos una norma
+- [ ] Enriquecer `mocks/catalog.ts` con los campos nuevos en al menos una norma **(medido: `mocks/catalog.ts` no tiene vigencia, aplicabilidad ni monitoreo)**
 - [ ] Ampliar el catálogo con las normas que pidió la reunión: D.S. 609 (SISS), decretos 40 y 48 de seguridad minera, ley de bases del medio ambiente
 
 ## Fase 3 — Cálculo
@@ -53,17 +53,17 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 ## Fase 4 — Pantallas
 
 - [ ] Matriz de aspectos e impactos, con filtro por proceso y condición de operación
-- [ ] Evaluación de significancia con los criterios del tenant
-- [ ] Matriz de riesgos y oportunidades
+- [x] Evaluación de significancia con los criterios del tenant **(con los criterios del sistema; los de cada empresa son la decision abierta #2)**
+- [x] Matriz de riesgos y oportunidades
 - [ ] Detalle de norma: vigencia, aplicabilidad y obligación de monitoreo
-- [ ] Inventario de equipos regulados con alerta de certificación por vencer
-- [ ] Ítems de navegación condicionados a la flag
+- [x] Inventario de equipos regulados con alerta de certificación por vencer
+- [x] Ítems de navegación condicionados a la flag
 
 ## Fase 5 — Configuración por tenant
 
 - [ ] Pantalla de criterios de significancia y umbral
 - [ ] Método de evaluación de riesgos (matriz probabilidad × consecuencia)
-- [ ] Default del sistema para tenants nuevos — ver decisión abierta #2
+- [x] Default del sistema para tenants nuevos — ver decisión abierta #2 **(hay un default global en `services/iso14001.py`: umbral 25 y legal >= 8)**
 
 ## Fase 6 — Consecuencias
 

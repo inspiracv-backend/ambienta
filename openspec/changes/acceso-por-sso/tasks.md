@@ -32,7 +32,7 @@ Verificados leyendo el sistema real, no heredados del análisis.
       por el registro abierto. Bloquea la Fase 2
 - [ ] **Texto exacto de la pantalla sin empresa.** Debe ayudar sin revelar si esa
       empresa existe en el sistema. Bloquea la Fase 4
-- [ ] **Si se registra el evento y dónde.** Sin esto, un empleado nuevo
+- [x] **Si se registra el evento y dónde.** Sin esto, un empleado nuevo **(se registra en el log con el correo y el `clerk_id`: `app/auth.py` y `services/clerk_sync.py`)**
       bloqueado es invisible hasta que reclama
 
 ## Fase 0 — Prerequisitos fuera de este módulo
@@ -128,9 +128,9 @@ un supuesto por confirmar, y cambiarlo es editar `SinEmpresaScreen.tsx`.
 ## Fase 6 — Documentación
 
 - [ ] `docs/development/setup-local.md`: que el alta es manual mientras no
-      exista la invitación, y cómo se hace
-- [ ] Anotar en `integracion-clerk-auth` que su Fase 5 la cubre este cambio
-- [ ] **Archivar `integracion-clerk-auth` ANTES que este cambio.** Este delta
+      exista la invitación, y cómo se hace **(la premisa cambió: la invitación existe desde el 14-sep, `POST /users/invitaciones`; hay que reescribirlo, no marcarlo)**
+- [x] Anotar en `integracion-clerk-auth` que su Fase 5 la cubre este cambio **(sin efecto: `integracion-clerk-auth` ya esta archivado)**
+- [x] **Archivar `integracion-clerk-auth` ANTES que este cambio.** Este delta **(hecho el 10-sep: `openspec/changes/archive/2026-09-10-integracion-clerk-auth`)**
       lleva un `MODIFIED` sobre "Inicio de sesión con cuenta corporativa", que
       hoy solo existe dentro de aquel cambio: `openspec/specs/autenticacion/`
       todavía no existe. Archivar en el otro orden intentaría modificar un
