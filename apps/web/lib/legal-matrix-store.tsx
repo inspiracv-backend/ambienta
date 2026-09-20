@@ -101,6 +101,7 @@ const FUENTE_POR_CODIGO: Record<string, LegalNorm['fuente']> = {
 export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   const [norms, setNorms] = useState<LegalNorm[]>([]);
   const [loading, setLoading] = useState(true);
+  const [datosDe, setDatosDe] = useState<string | null>(null);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
@@ -416,7 +417,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         // preguntar' — la misma mentira de #208 en su otra forma.
         setErrorDeCarga(mensajeDeError(e));
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setDatosDe(user?.tenantId ?? null); } });
     return () => { cancelled = true; };
   // `user` completo y no solo su tenantId: el efecto lo usa adentro para las
   // peticiones anidadas, y depender de una parte deja la otra vieja.
@@ -885,8 +886,15 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  // **Mientras no se haya preguntado POR ESTA empresa, se sigue cargando.**
+  // El efecto baja `loading` a `false` cuando todavia no hay sesion, y al
+  // llegar el tenant no lo vuelve a subir: quedaba una ventana con la lista
+  // vacia y `loading` en `false`, y las fichas afirmaban "No encontramos esto"
+  // sobre algo que si existe, durante todo el viaje de red.
+  const cargandoDeVerdad = loading || (!!user?.tenantId && datosDe !== user.tenantId);
+
   return (
-    <LegalMatrixContext.Provider value={{ norms, loading, errorDeCarga, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
+    <LegalMatrixContext.Provider value={{ norms, loading: cargandoDeVerdad, errorDeCarga, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
       {children}
     </LegalMatrixContext.Provider>
   );

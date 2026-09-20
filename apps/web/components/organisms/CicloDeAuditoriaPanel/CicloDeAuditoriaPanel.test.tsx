@@ -162,3 +162,38 @@ describe('la cobertura', () => {
     expect(texto.textContent).not.toContain('0 %');
   });
 });
+
+describe('lo que la revisión del 19-sep encontró', () => {
+  it('un doble clic en «Cerrar» no salta la confirmación', async () => {
+    // El segundo clic cumplía `confirmando === estado` y cerraba la auditoría
+    // sin que nadie leyera el aviso. Cerrar no tiene vuelta atrás.
+    post.mockResolvedValue(auditoria('closed'));
+    await montar('reporting');
+    const boton = screen.getByRole('button', { name: 'Cerrar la auditoría' });
+
+    await userEvent.dblClick(boton);
+
+    expect(post).not.toHaveBeenCalled();
+    expect(screen.getByRole('alertdialog')).toBeTruthy();
+    expect(boton.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('lo que se escribe mientras guarda no se pierde', async () => {
+    let resolver: (v: unknown) => void = () => {};
+    patch.mockImplementation(() => new Promise((r) => { resolver = r; }));
+    await montar('active');
+
+    await userEvent.type(screen.getByLabelText('Evidencia de la pregunta 1'), 'Falta firma');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    // Mientras viaja, el campo queda apagado: no se puede escribir sobre algo
+    // que ya se mandó.
+    expect((screen.getByLabelText('Evidencia de la pregunta 1') as HTMLInputElement).disabled).toBe(true);
+
+    resolver({ ...pregunta, result: 'pending', notes: 'Falta firma' });
+    await waitFor(() =>
+      expect((screen.getByLabelText('Evidencia de la pregunta 1') as HTMLInputElement).disabled).toBe(false),
+    );
+    expect((screen.getByLabelText('Evidencia de la pregunta 1') as HTMLInputElement).value).toBe('Falta firma');
+  });
+});

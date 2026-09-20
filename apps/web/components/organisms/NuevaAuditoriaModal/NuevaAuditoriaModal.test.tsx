@@ -4,11 +4,22 @@ import userEvent from '@testing-library/user-event';
 import { NuevaAuditoriaModal } from './NuevaAuditoriaModal';
 import { ApiError } from '@/lib/api-client';
 
-const get = vi.fn();
+const getPagina = vi.fn();
 const post = vi.fn();
 vi.mock('@/lib/api-client', async (importarReal) => {
   const real = await importarReal<typeof import('@/lib/api-client')>();
-  return { ...real, api: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a), patch: vi.fn(), delete: vi.fn() } };
+  return {
+    ...real,
+    api: {
+      get: vi.fn(),
+      // `listarCodigos` pide la pagina para saber **si vino cortada**: sugerir
+      // sobre un pedazo proponia un codigo ya usado.
+      getPagina: (...a: unknown[]) => getPagina(...a),
+      post: (...a: unknown[]) => post(...a),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    },
+  };
 });
 vi.mock('@/lib/crm-etapas-store', () => ({
   usePersonasAsignables: () => ({ personas: [{ id: 'u-1', nombre: 'Ana Pérez' }], cargando: false, fallo: false }),
@@ -18,7 +29,7 @@ const T = 'a0000000-0000-0000-0000-000000000001';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  get.mockResolvedValue([{ code: `AUD-${new Date().getFullYear()}-002` }]);
+  getPagina.mockResolvedValue({ datos: [{ code: `AUD-${new Date().getFullYear()}-002` }], hayMas: false });
 });
 
 function montar(onCreada = vi.fn()) {
@@ -82,5 +93,20 @@ describe('crear una auditoría', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('No se creó la auditoría');
     expect(onCreada).not.toHaveBeenCalled();
     expect((screen.getByLabelText(/Título/) as HTMLInputElement).value).toBe('Auditoría de residuos');
+  });
+});
+
+describe('cuando hay más auditorías de las que se pueden mirar', () => {
+  it('no sugiere un código y dice por qué', async () => {
+    // `GET /audits/` pagina de a 100 sin orden: sugerir sobre ese pedazo
+    // proponía un código ya usado, y el alta moría con 409 contra un código
+    // que la propia pantalla escribió.
+    getPagina.mockResolvedValue({ datos: [{ code: 'AUD-2026-001' }], hayMas: true });
+    montar();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Hay más auditorías de las que se pudieron revisar/)).toBeTruthy(),
+    );
+    expect((screen.getByLabelText(/Código/) as HTMLInputElement).value).toBe('');
   });
 });

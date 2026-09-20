@@ -72,6 +72,7 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
   const [subTenants, setSubTenants] = useState<SubTenant[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [loading, setLoading] = useState(true);
+  const [datosDe, setDatosDe] = useState<string | null>(null);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const [errorAlGuardar, setErrorAlGuardar] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
@@ -144,7 +145,7 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
         setErrorDeCarga(mensajeDeError(e));
       })
       .finally(() => {
-        if (!cancelado) setLoading(false);
+        if (!cancelado) { setLoading(false); setDatosDe(user?.tenantId ?? null); }
       });
     return () => {
       cancelado = true;
@@ -239,8 +240,15 @@ export function GestoresProvider({ children }: { children: ReactNode }) {
     return true;
   }
 
+  // **Mientras no se haya preguntado POR ESTA empresa, se sigue cargando.**
+  // El efecto baja `loading` a `false` cuando todavia no hay sesion, y al
+  // llegar el tenant no lo vuelve a subir: quedaba una ventana con la lista
+  // vacia y `loading` en `false`, y las fichas afirmaban "No encontramos esto"
+  // sobre algo que si existe, durante todo el viaje de red.
+  const cargandoDeVerdad = loading || (!!user?.tenantId && datosDe !== user.tenantId);
+
   return (
-    <GestoresContext.Provider value={{ subTenants, contratos, loading, errorDeCarga, errorAlGuardar, addContrato }}>
+    <GestoresContext.Provider value={{ subTenants, contratos, loading: cargandoDeVerdad, errorDeCarga, errorAlGuardar, addContrato }}>
       {children}
     </GestoresContext.Provider>
   );

@@ -57,6 +57,8 @@ export function CicloDeAuditoriaPanel({ auditId, tenantId, procesos, onEstadoCam
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  /** La pregunta que se esta guardando: sus controles se apagan mientras viaja. */
+  const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState<EstadoAuditoria | null>(null);
   const [nueva, setNueva] = useState('');
   const [procesoNueva, setProcesoNueva] = useState('');
@@ -144,18 +146,28 @@ export function CicloDeAuditoriaPanel({ auditId, tenantId, procesos, onEstadoCam
   }
 
   async function guardar(p: Pregunta) {
-    const b = borradores[p.id];
-    if (!b) return;
+    const enviado = borradores[p.id];
+    if (!enviado) return;
     setOcupado(true);
+    setGuardandoId(p.id);
     setError(null);
     try {
-      const actualizada = await responderPregunta(tenantId, auditId, p.id, b.resultado, b.notas);
+      const actualizada = await responderPregunta(tenantId, auditId, p.id, enviado.resultado, enviado.notas);
       setPreguntas((prev) => (prev ?? []).map((x) => (x.id === p.id ? actualizada : x)));
-      setBorradores(({ [p.id]: _hecho, ...resto }) => resto);
+      // **Solo se descarta lo que se mando.** Si entre el envio y la respuesta
+      // se siguio escribiendo, borrar el borrador entero se comia esas letras
+      // sin decir nada. Los controles ademas quedan apagados mientras viaja.
+      setBorradores((prev) => {
+        const actual = prev[p.id];
+        if (!actual || actual.resultado !== enviado.resultado || actual.notas !== enviado.notas) return prev;
+        const { [p.id]: _guardado, ...resto } = prev;
+        return resto;
+      });
     } catch (e) {
       setError(`No se guardó la respuesta a la pregunta ${p.secuencia}: ${mensajeDeError(e)}`);
     } finally {
       setOcupado(false);
+      setGuardandoId(null);
     }
   }
 
@@ -197,7 +209,11 @@ export function CicloDeAuditoriaPanel({ auditId, tenantId, procesos, onEstadoCam
               key={t.a}
               size="sm"
               variant={t.a === 'cancelled' ? 'ghost' : 'primary'}
-              disabled={ocupado}
+              // **Se apagan mientras se confirma.** Con el boton vivo, el segundo
+              // clic de un doble clic cumplia `confirmando === estado` y cerraba
+              // la auditoria sin que nadie leyera el aviso: la confirmacion no
+              // protegia de lo unico de lo que tenia que proteger.
+              disabled={ocupado || confirmando !== null}
               onClick={() => void avanzar(t.a)}
             >
               {t.accion}
@@ -269,7 +285,8 @@ export function CicloDeAuditoriaPanel({ auditId, tenantId, procesos, onEstadoCam
                   <div className="mt-2 grid gap-2 sm:grid-cols-[12rem_1fr_auto]">
                     <select
                       aria-label={`Resultado de la pregunta ${p.secuencia}`}
-                      className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
+                      className="h-9 rounded-lg border border-slate-300 px-2 text-sm disabled:bg-slate-100"
+                      disabled={guardandoId === p.id}
                       value={b.resultado}
                       onChange={(e) =>
                         setBorradores((prev) => ({ ...prev, [p.id]: { ...b, resultado: e.target.value as ResultadoPregunta } }))
@@ -284,7 +301,8 @@ export function CicloDeAuditoriaPanel({ auditId, tenantId, procesos, onEstadoCam
                     <input
                       aria-label={`Evidencia de la pregunta ${p.secuencia}`}
                       placeholder="Evidencia revisada"
-                      className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
+                      disabled={guardandoId === p.id}
+                      className="h-9 rounded-lg border border-slate-300 px-2 text-sm disabled:bg-slate-100"
                       value={b.notas}
                       onChange={(e) => setBorradores((prev) => ({ ...prev, [p.id]: { ...b, notas: e.target.value } }))}
                     />

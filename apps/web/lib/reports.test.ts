@@ -462,3 +462,24 @@ describe('el CSV se abre bien en Excel', () => {
     expect(String(creado!.partes[0])).toMatch(/^﻿/);
   });
 });
+
+describe('la carpeta de una auditoría sin fecha ni planta', () => {
+  const sinFecha = {
+    id: 'a2', plantId: '', titulo: 'Auditoría de toda la empresa', tipo: 'interna',
+    fecha: '', estado: 'planificada', procesos: [], normativaIds: [],
+  } as unknown as Audit;
+
+  it('no escribe «Invalid Date»', () => {
+    // `mapApiAudit` deja `fecha` vacía cuando no hay fecha planificada, en vez
+    // de inventar la de hoy: el exportador tiene que decirlo.
+    const texto = buildAuditFolderContent(sinFecha, undefined, []);
+    expect(texto).not.toContain('Invalid Date');
+    expect(texto).toContain('Sin fecha');
+  });
+
+  it('dice «Toda la empresa» en vez de dejar la cabecera colgando', () => {
+    const texto = buildAuditFolderContent(sinFecha, undefined, []);
+    expect(texto).toContain('Toda la empresa');
+    expect(texto.split('\n')[0]).not.toMatch(/—\s*$/);
+  });
+});

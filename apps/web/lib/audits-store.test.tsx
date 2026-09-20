@@ -288,3 +288,27 @@ describe('cuando la API falla', () => {
     await waitFor(() => expect(r.result.current.a.loading).toBe(false));
   });
 });
+
+describe('mientras no se preguntó por esta empresa', () => {
+  it('sigue cargando: una lista vacía no es una respuesta', async () => {
+    // El efecto baja `loading` cuando todavía no hay sesión y no lo volvía a
+    // subir al llegar el tenant: las fichas afirmaban "No encontramos esto"
+    // sobre algo que sí existe, durante todo el viaje de red.
+    get.mockImplementation(() => new Promise(() => {}));
+    iniciarSesionComo('admin_empresa');
+
+    const { result } = renderHook(() => useAudits(), { wrapper });
+
+    await waitFor(() => expect(result.current.audits).toHaveLength(0));
+    expect(result.current.loading).toBe(true);
+  });
+
+  it('deja de cargar cuando la API responde', async () => {
+    get.mockResolvedValue([]);
+    iniciarSesionComo('admin_empresa');
+
+    const { result } = renderHook(() => useAudits(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+});

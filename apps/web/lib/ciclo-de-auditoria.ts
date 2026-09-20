@@ -190,9 +190,17 @@ export async function crearAuditoria(tenantId: string, n: NuevaAuditoria): Promi
   return api.post<Record<string, unknown>>('/audits/', cuerpoDeAuditoria(n), { tenantId });
 }
 
-export async function listarCodigos(tenantId: string): Promise<string[]> {
-  const filas = await api.get<Record<string, unknown>[]>('/audits/', { tenantId });
-  return filas.map((f) => String(f.code ?? ''));
+/**
+ * Los codigos que ya existen, y **si la lista vino cortada**.
+ *
+ * `GET /audits/` pagina de a 100 y sin orden: sugerir sobre un pedazo proponia
+ * un codigo ya usado, y el alta moria contra `uq_audits_tenant_code` con un
+ * codigo que la propia pantalla habia escrito. Cuando viene cortada no se
+ * sugiere nada: mejor un campo vacio que una sugerencia que va a fallar.
+ */
+export async function listarCodigos(tenantId: string): Promise<{ codigos: string[]; cortada: boolean }> {
+  const pagina = await api.getPagina<Record<string, unknown>>('/audits/?limit=500', { tenantId });
+  return { codigos: pagina.datos.map((f) => String(f.code ?? '')), cortada: pagina.hayMas };
 }
 
 export async function leerAuditoria(tenantId: string, id: string): Promise<Auditoria> {

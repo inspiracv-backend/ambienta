@@ -51,15 +51,20 @@ export function NuevaAuditoriaModal({ open, onOpenChange, tenantId, plantas, onC
   const [datos, setDatos] = useState<NuevaAuditoria>(VACIA);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [enviando, setEnviando] = useState(false);
+  const [listaCortada, setListaCortada] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     let vigente = true;
     listarCodigos(tenantId)
-      .then((codigos) => {
-        if (vigente) {
-          setDatos((d) => (d.codigo ? d : { ...d, codigo: sugerirCodigo(codigos, new Date().getFullYear()) }));
+      .then(({ codigos, cortada }) => {
+        // Con la lista cortada la sugerencia podría chocar con un código que no
+        // se alcanzó a mirar: se deja el campo vacío y se dice por qué.
+        if (!vigente || cortada) {
+          if (vigente) setListaCortada(true);
+          return;
         }
+        setDatos((d) => (d.codigo ? d : { ...d, codigo: sugerirCodigo(codigos, new Date().getFullYear()) }));
       })
       // Sin la lista no hay sugerencia: el campo queda vacío y se escribe a mano.
       .catch(() => {});
@@ -123,7 +128,13 @@ export function NuevaAuditoriaModal({ open, onOpenChange, tenantId, plantas, onC
 
           <form onSubmit={enviar} className="mt-4 flex flex-col gap-4" noValidate>
             <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
-              <FormField label="Código" htmlFor={`${formId}-codigo`} required error={errores.codigo}>
+              <FormField
+                label="Código"
+                htmlFor={`${formId}-codigo`}
+                required
+                error={errores.codigo}
+                hint={listaCortada ? 'Hay más auditorías de las que se pudieron revisar: escribe el código.' : undefined}
+              >
                 <Input
                   id={`${formId}-codigo`}
                   value={datos.codigo}

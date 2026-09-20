@@ -34,6 +34,7 @@ const PlanAccionContext = createContext<PlanAccionContextValue | null>(null);
 export function PlanAccionProvider({ children }: { children: ReactNode }) {
   const [plans, setPlans] = useState<PlanAccion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [datosDe, setDatosDe] = useState<string | null>(null);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
@@ -76,7 +77,7 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
         // preguntar' — que es la misma mentira de #208 en su otra forma.
         setErrorDeCarga(mensajeDeError(e));
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setDatosDe(user?.tenantId ?? null); } });
     return () => { cancelled = true; };
   }, [user?.tenantId]);
 
@@ -135,8 +136,15 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
     return plans.find((p) => p.origenId === origenId);
   }
 
+  // **Mientras no se haya preguntado POR ESTA empresa, se sigue cargando.**
+  // El efecto baja `loading` a `false` cuando todavia no hay sesion, y al
+  // llegar el tenant no lo vuelve a subir: quedaba una ventana con la lista
+  // vacia y `loading` en `false`, y las fichas afirmaban "No encontramos esto"
+  // sobre algo que si existe, durante todo el viaje de red.
+  const cargandoDeVerdad = loading || (!!user?.tenantId && datosDe !== user.tenantId);
+
   return (
-    <PlanAccionContext.Provider value={{ plans, loading, errorDeCarga, createPlan, findByOrigen }}>
+    <PlanAccionContext.Provider value={{ plans, loading: cargandoDeVerdad, errorDeCarga, createPlan, findByOrigen }}>
       {children}
     </PlanAccionContext.Provider>
   );

@@ -76,7 +76,9 @@ function toCsv(headers: string[], rows: string[][]): string {
   return [headers, ...rows].map((row) => row.map(csvEscape).join(',')).join('\n');
 }
 
+/** Sin fecha planificada se dice, no sale «Invalid Date». */
 function formatFecha(iso: string): string {
+  if (!iso) return 'Sin fecha';
   return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
@@ -210,7 +212,9 @@ export function buildMatrizLegalReport(norms: LegalNorm[], plants: Plant[]): Rep
 export function buildAuditFolderContent(audit: Audit, plant: Plant | undefined, nonConformities: NonConformity[]): string {
   const relatedNcs = nonConformities.filter((nc) => nc.auditId === audit.id);
   const lines = [
-    `CARPETA DE AUDITORÍA — ${plant?.nombre ?? audit.plantId}`,
+    // Una auditoria de toda la empresa no tiene planta: el titulo la nombra.
+    `CARPETA DE AUDITORÍA — ${audit.titulo || plant?.nombre || 'Toda la empresa'}`,
+    `Planta: ${plant?.nombre || (audit.plantId ? audit.plantId : 'Toda la empresa')}`,
     `Tipo: ${audit.tipo === 'interna' ? 'Interna' : 'Externa'}`,
     `Fecha: ${formatFecha(audit.fecha)}`,
     `Estado: ${AUDIT_ESTADO_LABEL[audit.estado]}`,

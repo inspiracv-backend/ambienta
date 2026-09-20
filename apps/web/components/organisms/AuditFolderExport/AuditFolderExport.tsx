@@ -63,7 +63,8 @@ export function AuditFolderExport({ audits, plants, nonConformities }: AuditFold
             const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const fecha = new Date().toISOString().slice(0, 10);
-            setFilename(`carpeta-auditoria-${audit.plantId}-${fecha}.txt`);
+            // Sin planta quedaba `carpeta-auditoria--2026-09-19.txt`.
+            setFilename(`carpeta-auditoria-${audit.codigo || audit.plantId || 'empresa'}-${fecha}.txt`);
             setDownloadUrl(url);
             setProgreso('listo');
 

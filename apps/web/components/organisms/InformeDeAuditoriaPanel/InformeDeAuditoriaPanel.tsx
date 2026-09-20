@@ -109,7 +109,16 @@ export function InformeDeAuditoriaPanel({ auditId }: { auditId: string }) {
       ) : (
         <ul className="mt-2 flex flex-col gap-3">
           {informe.matriz.map((fila) => (
-            <FilaProceso key={fila.proceso_id} fila={fila} auditId={auditId} tenantId={tenantId} onGuardado={cargar} />
+            <FilaProceso
+              key={fila.proceso_id}
+              fila={fila}
+              auditId={auditId}
+              tenantId={tenantId}
+              onGuardado={cargar}
+              // Cerrada o cancelada, la API responde 409: ofrecer el editor seria
+              // un boton que falla siempre.
+              editable={informe.estado !== 'closed' && informe.estado !== 'cancelled'}
+            />
           ))}
         </ul>
       )}
@@ -122,7 +131,9 @@ function FilaProceso({
   auditId,
   tenantId,
   onGuardado,
+  editable,
 }: {
+  editable: boolean;
   fila: FilaDeLaMatriz;
   auditId: string;
   tenantId: string | null;
@@ -203,11 +214,11 @@ function FilaProceso({
             </Button>
           </div>
         </div>
-      ) : (
+      ) : editable ? (
         <Button type="button" variant="secondary" className="mt-3" onClick={() => setEditando(true)}>
           {fila.clasificacion === 'no_auditado' && !fila.conclusion ? 'Dejar veredicto' : 'Editar veredicto'}
         </Button>
-      )}
+      ) : null}
       {error && <p className="mt-2 text-sm text-semaforo-no-cumple">{error}</p>}
     </li>
   );

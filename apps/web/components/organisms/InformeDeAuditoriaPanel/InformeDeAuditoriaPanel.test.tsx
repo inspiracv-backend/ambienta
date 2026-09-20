@@ -116,3 +116,24 @@ describe('el veredicto del proceso', () => {
     expect(post).not.toHaveBeenCalled();
   });
 });
+
+describe('una auditoría cerrada', () => {
+  it('no ofrece editar el veredicto: la API lo rechaza con 409', async () => {
+    // Desde el 19-sep `POST/PATCH /audits/{id}/procesos` responde 409 en una
+    // auditoría cerrada. Dejar el botón sería ofrecer algo que falla siempre.
+    get.mockImplementation((url: string) => {
+      if (url.endsWith('/informe')) return Promise.resolve({ ...INFORME, estado: 'closed' });
+      if (url.endsWith('/procesos')) return Promise.resolve(veredictos);
+      return Promise.resolve([]);
+    });
+    await montar();
+
+    expect(screen.queryByRole('button', { name: /veredicto/i })).not.toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('con la auditoría abierta sí lo ofrece', async () => {
+    await montar();
+    expect(screen.getByRole('button', { name: /veredicto/i })).toBeInTheDocument();
+  });
+});
