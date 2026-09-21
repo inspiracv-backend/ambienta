@@ -24,6 +24,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/aspectos-ambientales',
 }));
 
+const post = vi.fn();
 vi.mock('@/lib/api-client', async (importarReal) => {
   const real = await importarReal<typeof import('@/lib/api-client')>();
   return {
@@ -37,7 +38,7 @@ vi.mock('@/lib/api-client', async (importarReal) => {
             : [],
         ),
       ),
-      post: vi.fn(),
+      post: (...a: unknown[]) => post(...a),
       patch: vi.fn(),
       delete: vi.fn(),
     },
@@ -118,6 +119,7 @@ const ASPECTOS = [
 beforeEach(() => {
   vi.clearAllMocks();
   editarAspecto.mockResolvedValue(true);
+  post.mockResolvedValue({});
   window.localStorage.clear();
   iniciarSesionComo('admin_empresa');
 });
@@ -172,6 +174,13 @@ describe('exportar la matriz', () => {
     expect(nombre).toMatch(/^matriz-aspectos-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(csv).toContain('Bodega de aceites');
     expect(csv).not.toContain('Chancado');
+    // Y queda anotado en el servidor, con el filtro (RNF-26).
+    expect(post).toHaveBeenCalledWith(
+      '/emisiones/',
+      expect.objectContaining({ documento: 'matriz_de_aspectos', formato: 'csv', filas: 1 }),
+      expect.anything(),
+    );
+    expect((post.mock.calls[0][1] as { filtros: string[] }).filtros[0]).toMatch(/^Filtrado: Planta: Faena Antofagasta/);
   });
 
   it('el documento cuelga de <body> y dice el filtro aplicado', async () => {

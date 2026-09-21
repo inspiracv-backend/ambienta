@@ -50,6 +50,9 @@ SUFIJOS_DE_ACCION = (
     # ultima evaluacion y la frecuencia, no se guarda. Lo que se edita es la
     # frecuencia o la fecha declarada, en `/matrix-norms/{id}`.
     "/revisiones",
+    # Anotar una emision escribe una fila en `audit_log`, que **no se edita ni
+    # se borra** (el rol solo inserta y lee). Se lee por `/system/audit-log`.
+    "/emisiones",
     # El historial de presentaciones es **de solo lectura por diseño**: cada
     # fila la escribe `services/declaracion.py` al presentar, aceptar o
     # rechazar. Un `POST` aparte permitiria inventar una presentacion que nunca

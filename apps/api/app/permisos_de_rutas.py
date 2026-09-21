@@ -56,6 +56,9 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
     # `servicio_lectura`.
     "gestor": "manager",
     "declarations": "obligation",
+    # Anotar que se emitio un documento: lo puede quien puede generarlo. Una
+    # familia con punto es un permiso completo (ver `permiso_requerido`).
+    "emisiones": "report.generate",
     "departments": "company_profile",
     "documents": "document",
     "facilities": "company_profile",

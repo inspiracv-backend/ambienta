@@ -209,7 +209,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | RBAC | **Completo desde el 10-sep, alcance incluido.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en todos los routers salvo seis con motivo declarado (**`crm`, `gestor` e `iso14001` no la tenian hasta el 21-sep**, ver abajo), rol `servicio_lectura`, pantalla en `/usuarios`, **acotamiento por instalacion aplicado** (`app/alcance.py`) y **el Admin Global ya no edita contenido de una empresa**. Los dos ultimos eran reglas escritas en este archivo y en el spec que no aplicaba nadie. Es el primer modulo cuyo spec vivo existe: `openspec/specs/rbac/spec.md`, 8 requisitos |
 | Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas sincronizar-bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
-| Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
+| Registro de actividades | **Se escribe solo desde el 24-ago, y se lee desde el 21-sep.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla. Hasta el 21-sep la pantalla `/historial` mostraba solo lo de la sesion del navegador; ahora lee el servidor y las emisiones de PDF y CSV quedan anotadas — ver abajo |
 | Auth — clave local con RUT (RF-06) | **Funcionando desde el 25-ago.** Quien entro por SSO fija RUT y clave en su perfil y despues entra con ellos. **La clave la guarda Clerk, no nosotros** (D1). El RUT viaja como `username` con prefijo `rut`, porque Clerk rechaza los que son solo digitos — y un RUT lo es salvo cuando el verificador es K |
 | Acceso Cliente Invitado | **Completo y verificado en el navegador el 25-ago.** RUT y clave los emite la API, no el navegador; token propio de 30 dias; la solicitud queda ligada a la credencial y el invitado ve solo las suyas. Con tope de peticiones en las dos rutas publicas |
 | Reportabilidad RETC | **Modelo y API desde el 25-ago** (ADR-004). `retc_systems` dice que portales existen; `facility_retc_reporting` cual le toca a cada planta, con los 5 estados del ADR. **El catalogo esta sin confirmar:** trae los 12 sistemas de la Ventanilla Unica con su fuente, y NO los 9 de la SMA — ver abajo |
@@ -1100,13 +1100,36 @@ cumplio, y una auditoria cancelada tambien salia verde.
 
 **El informe sale en PDF desde la ficha, y se imprime solo** (21-sep). El
 documento se monta **directo en `<body>`** y, mientras dura la impresion
-(`beforeprint`/`afterprint`), `body.imprimiendo-informe` oculta a todos sus
+(`beforeprint`/`afterprint`), `body.imprimiendo-documento` oculta a todos sus
 hermanos: antes el PDF entregable salia precedido por la ficha entera. Vale
-igual para el boton y para Ctrl+P. **Lo que no hay es registro de la emision**:
-se anota en el historial de la sesion, que no llega a la API
-(`audit-log-store.tsx`), y el `audit_log` del servidor solo ve la ORM. Que quede
-guardado necesita un endpoint propio. Y se anota como "abrio la impresion", no
-"emitio": el navegador no avisa si se cancela.
+igual para el boton y para Ctrl+P (`DocumentoImprimible`). Se anota como "abrio
+la impresion", no "emitio": el navegador no avisa si se cancela.
+
+**Y cada emision queda en el registro del servidor desde el 21-sep** (decision
+9, RNF-26): `POST /emisiones/` anota `download` con el documento, los filtros y
+las filas, y el informe de auditoria va **contra la auditoria**, asi que aparece
+en su historial. Antes quedaba en el historial de la sesion y se perdia al
+recargar. Tres cosas del endpoint: la lista de documentos es cerrada, la
+auditoria nombrada pasa por `validar_visible`, y **una empresa suspendida puede
+anotar** (`deps.RAICES_QUE_ANOTAN_EN_SOLO_LECTURA`): exportar esta permitido, y
+negarle el rastro seria peor que dejarla escribir una fila en el registro. Si la
+anotacion falla, el documento sale igual y un aviso lo dice
+(`lib/emisiones.ts`).
+
+**La pantalla `/historial` lee el registro del servidor desde el 21-sep**
+(decision 10, spec `openspec/specs/registro-de-actividades`). Los 500 mas
+recientes, o los del periodo si hay fechas: `desde` y `hasta` viajan a la API,
+que los interpreta en **dias de la empresa** (`huso_de`). Dos defectos que solo
+se vieron en el navegador:
+
+- **Ningun aviso de "lista cortada" funcionaba en toda la aplicacion.** CORS no
+  exponia `X-Has-More`, asi que el navegador lo leia como ausente y `hayMas`
+  daba `false` siempre. `main.py` los declara en `expose_headers`; `TestClient`
+  no pasa por CORS, de ahi `TestElNavegadorPuedeLeerla` en `test_paginacion.py`.
+- **El filtro de fechas comparaba contra la medianoche UTC**: con desde = hasta =
+  20-sep la API devolvia 500 eventos y la pantalla mostraba 0, porque todo lo de
+  despues de las 20:00 en Chile ya es el 21 en UTC. Los reportes tenian la misma
+  funcion copiada. Ahora los dos usan `lib/fechas.ts::enRangoDeDias`.
 
 **Abrir o recargar cualquier ficha daba 404, y eso incluia compartir el enlace.**
 Las nueve fichas hacian `notFound()` antes de que su store cargara, y como eso
@@ -1614,7 +1637,7 @@ funcionan en la terminal. Un comando por linea.
 python herramientas/auditar.py          # los detectores de las clases de defecto ya sufridas
 npm run spec:check                      # los 4 artefactos de cada cambio
 cd apps/api && python -m pytest         # 1530 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
-cd apps/web && npx vitest run           # 827 pruebas, 85 archivos (medido el 21-sep)
+cd apps/web && npx vitest run           # 897 pruebas, 95 archivos (medido el 21-sep)
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las corre solo)
 ```
 

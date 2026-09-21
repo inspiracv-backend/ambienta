@@ -44,6 +44,7 @@ from .routers import (
     plantillas, roles, tenants,
     users, webhooks,
 )
+from .routers import emisiones
 
 settings = get_settings()
 
@@ -92,6 +93,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # **Sin esto el navegador no deja leer la paginacion.** Una cabecera propia
+    # en una respuesta de otro origen es invisible para `fetch` salvo que se
+    # exponga. La API mandaba `X-Has-More: true` y la web leia siempre `false`:
+    # los avisos de "la lista vino cortada" —32 lugares— no aparecian nunca con
+    # la web y la API en origenes distintos, que es el caso normal. Las pruebas
+    # no lo ven porque simulan la API. Medido en el navegador el 21-sep.
+    expose_headers=["X-Has-More", "X-Page-Limit"],
 )
 
 
@@ -172,6 +180,7 @@ app.include_router(
     ],
 )
 app.include_router(documents.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(emisiones.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 # **Estos tres se montaban sin la guarda** (hasta el 21-sep), desde la migracion
 # a FastAPI: 17 escrituras del CRM y 13 de ISO 14001 no pedian ningun permiso,
 # el Admin Global podia editarlas y la suspension no las alcanzaba. La web ya

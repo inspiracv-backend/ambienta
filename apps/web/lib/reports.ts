@@ -1,3 +1,4 @@
+import { enRangoDeDias } from '@/lib/fechas';
 import type { Audit, LegalNorm, NonConformity, Obligation, Plant } from '@ambienta/shared';
 import {
   computeNormComplianceOrNull,
@@ -85,13 +86,8 @@ function formatFecha(iso: string): string {
   return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function inRange(iso: string, desde: string, hasta: string): boolean {
-  if (!desde && !hasta) return true;
-  const t = new Date(iso).getTime();
-  if (desde && t < new Date(desde).getTime()) return false;
-  if (hasta && t > new Date(hasta).getTime() + 86_400_000 - 1) return false;
-  return true;
-}
+// Días de calendario, no instantes UTC: ver `lib/fechas.ts::enRangoDeDias`.
+const inRange = enRangoDeDias;
 
 /**
  * RF-50: reporte de Cumplimiento. Reutiliza la misma regla de "% de

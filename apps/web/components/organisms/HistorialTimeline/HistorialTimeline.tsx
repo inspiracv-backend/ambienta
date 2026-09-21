@@ -6,6 +6,7 @@ import {
   CirclePlus,
   FileDown,
   History,
+  LogIn,
   MessageSquare,
   Paperclip,
   Pencil,
@@ -36,6 +37,7 @@ const ICONO_ACCION: Record<AccionAuditable, typeof Pencil> = {
   eliminado: Trash2,
   exportado: FileDown,
   comentado: MessageSquare,
+  ingreso: LogIn,
 };
 
 const ICONO_DE_HISTORIA: Record<EventoDeHistoria['tipo'], typeof Pencil> = {

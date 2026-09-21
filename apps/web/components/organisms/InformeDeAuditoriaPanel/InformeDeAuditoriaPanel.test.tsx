@@ -218,25 +218,25 @@ describe('imprimir en la ficha es imprimir el informe', () => {
     expect(document.querySelector('body > .solo-impresion')).not.toBeNull();
   });
 
-  it('Ctrl+P hace lo mismo que el boton: marca la hoja y lo anota', async () => {
+  it('Ctrl+P hace lo mismo que el boton: marca la hoja y lo anota en el servidor', async () => {
     await montarConHistorial();
 
     // Ctrl+P no pasa por el boton: el navegador solo avisa con `beforeprint`.
     window.dispatchEvent(new Event('beforeprint'));
 
     expect(document.body.classList.contains(CLASE_IMPRIMIENDO_DOCUMENTO)).toBe(true);
-    expect(await screen.findByText(/Abrió la impresión del informe/)).toBeTruthy();
+    // **En el servidor y contra esta auditoria** (decision 9 del 21-sep): antes
+    // quedaba en el historial de la sesion y se perdia al recargar.
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        '/emisiones/',
+        expect.objectContaining({ documento: 'informe_de_auditoria', formato: 'pdf', entidad_tipo: 'audits', entidad_id: 'a-1' }),
+        expect.objectContaining({ tenantId: expect.any(String) }),
+      ),
+    );
 
     window.dispatchEvent(new Event('afterprint'));
     expect(document.body.classList.contains(CLASE_IMPRIMIENDO_DOCUMENTO)).toBe(false);
-  });
-
-  it('no dice que se emitio: el navegador no avisa si se cancela', async () => {
-    await montarConHistorial();
-    window.dispatchEvent(new Event('beforeprint'));
-    await screen.findByText(/Abrió la impresión del informe/);
-    expect(screen.queryByText(/Emitió el informe/)).toBeNull();
-    window.dispatchEvent(new Event('afterprint'));
   });
 });
 

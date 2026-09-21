@@ -241,8 +241,8 @@ este archivo.
 | 6 | Ingreso con RUT (RF-06) | **Oculto en v1.0** | **Hecho:** bandera `ingresoConRut`, apagada; oculta la pestaña del login y la tarjeta del perfil. Si el RUT es unico global o por empresa se decide cuando vuelva |
 | 7 | Escala de severidad (#57) | **Catalogo por empresa** | Lo que ya existe (`db/25`, `db/30`). Falta que cada empresa declare sus dias para cerrar; sin eso las etapas no tienen fecha limite |
 | 8 | Criterios de significancia ISO (#2) | **Los del sistema en v1.0** | Umbral 25 y legal >= 8 para todos. La pantalla por empresa (tarea 64) queda para despues del piloto |
-| 9 | Registro de quien emite cada PDF | **En v1.0** | Un endpoint que lo anota en el registro de actividades (RNF-26), como "abrio la impresion". Con su spec |
-| 10 | Pantalla global del registro de actividades | **Spec y conexion en v1.0** | Propuesta en OpenSpec y despues la pantalla contra `GET /system/audit-log` |
+| 9 | Registro de quien emite cada PDF | **En v1.0** | **Hecho:** `POST /emisiones/` anota informe de auditoria, matriz de aspectos y reportes (PDF y CSV) con filtros y filas; el informe queda en el historial de su auditoria. Tambien desde una empresa suspendida |
+| 10 | Pantalla global del registro de actividades | **Spec y conexion en v1.0** | **Hecho:** `/historial` lee `GET /system/audit-log` (500 mas recientes o por periodo, en dias de la empresa) y avisa si hay mas. Spec vivo en `openspec/specs/registro-de-actividades` |
 | 11 | Equipo de plataforma (RF-84) | **Despues del piloto** | Un solo Admin Global, creado al desplegar |
 | 12 | El % de la Matriz Legal | **El mismo del tablero** (recomendacion aceptada) | **Hecho:** la matriz en pantalla, la ficha de norma y el reporte muestran el conservador como numero principal y "% de lo evaluado" como dato secundario. Una norma con 1 articulo cumplido y 15 sin evaluar pasa de 100 % a 6 % |
 

@@ -6,7 +6,7 @@ import { DocumentoImprimible } from '@/components/molecules';
 import { mensajeDeError } from '@/lib/api-client';
 import type { Tenant } from '@ambienta/shared';
 import { useSession } from '@/lib/session';
-import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useAnotarEmision } from '@/lib/emisiones';
 import { InformeDeAuditoriaPdf } from '@/components/organisms/InformeDeAuditoriaPdf';
 import {
   CLASIFICACION_LABEL,
@@ -41,7 +41,7 @@ export function InformeDeAuditoriaPanel({
   tenant?: Tenant;
 }) {
   const { user } = useSession();
-  const registrar = useRegistrarAuditoria();
+  const anotarEmision = useAnotarEmision();
   const tenantId = user?.tenantId ?? null;
   const [informe, setInforme] = useState<InformeDeAuditoria | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,22 +62,16 @@ export function InformeDeAuditoriaPanel({
 
   function anotarImpresion() {
     if (!tenant) return;
-    // Se anota que **se abrio la impresion**, no que se emitio: el navegador no
-    // avisa si la persona cancela el dialogo. Corre tambien con Ctrl+P (ver
-    // `DocumentoImprimible`).
-    //
-    // Y es el historial **de esta sesion**, no el registro del servidor:
-    // `useRegistrarAuditoria` no llega a la API (lo dice `audit-log-store`), y
-    // el `audit_log` solo anota lo que cambia por la ORM. Que la emision quede
-    // guardada necesita un endpoint propio, que no existe.
-    registrar({
-      entidadTipo: 'auditoria',
+    // **Queda en el registro del servidor**, contra esta auditoría: aparece en
+    // su historial (RNF-26, decisión 9 del 21-sep). Se anota al abrir la
+    // impresión —el navegador no avisa si se cancela— y corre también con
+    // Ctrl+P (ver `DocumentoImprimible`).
+    anotarEmision({
+      documento: 'informe_de_auditoria',
+      titulo: `Informe de ${informe?.codigo ?? auditId}${informe?.titulo ? ` — ${informe.titulo}` : ''}`,
+      formato: 'pdf',
+      entidadTipo: 'audits',
       entidadId: auditId,
-      entidadLabel: informe?.codigo ?? auditId,
-      tenantId: tenant.id,
-      accion: 'exportado',
-      resumen: `Abrió la impresión del informe de "${informe?.titulo ?? auditId}" (imprimir o guardar PDF)`,
-      cambios: [],
     });
   }
 

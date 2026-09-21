@@ -1,9 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from datetime import date, datetime, time, timedelta
+from uuid import UUID
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..alcance import instalaciones_permitidas
-from ..deps import get_tenant_db
+from ..deps import get_tenant_db, get_tenant_id
+from ..models.organization import User
+from ..services.husos import huso_de
 from ..models.system import AuditLog
 from ._paginacion import Pagina, paginacion, recortar
 from ..schemas.system import AuditLogRead
@@ -28,7 +34,18 @@ CODIGO_REGISTRO_ACOTADO = "registro_completo_con_alcance_acotado"
         "registro, en su historial."
     ),
 )
-def list_audit_log(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
+def list_audit_log(
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    desde: date | None = Query(
+        None, description="Primer dia, de calendario **de la empresa**, incluido."
+    ),
+    hasta: date | None = Query(
+        None, description="Ultimo dia, de calendario de la empresa, **incluido entero**."
+    ),
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
     # **Acotado es acotado, tambien aca** (spec de RBAC, "el alcance de un rol
     # puede acotarse"). `audit_log` no tiene `facility_id`: decidir la planta de
     # cada fila obligaria a resolver la entidad de cada una. Hasta que haga
@@ -47,10 +64,27 @@ def list_audit_log(respuesta: Response, pagina: Pagina = Depends(paginacion), db
     # **Del mas reciente al mas antiguo.** Sin orden, Postgres devuelve lo que le
     # quede comodo —en la practica, lo mas viejo primero—, y con el tope de la
     # pagina se verian siempre las mismas filas del principio.
-    filas = db.scalars(
-        select(AuditLog)
-        .order_by(AuditLog.occurred_at.desc(), AuditLog.id.desc())
+    #
+    # El nombre de quien actuo lo pone el servidor, con un LEFT JOIN bajo RLS:
+    # resolverlo en el navegador obligaria a tener la lista de usuarios cargada.
+    consulta = select(AuditLog, User.full_name).outerjoin(User, User.id == AuditLog.actor_user_id)
+    # **Dias de calendario de la empresa, no instantes** ("eventos del 3 de
+    # septiembre" es un dia en Chile). `hasta` incluye el dia entero.
+    if desde is not None or hasta is not None:
+        huso = ZoneInfo(huso_de(db, tenant_id))
+        if desde is not None:
+            consulta = consulta.where(AuditLog.occurred_at >= datetime.combine(desde, time.min, huso))
+        if hasta is not None:
+            consulta = consulta.where(
+                AuditLog.occurred_at < datetime.combine(hasta + timedelta(days=1), time.min, huso)
+            )
+    filas = db.execute(
+        consulta.order_by(AuditLog.occurred_at.desc(), AuditLog.id.desc())
         .offset(pagina.skip)
         .limit(pagina.pedir)
     ).all()
-    return recortar(respuesta, list(filas), pagina)
+    leidas = [
+        AuditLogRead.model_validate(entrada).model_copy(update={"actor_nombre": nombre})
+        for entrada, nombre in filas
+    ]
+    return recortar(respuesta, leidas, pagina)

@@ -31,6 +31,12 @@ export const TIPO_EN_LA_API: Partial<Record<EntidadAuditable, string>> = {
   auditoria: 'audit',
   plan_accion: 'action_plan',
   contrato: 'contract',
+  // Los tres de ISO 14001 que el servidor ya anclaba (`ANCLAJES`) y que la web
+  // no nombraba hasta el 21-sep, cuando el registro empezó a leerse del
+  // servidor y necesitó sus tipos.
+  aspecto_ambiental: 'environmental_aspect',
+  riesgo_oportunidad: 'risk_opportunity',
+  equipo: 'regulated_equipment',
 };
 
 /**
@@ -59,6 +65,12 @@ export const SIN_HISTORIA_EN_LA_API: Partial<Record<EntidadAuditable, string>> =
     'parte del perfil de la empresa; su historia se lee en la ficha de la empresa',
   planta:
     'lo mismo que departamento. Si algún día se comenta una planta, entra en el mapa de anclajes del servidor y después acá',
+  documento:
+    'un documento se adjunta a otros registros (RF-108) en vez de tener historia propia: sus revisiones y su ciclo de vida se leen en su ficha de `/documentos`',
+  rol: 'los roles y permisos son de una persona; se leen en el registro global, filtrando por la persona',
+  crm: 'el CRM tiene su propia línea de tiempo por empresa (`/crm/.../timeline`), que no es la historia de un registro',
+  comentario: 'un comentario **es** parte de la historia de un registro, no un registro con historia',
+  otro: 'es el respaldo del registro global para tablas sin tipo: no hay ficha a la cual anclarlo',
 };
 
 /** El tipo que entiende la API, o `null` si esa entidad no tiene historia allá. */

@@ -12,7 +12,7 @@ import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { aspectoSinTratar, useIso, type AspectoApi, type PlantaApi } from '@/lib/iso-store';
 import { CONDICION_OPERACION, TIPO_IMPACTO, etiqueta, opciones } from '@/lib/iso-vocabulario';
 import { buildMatrizAspectosReport, downloadTextFile } from '@/lib/reports';
-import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useAnotarEmision } from '@/lib/emisiones';
 import { useSession } from '@/lib/session';
 import { useDepartamentos } from '@/lib/departamentos-store';
 
@@ -156,7 +156,7 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
   );
 
   const { user } = useSession();
-  const registrar = useRegistrarAuditoria();
+  const anotarEmision = useAnotarEmision();
 
   // **Se exporta lo que se ve**, filtros incluidos, y el documento los nombra.
   const reporte = useMemo(() => {
@@ -183,24 +183,21 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
     });
   }, [filtered, plants, procesos, riesgos, getUserName, plantaFiltro, condicionFiltro, procesoFiltro, significativoFiltro, aspectos.length]);
 
-  function anotar(resumen: string) {
-    if (!tenant) return;
-    // Historial de esta sesion, no del servidor: ver `audit-log-store`.
-    registrar({
-      entidadTipo: 'tenant',
-      entidadId: tenant.id,
-      entidadLabel: tenant.nombre,
-      tenantId: tenant.id,
-      accion: 'exportado',
-      resumen,
-      cambios: [],
+  /** Queda en el registro del servidor, con los filtros que tenía (RNF-26). */
+  function anotar(formato: 'pdf' | 'csv') {
+    anotarEmision({
+      documento: 'matriz_de_aspectos',
+      titulo: reporte.titulo,
+      formato,
+      filas: reporte.rows.length,
+      filtros: reporte.notas.filter((n) => n.startsWith('Filtrado')),
     });
   }
 
   function exportarCsv() {
     const fecha = new Date().toISOString().slice(0, 10);
     downloadTextFile(`matriz-aspectos-${fecha}.csv`, reporte.csv, 'text/csv;charset=utf-8');
-    anotar(`Exportó la matriz de aspectos en CSV (${reporte.rows.length} aspectos)`);
+    anotar('csv');
   }
 
   const puedeImprimir = Boolean(tenant && user) && !reporte.empty;
@@ -292,9 +289,7 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
       )}
       {puedeImprimir && tenant && user && (
         <DocumentoImprimible
-          onAntesDeImprimir={() =>
-            anotar(`Abrió la impresión de la matriz de aspectos (${reporte.rows.length} aspectos)`)
-          }
+          onAntesDeImprimir={() => anotar('pdf')}
         >
           <ReporteImprimible
             tenant={tenant}

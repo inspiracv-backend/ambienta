@@ -114,6 +114,12 @@ ACCIONES = {
     "update": "Modificado",
     "delete": "Eliminado",
     "login": "Ingreso",
+    # Los tres que el CHECK admite y faltaban: sin ellos la linea de tiempo
+    # mostraba el verbo en ingles. `download` es la emision de un documento
+    # (`routers/emisiones.py`, 21-sep).
+    "download": "Documento emitido",
+    "approve": "Aprobado",
+    "sync": "Sincronizado",
 }
 
 

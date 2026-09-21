@@ -591,6 +591,12 @@ CODIGO_EMPRESA_SOLO_LECTURA = "empresa_en_solo_lectura"
 
 _ESCRITURAS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+#: Raices cuyas escrituras **no son datos de la empresa** y por eso siguen en
+#: solo lectura. Hoy una: anotar que se emitio un documento. Una empresa
+#: suspendida puede exportar (spec de RBAC), y que su emision no quedara anotada
+#: seria perder justo el rastro que RNF-26 pide.
+RAICES_QUE_ANOTAN_EN_SOLO_LECTURA = frozenset({"emisiones"})
+
 
 def exigir_empresa_que_escribe(db: Session, empresas: set[UUID]) -> None:
     """403 si cualquiera de estas empresas esta en solo lectura.
@@ -698,6 +704,12 @@ def exigir_escritura_en_empresa_activa(
     comentar **tambien es escribir**. La usan los dos caminos.
     """
     if request.method.upper() not in _ESCRITURAS:
+        return
+    ruta = request.scope.get("route")
+    camino = getattr(ruta, "path", None) or request.url.path
+    partes = [p for p in camino.split("/") if p]
+    raiz = partes[2] if len(partes) > 2 and partes[:2] == ["api", "v1"] else None
+    if raiz in RAICES_QUE_ANOTAN_EN_SOLO_LECTURA:
         return
     empresas = {tenant_id}
     try:
