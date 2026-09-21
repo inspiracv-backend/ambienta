@@ -146,14 +146,19 @@ def fijar_roles(
         ) from None
 
     efectos = svc.fijar_roles(db, usuario, tenant_id, datos.role_ids)
-    db.commit()
-
-    return ResultadoDeRoles(
+    # **La respuesta se arma ANTES de confirmar**, y despues del `flush` para
+    # que la consulta vea lo recien escrito (`autoflush=False`). Despues del
+    # commit la sesion ya no tiene empresa: respondia `role_ids: []` aunque los
+    # roles quedaban asignados.
+    db.flush()
+    resultado = ResultadoDeRoles(
         user_id=user_id,
         role_ids=[a.role_id for a in svc.roles_vigentes_de(db, user_id)],
         codigos=roles_vigentes(db, user_id),
         efectos=efectos,
     )
+    db.commit()
+    return resultado
 
 
 def _alcance(db: Session, user_id: UUID) -> AlcanceDelUsuario:
@@ -206,5 +211,11 @@ def fijar_alcance(
         svc.fijar_alcance(db, usuario, datos.facility_id)
     except svc.ErrorDeUsuarios as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    # **Se lee antes de confirmar.** Despues del commit no hay empresa declarada,
+    # la relectura veia cero roles y respondia `facility_ids: []` — que aca
+    # significa "sin acotar": lo contrario de lo que se acababa de guardar, y la
+    # pantalla pinta a la persona con esta respuesta.
+    db.flush()
+    resultado = _alcance(db, user_id)
     db.commit()
-    return _alcance(db, user_id)
+    return resultado

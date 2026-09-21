@@ -28,22 +28,36 @@ from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1] / "app"
 
-#: Lo que no puede aparecer despues de un commit dentro de la misma funcion.
+#: Cualquier uso de la sesion despues del commit, **no solo `db.refresh`**.
 #:
-#: Anclado al **inicio de la sentencia**: de otro modo marca la prosa que habla
-#: del patron —los docstrings de este repositorio lo explican en varios lados— y
-#: un detector que grita por su propia documentacion se termina apagando.
-CONSULTA = re.compile(
-    r"^(?:\w+\s*=\s*)?(db\.(refresh|scalar|scalars|execute|get|query)\(|crud_\w+\.(get|get_multi)\()"
+#: La primera version miraba `db.refresh(`, `db.execute(`, `crud_x.get(`... al
+#: inicio de la sentencia, y se le escaparon dos en `roles.py` (21-sep): ahi la
+#: consulta va **dentro de una funcion auxiliar** —`return _alcance(db, id)`—, y
+#: esa funcion consulta igual. Pasarle `db` a algo despues del commit es
+#: consultar sin empresa, se llame como se llame.
+USO_DE_SESION = re.compile(
+    r"\bdb\.(?!commit\(|close\(|rollback\()\w+\("  # db.algo(...)
+    r"|[(,]\s*db\s*[,)]"                           # f(db, ...) / f(x, db)
+    r"|\bdb\s*=\s*db\b"                            # f(db=db)
 )
 COMMIT = re.compile(r"^(?:\w+\s*=\s*)?db\.commit\(\)")
+#: Volver a declarar la empresa despues del commit es legitimo: es lo que hacen
+#: las tareas que recorren empresas. Desde ahi la sesion vuelve a tener empresa.
+REDECLARA = re.compile(r"\b(?:volver_a_)?declarar\(\s*db\b")
 #: Un `def` o un decorador cierran el bloque que se mira.
 FIN_DE_BLOQUE = re.compile(r"\s*(def |async def |@)")
+#: Una rama hermana, menos sangrada que el commit, **no corre despues de el**:
+#: un commit en un `except` y un uso de la sesion en el `except` siguiente son
+#: dos caminos distintos. Sin esto el despachador de avisos salia marcado.
+OTRA_RAMA = re.compile(r"(except\b|elif\b|else\s*:)")
 COMILLAS = ('"""', "'''")
+#: El texto entre comillas no es codigo: un `description=` que explica el
+#: patron no es una infraccion.
+CADENA = re.compile(r"""[rbfuRBFU]{0,2}("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')""")
 
 
 def _codigo(lineas: list[str]) -> list[tuple[int, str]]:
-    """Las lineas de codigo, sin docstrings ni comentarios."""
+    """Las lineas de codigo, sin docstrings, comentarios ni cadenas."""
     fuera: list[tuple[int, str]] = []
     dentro_de_texto = False
     for n, linea in enumerate(lineas, start=1):
@@ -55,27 +69,44 @@ def _codigo(lineas: list[str]) -> list[tuple[int, str]]:
         if comillas % 2 == 1:
             dentro_de_texto = True
             continue
-        desnuda = linea.strip()
-        if desnuda and not desnuda.startswith("#"):
-            fuera.append((n, linea))
+        # Primero las cadenas y despues el comentario: un `#` dentro de una
+        # cadena no empieza nada. La sangria se conserva: es lo que dice en que
+        # rama esta cada linea.
+        desnuda = CADENA.sub('""', linea).split("#", 1)[0].rstrip()
+        if desnuda.strip():
+            fuera.append((n, desnuda))
     return fuera
+
+
+def _sangria(linea: str) -> int:
+    return len(linea) - len(linea.lstrip())
+
+
+def infracciones_en(texto: str, nombre: str = "<texto>") -> list[str]:
+    """Separado del recorrido para poder probar el detector con codigo inventado."""
+    encontradas: list[str] = []
+    codigo = _codigo(texto.split("\n"))
+    for k, (_n, linea) in enumerate(codigo):
+        if not COMMIT.match(linea.strip()):
+            continue
+        for n_sig, siguiente in codigo[k + 1 :]:
+            sentencia = siguiente.strip()
+            if FIN_DE_BLOQUE.match(siguiente) or REDECLARA.search(sentencia):
+                break
+            if _sangria(siguiente) < _sangria(linea) and OTRA_RAMA.match(sentencia):
+                break
+            if USO_DE_SESION.search(sentencia):
+                encontradas.append(f"{nombre}:{n_sig}: {sentencia}")
+                break
+    return encontradas
 
 
 def _infracciones() -> list[str]:
     encontradas: list[str] = []
     for archivo in sorted(APP.rglob("*.py")):
-        codigo = _codigo(archivo.read_text(encoding="utf-8").split("\n"))
-        for k, (_n, linea) in enumerate(codigo):
-            if not COMMIT.match(linea.strip()):
-                continue
-            for n_sig, siguiente in codigo[k + 1 :]:
-                if FIN_DE_BLOQUE.match(siguiente):
-                    break
-                if CONSULTA.match(siguiente.strip()):
-                    encontradas.append(
-                        f"{archivo.relative_to(APP.parent)}:{n_sig}: {siguiente.strip()}"
-                    )
-                    break
+        encontradas += infracciones_en(
+            archivo.read_text(encoding="utf-8"), str(archivo.relative_to(APP.parent))
+        )
     return encontradas
 
 
@@ -90,6 +121,45 @@ def test_el_barrido_mira_algo() -> None:
         if COMMIT.match(linea.strip())
     )
     assert commits > 20, f"solo {commits} commits vistos: el patron ya no reconoce nada"
+
+
+# El detector, contra codigo inventado. Contar archivos y commits no prueba que
+# `USO_DE_SESION` reconozca algo: con ese patron roto el barrido encontraria
+# cero infracciones y pasaria en verde, que es justo como se le escaparon las
+# dos de `roles.py`.
+_MARCA = [
+    # La forma de `roles.py::fijar_alcance`: la consulta va en una auxiliar.
+    "def f(db):\n    db.commit()\n    return _alcance(db, user_id)\n",
+    # La de `fijar_roles`: dentro de una comprension, en una linea de
+    # continuacion de la respuesta.
+    "def f(db):\n    db.commit()\n    return R(\n        ids=[a for a in svc.vigentes(db, u)],\n    )\n",
+    "def f(db):\n    db.commit()\n    db.refresh(obj)\n",
+    "def f(db):\n    db.commit()\n    fila = crud_x.get(db, i)\n",
+    "def f(db):\n    db.commit()\n    g(db=db)\n",
+]
+_NO_MARCA = [
+    # Leer antes de confirmar: la regla.
+    "def f(db):\n    leido = S.model_validate(o)\n    db.commit()\n    return leido\n",
+    # Volver a declarar la empresa antes de releer.
+    "def f(db):\n    db.commit()\n    volver_a_declarar(db)\n    return g(db, i)\n",
+    "def f(db):\n    db.commit()\n    declarar(db, t)\n    db.execute(q)\n",
+    # El despachador: el commit y el uso estan en ramas hermanas.
+    "def f(db):\n    try:\n        x()\n    except A:\n        db.commit()\n        break\n    except B:\n        _rendirse(db, a)\n",
+    # Texto que habla del patron no es el patron.
+    "def f(db):\n    db.commit()\n    log(\"no hacer db.refresh(x) aca\")\n",
+    # Un commit en una funcion no contamina a la siguiente.
+    "def f(db):\n    db.commit()\n\ndef g(db):\n    return db.get(M, 1)\n",
+]
+
+
+def test_el_detector_reconoce_el_patron() -> None:
+    no_vistos = [c for c in _MARCA if not infracciones_en(c)]
+    assert no_vistos == [], "El detector no ve estos casos:\n" + "\n---\n".join(no_vistos)
+
+
+def test_el_detector_no_marca_lo_legitimo() -> None:
+    marcados = [c for c in _NO_MARCA if infracciones_en(c)]
+    assert marcados == [], "El detector marca codigo correcto:\n" + "\n---\n".join(marcados)
 
 
 def test_nadie_consulta_despues_del_commit() -> None:

@@ -374,6 +374,11 @@ def evaluar_significancia(
     # detecto nadie porque ninguna pantalla lo llamaba —el mismo patron que ya
     # aparecio con `fulfill` y con el checklist—, y las pruebas eran del
     # servicio, no del endpoint. Encontrado en el navegador el 20-sep.
+    #
+    # El `refresh` va **antes** del commit, que es donde todavia funciona: trae
+    # el `updated_at` que escribe el trigger `set_updated_at`. Sin el, la
+    # respuesta llevaba la marca anterior y no coincidia con la base.
+    db.refresh(aspecto)
     leido = EnvironmentalAspectRead.model_validate(aspecto)
     db.commit()
     return ResultadoDeSignificancia(aspect=leido, motivos=motivos)

@@ -124,3 +124,16 @@ def test_magnitud_baja_con_requisito_legal_igual_es_significativo(cliente, aspec
 def test_un_puntaje_fuera_de_rango_se_rechaza(cliente, aspecto) -> None:
     assert _evaluar(cliente, aspecto, 0, 5, 5).status_code == 422
     assert cliente.get(f"/api/v1/iso14001/aspects/{aspecto['id']}").json()["significance"] == "pending"
+
+
+def test_la_respuesta_trae_la_marca_de_tiempo_que_quedo_guardada(cliente, aspecto) -> None:
+    """`updated_at` lo escribe el trigger `set_updated_at` en el UPDATE, y la ORM
+    no se entera sola. Leer antes del commit sin `refresh` devolvia la marca
+    **anterior**: la respuesta y la base decian dos cosas distintas del mismo
+    aspecto. Se relee dentro de la transaccion, que todavia tiene empresa."""
+    cuerpo = _evaluar(cliente, aspecto, 8, 7, 3).json()
+
+    leido = cliente.get(f"/api/v1/iso14001/aspects/{aspecto['id']}").json()
+
+    assert cuerpo["aspect"]["updated_at"] == leido["updated_at"]
+    assert cuerpo["aspect"]["updated_at"] != aspecto["updated_at"]
