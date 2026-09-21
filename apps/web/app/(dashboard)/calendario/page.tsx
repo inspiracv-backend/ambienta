@@ -17,6 +17,7 @@ import { useSession } from '@/lib/session';
 import { useObligations } from '@/lib/obligations-store';
 import { useTenants } from '@/lib/tenants-store';
 import { usePersonasAsignables } from '@/lib/crm-etapas-store';
+import { useEventosDeCalendario } from '@/lib/eventos-de-calendario';
 
 type ViewMode = 'calendario' | 'gantt' | 'kanban';
 
@@ -41,6 +42,7 @@ export default function CalendarioPage() {
   // Personas de la base (`/users/`), no `mockUsers`: el responsable es una
   // clave foránea y un id de ejemplo hacía que la API rechazara la escritura.
   const { personas } = usePersonasAsignables();
+  const { eventos, sinFecha, errores } = useEventosDeCalendario(user?.tenantId ?? null);
 
   useEffect(() => {
     if (!cargando && user === null) router.replace('/login');
@@ -99,7 +101,34 @@ export default function CalendarioPage() {
         </div>
       </div>
 
-      {view === 'calendario' && <CalendarMonthView tickets={tickets} onSelectTicket={setSelected} />}
+      {errores.length > 0 && (
+        <p role="alert" className="rounded-card bg-semaforo-no-cumple-bg px-4 py-3 text-sm text-semaforo-no-cumple">
+          No se pudieron cargar {errores.join('; ')}. El calendario muestra solo lo que sí cargó.
+        </p>
+      )}
+
+      {view === 'calendario' && (
+        <CalendarMonthView tickets={tickets} onSelectTicket={setSelected} eventos={eventos} />
+      )}
+
+      {/* **Lo que no se puede poner en el calendario, a la vista.** Una norma
+          sin fecha de revisión no aparece en ningún día, y sin esta lista su
+          ausencia se leería como "no le toca revisión". */}
+      {view === 'calendario' && sinFecha.length > 0 && (
+        <section aria-labelledby="revisiones-sin-fecha" className="rounded-card border border-slate-200 bg-white p-4">
+          <h2 id="revisiones-sin-fecha" className="text-sm font-semibold text-slate-700">
+            Normas sin fecha de revisión periódica
+          </h2>
+          <ul className="mt-2 flex flex-col gap-1 text-sm">
+            {sinFecha.map((r) => (
+              <li key={r.id} className="flex flex-wrap gap-x-2">
+                <span className="font-medium text-slate-800">{r.titulo}</span>
+                <span className="text-slate-500">— {r.motivo}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {view === 'gantt' && <GanttView tickets={tickets} onSelectTicket={setSelected} />}
       {view === 'kanban' && <KanbanBoard tickets={tickets} onSelectTicket={setSelected} />}
 

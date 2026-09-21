@@ -46,6 +46,10 @@ SUFIJOS_DE_ACCION = (
     # — se le asigna a alguien o se le renueva la certificacion, y entonces
     # sale solo de la lista. Mismo caso que `/significant-untreated`.
     "/sin-operador",
+    # Cuando toca revisar cada norma de la matriz (§9.1.2): se **deriva** de la
+    # ultima evaluacion y la frecuencia, no se guarda. Lo que se edita es la
+    # frecuencia o la fecha declarada, en `/matrix-norms/{id}`.
+    "/revisiones",
     # El historial de presentaciones es **de solo lectura por diseño**: cada
     # fila la escribe `services/declaracion.py` al presentar, aceptar o
     # rechazar. Un `POST` aparte permitiria inventar una presentacion que nunca

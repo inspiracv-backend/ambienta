@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -48,6 +48,24 @@ class MatrixNormCreate(BaseModel):
     owner_user_id: UUID | None = None
     review_frequency: str = "annual"
     next_review_date: datetime | None = None
+
+
+class RevisionPeriodicaRead(BaseModel):
+    """Cuando toca volver a evaluar una norma de la matriz (ISO 14001 §9.1.2)."""
+
+    matrix_norm_id: UUID
+    norm_id: UUID
+    titulo: str
+    frecuencia: str
+    #: El dia, en el huso de la empresa, de la evaluacion mas reciente.
+    ultima_evaluacion: date | None
+    proxima_revision: date | None
+    #: `declarada` (la puso la empresa) o `calculada` (ultima + frecuencia).
+    origen: str | None
+    #: Por que no hay fecha: `nunca_evaluada`, `evaluada_sin_fecha` o
+    #: `por_evento`. Una fila sin fecha y sin motivo se leeria como "nada que hacer".
+    motivo_sin_fecha: str | None
+    vencida: bool
 
 
 class MatrixNormRead(OrmBase):

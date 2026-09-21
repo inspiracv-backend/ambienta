@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from ..models.compliance import TenantLegalMatrix
 from ..services.resumen_cumplimiento import resumir as resumir_cumplimiento
+from ..services.revision_periodica import revisiones as revisiones_periodicas
 from ..services.sincronizar_matriz import (
     actualizar_a_version_vigente,
     desactualizadas as normas_desactualizadas,
@@ -35,6 +36,7 @@ from ..schemas.compliance import (
     MatrixNormCreate,
     MatrixNormRead,
     MatrixNormUpdate,
+    RevisionPeriodicaRead,
     TenantLegalMatrixCreate,
     TenantLegalMatrixRead,
     TenantLegalMatrixUpdate,
@@ -80,6 +82,27 @@ def update_matrix(matrix_id: UUID, data: TenantLegalMatrixUpdate, db: Session = 
 @router.get("/matrix-norms", response_model=list[MatrixNormRead])
 def list_matrix_norms(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
     return recortar(respuesta, crud_matrix_norm.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
+
+
+# **Antes de `/matrix-norms/{mn_id}`**, o esa ruta se la come: leeria
+# "revisiones" como UUID y responderia 422 (ya paso con `sin-operador`).
+@router.get(
+    "/matrix-norms/revisiones",
+    response_model=list[RevisionPeriodicaRead],
+    tags=["business-logic"],
+    summary="Cuando toca volver a evaluar cada norma de la matriz",
+    description=(
+        "ISO 14001 §9.1.2 pide evaluar el cumplimiento periodicamente. Manda la "
+        "fecha que declaro la empresa; si no hay, se calcula con la ultima "
+        "evaluacion registrada y la frecuencia. Sin forma de calcularla, "
+        "`motivo_sin_fecha` dice por que.\n\n"
+        "Se deriva al pedirla, no se guarda: una evaluacion nueva la mueve sola."
+    ),
+)
+def revisiones_de_la_matriz(
+    tenant_id: UUID = Depends(get_tenant_id), db: Session = Depends(get_tenant_db)
+):
+    return [RevisionPeriodicaRead(**vars(r)) for r in revisiones_periodicas(db, tenant_id)]
 
 
 @router.post("/matrix-norms", response_model=MatrixNormRead, status_code=status.HTTP_201_CREATED)

@@ -1074,6 +1074,20 @@ veredicto**: se podian cargar y el aspecto seguia sin evaluar. Los puntajes
 salieron de ese formulario — la significancia tiene un solo camino, y devuelve
 **por que** quedo asi.
 
+**Las pruebas de la web corren en hora de Chile en todas las maquinas** (21-sep,
+`vitest.config.ts`). Antes corrian en el huso de la maquina: en la de quien las
+escribia (Chile) un error de "un dia antes" fallaba, y en CI (UTC) pasaba en
+verde. Se midio: con el calendario mutado para leer la fecha con `new Date()`,
+la prueba fallaba en local y pasaba con `TZ=UTC`. Ahora falla en las dos.
+
+**La revision periodica de la matriz (§9.1.2) se deriva, no se guarda.**
+`review_frequency` estaba declarada en las siete normas y `next_review_date`
+vacia en las siete: nadie calculaba la fecha. `GET
+/compliance/matrix-norms/revisiones` usa la fecha declarada si hay, o la ultima
+evaluacion mas la frecuencia; si no puede, dice por que (`nunca_evaluada`,
+`evaluada_sin_fecha`, `por_evento`). La Ley 19.300 del seed cae en el segundo:
+tiene evaluaciones **sin `assessed_at`**.
+
 **Y una fecha de calendario no se puede medir en horas: van tres veces.** El
 4-sep, despues de arreglar la banda de +-12 h del cron, seis pruebas de dos
 archivos se pusieron en rojo diciendo "no se genero el aviso" — acusando al
