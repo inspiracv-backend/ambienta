@@ -560,10 +560,11 @@ cumplimiento global solo cubria "sin filas", pero la sincronizacion crea las
 filas en `pending`: con la matriz recien cargada y nada evaluado, el tablero
 decia **0,0 %**. Ahora es `None` si no se evaluo nada, y `/dashboard/metrics`
 trae ademas la **cobertura** y los **pendientes**, que la tarjeta muestra al
-lado del cumplimiento. Ojo: los specs no coinciden en que es "cumplimiento" —el
-del tablero deja los pendientes en el denominador, el de ISO pide calcularlo
-sobre lo evaluado—. **Decidido el 21-sep: manda la del tablero**, con la
-cobertura al lado (`docs/plan-de-cierre-v1.md`, §6).
+lado del cumplimiento. **Y que es "cumplimiento" quedo decidido el 21-sep: la
+del tablero**, con los pendientes en el denominador y la cobertura al lado
+(`docs/plan-de-cierre-v1.md`, §6). El spec de ISO pedia calcularlo sobre lo
+evaluado, contra su propio design (§6), que ya decia lo mismo que el tablero; se
+alineo el spec.
 
 `computeNormCompliance` **se queda igual**: es el espejo de
 `resumen_cumplimiento.py`. Y al medirlo aparecio que **la API ya lo hacia bien**

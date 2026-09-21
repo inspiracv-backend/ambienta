@@ -25,14 +25,19 @@ El sistema SHALL permitir que cada empresa configure sus criterios de significan
 - **THEN** el sistema recalcula qué aspectos son significativos con el criterio nuevo
 
 ### Requirement: Cumplimiento y cobertura son indicadores distintos
-El sistema SHALL informar por separado qué proporción de los requisitos evaluados se cumple y qué proporción del total fue evaluada.
+El sistema SHALL informar, al lado del porcentaje de cumplimiento, qué proporción de los requisitos aplicables ya fue evaluada.
 
-Un 100 % de cumplimiento sobre el 30 % evaluado no es un buen resultado, y hoy se muestra igual que un 100 % sobre el total.
+El cumplimiento se calcula sobre los requisitos aplicables, con los no evaluados en el denominador —la misma definición que el tablero y que el §6 del design—: así una matriz evaluada a medias no puede mostrar 100 %. La cobertura va al lado porque un cumplimiento bajo puede ser incumplimiento o falta de evaluación, y el número solo no lo distingue. Decidido el 21-sep (plan de cierre, §6, decisión 3).
 
 #### Scenario: Matriz evaluada a medias
-- **GIVEN** una matriz con 10 requisitos de los cuales 3 fueron evaluados y los 3 cumplen
+- **GIVEN** una matriz con 10 requisitos aplicables de los cuales 3 fueron evaluados y los 3 cumplen
 - **WHEN** se consultan los indicadores
-- **THEN** el sistema informa 100 % de cumplimiento y 30 % de cobertura, no un único número
+- **THEN** el sistema informa 30 % de cumplimiento y 30 % de cobertura, no un único número
+
+#### Scenario: Nada evaluado todavía
+- **GIVEN** una matriz con requisitos aplicables y ninguno evaluado
+- **WHEN** se consultan los indicadores
+- **THEN** el cumplimiento se informa como sin evaluar, no como 0 %, y la cobertura como 0 %
 
 ### Requirement: Un aspecto significativo sin tratar es visible
 El sistema SHALL señalar los aspectos significativos que no tienen riesgo, control ni plan de acción asociado.

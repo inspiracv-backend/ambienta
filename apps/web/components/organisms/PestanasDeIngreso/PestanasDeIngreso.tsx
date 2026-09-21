@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { SignIn } from '@clerk/nextjs';
+import { FEATURE_FLAGS } from '@ambienta/shared';
 import { IngresoConRut } from '@/components/organisms/IngresoConRut';
 
 /**
@@ -25,6 +26,12 @@ import { IngresoConRut } from '@/components/organisms/IngresoConRut';
  */
 export function PestanasDeIngreso() {
   const [pestana, setPestana] = useState<'correo' | 'rut'>('correo');
+
+  // **Sin la bandera no hay pestañas**: solo el ingreso de Clerk (decisión del
+  // 21-sep). Una sola pestaña visible se leería como un menú a medio hacer.
+  if (!FEATURE_FLAGS.ingresoConRut) {
+    return <SignIn forceRedirectUrl="/dashboard" appearance={{ elements: { rootBox: 'mx-auto' } }} />;
+  }
 
   return (
     <div>

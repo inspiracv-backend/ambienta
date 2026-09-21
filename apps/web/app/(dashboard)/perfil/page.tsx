@@ -1,5 +1,6 @@
 'use client';
 
+import { FEATURE_FLAGS } from '@ambienta/shared';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/atoms';
@@ -42,7 +43,9 @@ export default function PerfilPage() {
         responde 503 porque no hay proveedor con el cual fijarla. Mostrar el
         formulario igual sería ofrecer algo que no puede funcionar.
       */}
-      {CLERK_HABILITADO && <ClaveLocalCard />}
+      {/* Fijar una clave que no se puede usar para entrar solo confunde:
+          va con la misma bandera que la pestaña del login. */}
+      {CLERK_HABILITADO && FEATURE_FLAGS.ingresoConRut && <ClaveLocalCard />}
     </div>
   );
 }
