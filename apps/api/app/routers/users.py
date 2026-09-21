@@ -220,9 +220,10 @@ def registrar_invitado_permanente(
     except svc_registro.ErrorDeRegistro as exc:
         raise _traducir_registro(exc) from None
 
+    # Se lee antes del commit: despues, la sesion ya no tiene empresa declarada.
+    leido = UserRead.model_validate(usuario)
     db.commit()
-    db.refresh(usuario)
-    return InvitadoRegistrado(user=UserRead.model_validate(usuario), efectos=efectos)
+    return InvitadoRegistrado(user=leido, efectos=efectos)
 
 
 @router.post(

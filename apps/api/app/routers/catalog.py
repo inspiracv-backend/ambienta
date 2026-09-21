@@ -380,9 +380,11 @@ def set_norm_sector(
     fila.classified_at = datetime.now(timezone.utc)
     autor = db.scalar(select(User).where(User.clerk_id == user.user_id))
     fila.classified_by = autor.id if autor else None
+    # Misma regla para todos, aunque el catalogo sea global: leer despues del
+    # commit es el patron que rompio la evaluacion de significancia.
+    leida = NormSectorRead.model_validate(fila)
     db.commit()
-    db.refresh(fila)
-    return fila
+    return leida
 
 
 @router.delete(

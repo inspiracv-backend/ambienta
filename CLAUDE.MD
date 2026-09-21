@@ -450,6 +450,21 @@ escrito con `get_db` en vez de `get_tenant_db`, o una consulta puesta despues
 de un `db.commit()`, no lanza ninguna excepcion: devuelve **cero filas**. Da
 una pantalla vacia inexplicable, no una fuga. Antes daba lo contrario. Ver §4.
 
+**Y con `db.refresh()` no devuelve cero filas: revienta con 500.** Medido el
+20-sep en el navegador: `POST /iso14001/aspects/{id}/evaluate` hacia `commit` y
+despues `refresh`, y respondia `Could not refresh instance`. Lo peor es el orden:
+el commit **ya escribio**, asi que la evaluacion quedaba guardada y la pantalla
+decia "no se pudo contactar al servidor". Habia dos casos mas iguales
+—promover un trato a contrato y registrar a un invitado— y los tres estaban
+**probados**: sus pruebas usan sesiones con `join_transaction_mode="create_savepoint"`,
+donde el `commit` solo cierra un savepoint y la transaccion de afuera conserva
+su `SET LOCAL`. El arnes escondia justo lo que el defecto necesita para
+aparecer.
+
+La regla es **leer antes de confirmar** (`Schema.model_validate(obj)` y despues
+`db.commit()`), y la fija `test_no_se_lee_despues_del_commit.py`, que barre
+`app/` porque es una regla de forma.
+
 **Un 401 no siempre es autenticacion.** El sitio de Ley Chile responde 401 a
 todo —incluida su propia pagina de documentacion— a quien no se identifica como
 navegador. Se perdio tiempo diagnosticandolo como una clave sin habilitar, que
