@@ -300,6 +300,9 @@ es cada fila, responde 403 a quien este acotado.
 `audit_log` la anota como autora y la clave foranea impide borrarla despues
 (el registro no se edita ni se borra). Retirarla con borrado logico; forzar el
 borrado seria justamente dejar huerfano el historial.
+Y por lo mismo, **una prueba que elige "cualquier usuario" tiene que filtrar
+`deleted_at IS NULL`**: dos de `test_referencias_cruzadas.py` tomaban el primero
+que devolviera Postgres, les toco uno retirado y la API respondio 404.
 
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
 leerlo con cuidado porque son dos estados distintos con arreglos opuestos:

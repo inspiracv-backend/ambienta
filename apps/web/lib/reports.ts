@@ -208,6 +208,8 @@ export function buildMatrizLegalReport(norms: LegalNorm[], plants: Plant[]): Rep
 
 export interface ContextoMatrizAspectos {
   plantas: { id: string; nombre: string }[];
+  /** El mapa de procesos. Uno que no este se muestra con su id, no en blanco. */
+  procesos: { id: string; nombre: string }[];
   riesgos: RiesgoApi[];
   nombreDe: (userId: string) => string;
   /** Los filtros de la pantalla, dichos en palabras. Vacio = la matriz entera. */
@@ -231,6 +233,9 @@ export function buildMatrizAspectosReport(
   const puntaje = (n: number | null) => (n === null ? '—' : String(n));
   const rows = aspectos.map((a) => [
     ctx.plantas.find((p) => p.id === a.facilityId)?.nombre ?? a.facilityId,
+    a.procesoId === null
+      ? 'Sin proceso'
+      : (ctx.procesos.find((p) => p.id === a.procesoId)?.nombre ?? a.procesoId),
     a.actividad,
     a.aspecto,
     etiqueta(TIPO_IMPACTO, a.tipoImpacto),
@@ -265,6 +270,7 @@ export function buildMatrizAspectosReport(
     'Matriz de aspectos e impactos ambientales',
     [
       'Planta',
+      'Proceso',
       'Actividad',
       'Aspecto',
       'Tipo de impacto',

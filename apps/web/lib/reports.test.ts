@@ -507,18 +507,26 @@ describe('buildMatrizAspectosReport', () => {
   }
   const ctx = {
     plantas: [{ id: 'p1', nombre: 'Planta Calama' }],
+    procesos: [{ id: 'pr1', nombre: 'Chancado primario' }],
     riesgos: [] as RiesgoApi[],
     nombreDe: (id: string) => (id === 'u1' ? 'Ana Rojas' : id),
     filtros: [] as string[],
     total: 3,
   };
 
+  /** La celda por su encabezado: agregar una columna no rompe las pruebas. */
+  function celda(r: { headers: string[]; rows: string[][] }, fila: number, encabezado: string) {
+    const i = r.headers.indexOf(encabezado);
+    expect(i, `no hay columna "${encabezado}"`).toBeGreaterThanOrEqual(0);
+    return r.rows[fila][i];
+  }
+
   it('sin puntajes dice "Sin evaluar", no cero', () => {
     const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], ctx);
 
-    expect(r.rows[0][8]).toBe('Sin evaluar');
-    expect(r.rows[0][9]).toBe('Sin evaluar');
-    expect(r.rows[0].slice(5, 8)).toEqual(['—', '—', '—']);
+    expect(celda(r, 0, 'Puntaje')).toBe('Sin evaluar');
+    expect(celda(r, 0, 'Significancia')).toBe('Sin evaluar');
+    expect(['Frecuencia', 'Severidad', 'Legal'].map((h) => celda(r, 0, h))).toEqual(['—', '—', '—']);
   });
 
   it('lleva los tres puntajes, que son la evidencia de como se evaluo', () => {
@@ -536,7 +544,13 @@ describe('buildMatrizAspectosReport', () => {
       ctx,
     );
 
-    expect(r.rows[0].slice(5, 10)).toEqual(['8', '7', '3', '56', 'Significativo']);
+    expect(['Frecuencia', 'Severidad', 'Legal', 'Puntaje', 'Significancia'].map((h) => celda(r, 0, h))).toEqual([
+      '8',
+      '7',
+      '3',
+      '56',
+      'Significativo',
+    ]);
   });
 
   it('distingue significativo tratado de sin tratar', () => {
@@ -551,16 +565,26 @@ describe('buildMatrizAspectosReport', () => {
       { ...ctx, riesgos: [riesgo] },
     );
 
-    expect(r.rows.map((f) => f[10])).toEqual(['Sin tratar', 'Tratado', 'Tratado', '—']);
+    expect(r.rows.map((_, i) => celda(r, i, 'Tratamiento'))).toEqual(['Sin tratar', 'Tratado', 'Tratado', '—']);
   });
 
   it('traduce planta, tipo, condicion y responsable', () => {
     const r = buildMatrizAspectosReport([aspecto({ id: 'a1', responsableId: 'u1' })], ctx);
 
-    expect(r.rows[0][0]).toBe('Planta Calama');
-    expect(r.rows[0][3]).toBe('Emisión atmosférica');
-    expect(r.rows[0][4]).toBe('Normal');
-    expect(r.rows[0][11]).toBe('Ana Rojas');
+    expect(celda(r, 0, 'Planta')).toBe('Planta Calama');
+    expect(celda(r, 0, 'Tipo de impacto')).toBe('Emisión atmosférica');
+    expect(celda(r, 0, 'Condición')).toBe('Normal');
+    expect(celda(r, 0, 'Responsable')).toBe('Ana Rojas');
+  });
+
+  it('dice el proceso, y lo sin proceso lo dice en palabras', () => {
+    const r = buildMatrizAspectosReport(
+      [aspecto({ id: 'a1', procesoId: 'pr1' }), aspecto({ id: 'a2' }), aspecto({ id: 'a3', procesoId: 'pr-retirado' })],
+      ctx,
+    );
+
+    // Uno que no esta en el mapa sale con su id: un guion pareceria "sin proceso".
+    expect(r.rows.map((_, i) => celda(r, i, 'Proceso'))).toEqual(['Chancado primario', 'Sin proceso', 'pr-retirado']);
   });
 
   it('filtrada, lo dice y dice cuantos de cuantos', () => {

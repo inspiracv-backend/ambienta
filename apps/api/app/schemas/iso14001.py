@@ -46,6 +46,11 @@ class EnvironmentalAspectRead(OrmBase):
 
 
 class EnvironmentalAspectUpdate(BaseModel):
+    #: Se puede cambiar de proceso, o dejarlo sin proceso con `null`. Faltaba:
+    #: el alta lo aceptaba y la edicion no, asi que un aspecto quedaba para
+    #: siempre en el proceso con el que nacio. Lo valida `_validar_referencias`
+    #: como en el alta (las claves foraneas no pasan por RLS).
+    process_id: UUID | None = None
     activity: str | None = None
     aspect: str | None = None
     impact_type: str | None = None

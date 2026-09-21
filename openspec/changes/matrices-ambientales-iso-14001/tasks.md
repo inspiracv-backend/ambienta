@@ -52,7 +52,7 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 
 ## Fase 4 — Pantallas
 
-- [ ] Matriz de aspectos e impactos, con filtro por proceso y condición de operación
+- [x] Matriz de aspectos e impactos, con filtro por proceso y condición de operación **(21-sep: columna y filtro por proceso, incluido "Sin proceso"; el formulario asigna el proceso y `PATCH` ya lo acepta —antes lo descartaba en silencio, asi que un aspecto quedaba para siempre en el proceso con que nacio)**
 - [x] Evaluación de significancia con los criterios del tenant **(con los criterios del sistema; los de cada empresa son la decision abierta #2)**
 - [x] Matriz de riesgos y oportunidades
 - [ ] Detalle de norma: vigencia, aplicabilidad y obligación de monitoreo

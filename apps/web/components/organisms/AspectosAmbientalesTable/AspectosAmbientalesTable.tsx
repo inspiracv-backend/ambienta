@@ -14,6 +14,7 @@ import { CONDICION_OPERACION, TIPO_IMPACTO, etiqueta, opciones } from '@/lib/iso
 import { buildMatrizAspectosReport, downloadTextFile } from '@/lib/reports';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
+import { useDepartamentos } from '@/lib/departamentos-store';
 
 /** Las opciones del filtro de significancia. **"No significativo" no incluye lo
     sin evaluar**: hasta el 21-sep si lo incluia, y un aspecto que nadie
@@ -34,7 +35,7 @@ const FILTRO_SIGNIFICANCIA: Record<string, string> = {
  * "guardado" y los pierda al recargar — que ya pasó en este repositorio con
  * `evidence_url` y es la forma más silenciosa de perder un dato.
  */
-function campos(plants: PlantaApi[]): CampoIso[] {
+function campos(plants: PlantaApi[], procesos: { id: string; nombre: string }[]): CampoIso[] {
   return [
     {
       nombre: 'facility_id',
@@ -42,6 +43,16 @@ function campos(plants: PlantaApi[]): CampoIso[] {
       tipo: 'select',
       requerido: true,
       opciones: plants.map((p) => ({ value: p.id, label: p.nombre })),
+    },
+    {
+      // **Opcional**: un aspecto puede ser de la planta entera y no de un
+      // proceso. Forzarlo inventaria una pertenencia (el mismo criterio que
+      // `audit_items.process_id`, `db/26`).
+      nombre: 'process_id',
+      etiqueta: 'Proceso',
+      tipo: 'select',
+      opciones: procesos.map((p) => ({ value: p.id, label: p.nombre })),
+      ayuda: 'El proceso del mapa de procesos al que pertenece la actividad.',
     },
     {
       nombre: 'activity',
@@ -113,6 +124,7 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
   // condicionales.
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [condicionFiltro, setCondicionFiltro] = useState('todas');
+  const [procesoFiltro, setProcesoFiltro] = useState('todos');
   const [significativoFiltro, setSignificativoFiltro] = useState('todos');
   const [editando, setEditando] = useState<AspectoApi | null>(null);
   const [creando, setCreando] = useState(false);
@@ -120,19 +132,27 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
   const [evaluando, setEvaluando] = useState<AspectoApi | null>(null);
 
   const { riesgos, crearAspecto, editarAspecto, borrarAspecto } = useIso();
+  const { departamentos: procesos } = useDepartamentos();
+  const nombreDeProceso = (id: string | null) =>
+    // Un proceso que no esta en la lista —retirado, o de un mapa que no cargo—
+    // se muestra con su id: escondido tras un guion pareceria "sin proceso".
+    id === null ? null : (procesos.find((p) => p.id === id)?.nombre ?? id);
 
   const filtered = useMemo(
     () =>
       aspectos.filter((a) => {
         if (plantaFiltro !== 'todas' && a.facilityId !== plantaFiltro) return false;
         if (condicionFiltro !== 'todas' && a.condicionOperacion !== condicionFiltro) return false;
+        if (procesoFiltro === 'ninguno' && a.procesoId !== null) return false;
+        if (procesoFiltro !== 'todos' && procesoFiltro !== 'ninguno' && a.procesoId !== procesoFiltro)
+          return false;
         if (significativoFiltro === 'si' && a.significancia !== 'significant') return false;
         if (significativoFiltro === 'no' && a.significancia !== 'not_significant') return false;
         if (significativoFiltro === 'pendiente' && a.significancia !== 'pending') return false;
         if (significativoFiltro === 'sin_tratar' && !aspectoSinTratar(a, riesgos)) return false;
         return true;
       }),
-    [aspectos, riesgos, plantaFiltro, condicionFiltro, significativoFiltro],
+    [aspectos, riesgos, plantaFiltro, condicionFiltro, procesoFiltro, significativoFiltro],
   );
 
   const { user } = useSession();
@@ -143,18 +163,25 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
     const filtros = [
       plantaFiltro !== 'todas' &&
         `Planta: ${plants.find((p) => p.id === plantaFiltro)?.nombre ?? plantaFiltro}`,
+      procesoFiltro !== 'todos' &&
+        `Proceso: ${
+          procesoFiltro === 'ninguno'
+            ? 'Sin proceso'
+            : (procesos.find((p) => p.id === procesoFiltro)?.nombre ?? procesoFiltro)
+        }`,
       condicionFiltro !== 'todas' && `Condición: ${etiqueta(CONDICION_OPERACION, condicionFiltro)}`,
       significativoFiltro !== 'todos' &&
         `Significancia: ${FILTRO_SIGNIFICANCIA[significativoFiltro] ?? significativoFiltro}`,
     ].filter((f): f is string => typeof f === 'string');
     return buildMatrizAspectosReport(filtered, {
       plantas: plants,
+      procesos,
       riesgos,
       nombreDe: getUserName,
       filtros,
       total: aspectos.length,
     });
-  }, [filtered, plants, riesgos, getUserName, plantaFiltro, condicionFiltro, significativoFiltro, aspectos.length]);
+  }, [filtered, plants, procesos, riesgos, getUserName, plantaFiltro, condicionFiltro, procesoFiltro, significativoFiltro, aspectos.length]);
 
   function anotar(resumen: string) {
     if (!tenant) return;
@@ -193,6 +220,17 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
               options: [
                 { value: 'todas', label: 'Todas las plantas' },
                 ...plants.map((p) => ({ value: p.id, label: p.nombre })),
+              ],
+            },
+            {
+              id: 'filtro-proceso-asp',
+              label: 'Proceso',
+              value: procesoFiltro,
+              onChange: setProcesoFiltro,
+              options: [
+                { value: 'todos', label: 'Todos los procesos' },
+                ...procesos.map((p) => ({ value: p.id, label: p.nombre })),
+                { value: 'ninguno', label: 'Sin proceso' },
               ],
             },
             {
@@ -290,6 +328,7 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
             <caption className="sr-only">Aspectos ambientales identificados</caption>
             <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
               <tr>
+                <th className="px-4 py-3">Proceso</th>
                 <th className="px-4 py-3">Actividad</th>
                 <th className="px-4 py-3">Aspecto</th>
                 <th className="px-4 py-3">Tipo</th>
@@ -303,6 +342,9 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
             <tbody className="divide-y divide-slate-100">
               {filtered.map((a) => (
                 <tr key={a.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-600">
+                    {nombreDeProceso(a.procesoId) ?? <span className="text-slate-400">Sin proceso</span>}
+                  </td>
                   <td className="px-4 py-3 font-medium text-slate-900">{a.actividad}</td>
                   <td className="px-4 py-3 text-slate-700">{a.aspecto}</td>
                   <td className="px-4 py-3 text-slate-600">
@@ -388,7 +430,7 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
         onOpenChange={setCreando}
         titulo="Nuevo aspecto ambiental"
         descripcion="La significancia la calcula el servidor con los puntajes y el umbral de la empresa."
-        campos={campos(plants)}
+        campos={campos(plants, procesos)}
         onGuardar={crearAspecto}
       />
 
@@ -396,10 +438,11 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
         open={editando !== null}
         onOpenChange={(v) => !v && setEditando(null)}
         titulo="Editar aspecto ambiental"
-        campos={campos(plants)}
+        campos={campos(plants, procesos)}
         valores={
           editando && {
             facility_id: editando.facilityId,
+            process_id: editando.procesoId,
             activity: editando.actividad,
             aspect: editando.aspecto,
             impact_type: editando.tipoImpacto,

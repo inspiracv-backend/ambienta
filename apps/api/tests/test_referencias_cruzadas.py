@@ -209,8 +209,15 @@ class TestElEndpointDeUsuariosLoAplica:
         if ajeno is None:  # pragma: no cover
             pytest.skip("El seed no tiene departamentos en la segunda empresa.")
 
+        # Una persona **vigente**, y siempre la misma. Sin el filtro, el 21-sep
+        # toco una retirada con borrado logico: la API respondio 404 y la
+        # prueba lo leyo como "acepto un departamento de otra empresa".
         propio = db.execute(
-            text("SELECT id FROM users WHERE tenant_id = :t LIMIT 1"), {"t": TENANT_1}
+            text(
+                "SELECT id FROM users WHERE tenant_id = :t AND deleted_at IS NULL "
+                "ORDER BY created_at, id LIMIT 1"
+            ),
+            {"t": TENANT_1}
         ).scalar()
         if propio is None:  # pragma: no cover
             pytest.skip("El seed no tiene usuarios en la primera empresa.")
@@ -234,7 +241,11 @@ class TestElEndpointDeUsuariosLoAplica:
             {"t": TENANT_1},
         ).scalar()
         propio_usr = db.execute(
-            text("SELECT id FROM users WHERE tenant_id = :t LIMIT 1"), {"t": TENANT_1}
+            text(
+                "SELECT id FROM users WHERE tenant_id = :t AND deleted_at IS NULL "
+                "ORDER BY created_at, id LIMIT 1"
+            ),
+            {"t": TENANT_1}
         ).scalar()
         if propio_dep is None or propio_usr is None:  # pragma: no cover
             pytest.skip("El seed no alcanza para este caso.")

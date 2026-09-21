@@ -6,6 +6,7 @@ import type { Tenant } from '@ambienta/shared';
 import { AspectosAmbientalesTable } from './AspectosAmbientalesTable';
 import { CLASE_IMPRIMIENDO_DOCUMENTO } from '@/components/molecules';
 import { AuditLogProvider } from '@/lib/audit-log-store';
+import { DepartamentosProvider } from '@/lib/departamentos-store';
 import { SessionProvider } from '@/lib/session';
 import { ToastProvider } from '@/lib/toast-store';
 import { UsersProvider } from '@/lib/users-store';
@@ -27,10 +28,23 @@ vi.mock('@/lib/api-client', async (importarReal) => {
   const real = await importarReal<typeof import('@/lib/api-client')>();
   return {
     ...real,
-    api: { get: vi.fn().mockResolvedValue([]), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+    api: {
+      // El mapa de procesos: uno solo, para filtrar y para el formulario.
+      get: vi.fn((url: string) =>
+        Promise.resolve(
+          url.startsWith('/processes')
+            ? [{ id: 'pr1', tenant_id: 't', name: 'Chancado primario', process_type: 'operational' }]
+            : [],
+        ),
+      ),
+      post: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    },
   };
 });
 
+const editarAspecto = vi.fn();
 vi.mock('@/lib/iso-store', async (importarReal) => {
   const real = await importarReal<typeof import('@/lib/iso-store')>();
   return {
@@ -38,7 +52,7 @@ vi.mock('@/lib/iso-store', async (importarReal) => {
     useIso: () => ({
       riesgos: [],
       crearAspecto: vi.fn(),
-      editarAspecto: vi.fn(),
+      editarAspecto: (...a: unknown[]) => editarAspecto(...a),
       borrarAspecto: vi.fn(),
       evaluarSignificancia: vi.fn(),
     }),
@@ -56,7 +70,9 @@ function wrapper({ children }: { children: ReactNode }) {
     <ToastProvider>
       <AuditLogProvider>
         <UsersProvider>
-          <SessionProvider>{children}</SessionProvider>
+          <SessionProvider>
+            <DepartamentosProvider>{children}</DepartamentosProvider>
+          </SessionProvider>
         </UsersProvider>
       </AuditLogProvider>
     </ToastProvider>
@@ -94,13 +110,14 @@ function aspecto(over: Partial<AspectoApi> & { id: string; actividad: string }):
 }
 
 const ASPECTOS = [
-  aspecto({ id: 'a1', actividad: 'Chancado', significancia: 'significant', puntajeTotal: 56 }),
+  aspecto({ id: 'a1', actividad: 'Chancado', significancia: 'significant', puntajeTotal: 56, procesoId: 'pr1' }),
   aspecto({ id: 'a2', actividad: 'Riego de caminos', significancia: 'not_significant', puntajeTotal: 6 }),
   aspecto({ id: 'a3', actividad: 'Bodega de aceites', facilityId: 'p2' }),
 ];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  editarAspecto.mockResolvedValue(true);
   window.localStorage.clear();
   iniciarSesionComo('admin_empresa');
 });
@@ -193,5 +210,49 @@ describe('exportar la matriz', () => {
 
     expect(screen.getByRole('button', { name: 'Exportar PDF' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Exportar CSV' })).toBeDisabled();
+  });
+});
+
+describe('la matriz por proceso', () => {
+  it('muestra el proceso de cada aspecto, y lo sin proceso lo dice', async () => {
+    montar();
+
+    await screen.findAllByText('Chancado primario');
+    const filas = filasDeLaTabla();
+    expect(within(filas[0]).getByText('Chancado primario')).toBeTruthy();
+    expect(within(filas[1]).getByText('Sin proceso')).toBeTruthy();
+  });
+
+  it('filtra por proceso', async () => {
+    montar();
+    await screen.findAllByText('Chancado primario');
+
+    await userEvent.selectOptions(screen.getByLabelText('Proceso'), 'pr1');
+
+    const filas = filasDeLaTabla();
+    expect(filas).toHaveLength(1);
+    expect(within(filas[0]).getByText('Chancado')).toBeTruthy();
+  });
+
+  it('filtra lo que no tiene proceso', async () => {
+    montar();
+    await screen.findAllByText('Chancado primario');
+
+    await userEvent.selectOptions(screen.getByLabelText('Proceso'), 'ninguno');
+
+    expect(filasDeLaTabla()).toHaveLength(2);
+  });
+
+  it('editar conserva el proceso: el formulario lo manda', async () => {
+    // El formulario manda todos sus campos. Sin `process_id` entre los valores
+    // iniciales, guardar cualquier cambio lo habria dejado en null.
+    montar();
+    await screen.findAllByText('Chancado primario');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Editar Chancado' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Guardar' }));
+
+    expect(editarAspecto).toHaveBeenCalledOnce();
+    expect(editarAspecto.mock.calls[0][1]).toMatchObject({ process_id: 'pr1' });
   });
 });
