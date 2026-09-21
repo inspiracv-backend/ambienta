@@ -271,9 +271,15 @@ def frontend_con_mocks() -> Detector:
             "Una pantalla que cae a `mocks/` muestra algo que no existe en la "
             "base, y se ve igual que si existiera."
         ),
-        # Verificado a mano el 6-sep: la pantalla del calendario importa
-        # `mockUsers` para resolver los nombres de los responsables.
-        casos_conocidos=["calendario/page.tsx mocks/users"],
+        # Verificado a mano el 21-sep: el tablero arma su respaldo con
+        # `mockObligations` cuando la API no responde.
+        #
+        # **El caso anterior se arreglo y el detector no lo supo.** Era el
+        # calendario importando `mockUsers`; b9a2f09 (14-sep) lo saco, y desde
+        # entonces el detector se declaraba no confiable en cada corrida. Un
+        # caso conocido que desaparece es una buena noticia, pero hay que
+        # reemplazarlo por otro verificado: sin caso, el detector no prueba nada.
+        casos_conocidos=["dashboard/page.tsx mocks/obligations"],
     )
     for archivo in _archivos(WEB, "*.tsx") + _archivos(WEB, "*.ts"):
         if ".test." in archivo.name or "/mocks/" in str(archivo).replace("\\", "/"):

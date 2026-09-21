@@ -465,6 +465,24 @@ La regla es **leer antes de confirmar** (`Schema.model_validate(obj)` y despues
 `db.commit()`), y la fija `test_no_se_lee_despues_del_commit.py`, que barre
 `app/` porque es una regla de forma.
 
+**Y el primer barrido tambien se dejo dos afuera** (21-sep). Buscaba
+`db.refresh(`, `db.execute(`, `crud_x.get(`... y en `roles.py` la consulta iba
+**dentro de una funcion auxiliar**: `return _alcance(db, id)`. Medido contra la
+base real, `PUT /users/{id}/alcance` guardaba la planta y respondia
+`facility_ids: []` —que aca significa **sin acotar**—, y la pantalla pinta a la
+persona con esa respuesta: el administrador acotaba a alguien y veia en el acto
+lo contrario. `PUT /roles` respondia sin roles. Ahora el barrido marca
+**cualquier uso de `db` despues del commit** (pasarla a una funcion incluida),
+salvo que se vuelva a declarar la empresa o que este en una rama hermana, y
+tiene controles positivos y negativos con codigo inventado: contar archivos no
+prueba que el patron reconozca algo.
+
+Dos detalles del arreglo: con `autoflush=False` hay que hacer `db.flush()`
+antes de releer, o la consulta no ve lo recien escrito; y si la columna la
+escribe un trigger (`updated_at` en `environmental_aspects`), leer sin
+`db.refresh()` devuelve el valor anterior. El orden completo es el de
+`crud/base.py`: **flush, refresh, leer, commit**.
+
 **Un 401 no siempre es autenticacion.** El sitio de Ley Chile responde 401 a
 todo —incluida su propia pagina de documentacion— a quien no se identifica como
 navegador. Se perdio tiempo diagnosticandolo como una clave sin habilitar, que
@@ -997,6 +1015,16 @@ lee como un fallo). Tres guardas que faltaban en la API:
 Y "Cerrada" ya no se pinta como **"Cumple"**: el estado del ciclo no dice si se
 cumplio, y una auditoria cancelada tambien salia verde.
 
+**El informe sale en PDF desde la ficha, y se imprime solo** (21-sep). El
+documento se monta **directo en `<body>`** y, mientras dura la impresion
+(`beforeprint`/`afterprint`), `body.imprimiendo-informe` oculta a todos sus
+hermanos: antes el PDF entregable salia precedido por la ficha entera. Vale
+igual para el boton y para Ctrl+P. **Lo que no hay es registro de la emision**:
+se anota en el historial de la sesion, que no llega a la API
+(`audit-log-store.tsx`), y el `audit_log` del servidor solo ve la ORM. Que quede
+guardado necesita un endpoint propio. Y se anota como "abrio la impresion", no
+"emitio": el navegador no avisa si se cancela.
+
 **Abrir o recargar cualquier ficha daba 404, y eso incluia compartir el enlace.**
 Las nueve fichas hacian `notFound()` antes de que su store cargara, y como eso
 desmonta la pagina, cuando los datos llegaban ya no habia donde mostrarlos. Ojo
@@ -1168,7 +1196,15 @@ queda con `mockTenants`, cuyas plantas son `planta-rancagua` mientras la API usa
 UUID. Sintoma al crear un equipo: **422, `facility_id` no es un UUID valido**. Y
 el filtro por planta comparaba un slug contra un UUID, asi que elegir una planta
 dejaba la tabla vacia sin explicacion. Las pantallas ISO piden `/facilities/`
-por su cuenta; **el resto sigue dependiendo de ese store**.
+por su cuenta.
+
+**Arreglado el 21-sep:** el store pide con la empresa de la sesion, y con Clerk
+no cambia nada porque el token tiene prioridad. Aparecio por el informe de
+auditoria: en modo desarrollo la ficha no tenia empresa emisora y el boton del
+PDF **desaparecia sin decir nada** — ahora, si falta, lo dice. Ojo con la
+tentacion de saltarse la peticion cuando la sesion no trae empresa (el Admin
+Global de desarrollo): la pantalla de empresas diria "no hay" en vez de "no se
+pudo cargar".
 
 **Las normas desactualizadas ya se pueden actualizar** (`db/19` del PR de
 notificaciones no, esto es aparte). El aviso solo avisaba, y ademas la matriz
@@ -1480,8 +1516,8 @@ funcionan en la terminal. Un comando por linea.
 ```bash
 python herramientas/auditar.py          # los detectores de las clases de defecto ya sufridas
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 1053 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
-cd apps/web && npx vitest run           # 633 pruebas, 55 archivos
+cd apps/api && python -m pytest         # 1530 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
+cd apps/web && npx vitest run           # 827 pruebas, 85 archivos (medido el 21-sep)
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las corre solo)
 ```
 
