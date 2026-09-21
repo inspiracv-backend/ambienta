@@ -1,6 +1,7 @@
 import type { Audit, LegalNorm, NonConformity, Obligation, Plant } from '@ambienta/shared';
 import {
   computeNormComplianceOrNull,
+  computeNormComplianceSobreEvaluadosOrNull,
   countArticulosEnIncumplimiento,
   countArticulosSinEvaluar,
 } from '@/lib/legal-matrix';
@@ -190,19 +191,22 @@ export function buildMatrizLegalReport(norms: LegalNorm[], plants: Plant[]): Rep
     // una norma recien importada llega entera sin evaluar y el informe la
     // declaraba incumplida ante quien lo lee.
     porcentaje(computeNormComplianceOrNull(norm)),
+    porcentaje(computeNormComplianceSobreEvaluadosOrNull(norm)),
     String(countArticulosEnIncumplimiento(norm)),
     String(countArticulosSinEvaluar(norm)),
   ]);
 
   return armar(
     'Reporte de Matriz Legal',
-    ['Norma', 'Fuente', 'Plantas', '% Cumplimiento', 'Artículos en incumplimiento', 'Artículos sin evaluar'],
+    ['Norma', 'Fuente', 'Plantas', '% Cumplimiento', '% de lo evaluado', 'Artículos en incumplimiento', 'Artículos sin evaluar'],
     rows,
     norms.length === 0,
     // La columna nueva no es decoracion: sin ella, "Sin evaluar" no dice cuanto
     // falta, y un 100 % sobre un articulo de doscientos se lee igual que un
     // 100 % sobre los doscientos.
-    ['El % de cumplimiento se calcula sobre los articulos ya evaluados. La ultima columna dice cuantos faltan.'],
+    [
+      'El % de cumplimiento cuenta los articulos sin evaluar como no cumplidos: es la misma definicion del tablero, y no se infla con una muestra. "% de lo evaluado" dice cuanto se cumple de lo que ya se reviso; la ultima columna, cuantos faltan.',
+    ],
   );
 }
 

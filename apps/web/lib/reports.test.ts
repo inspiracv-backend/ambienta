@@ -203,6 +203,28 @@ describe('buildMatrizLegalReport', () => {
   it('marca empty sin normas', () => {
     expect(buildMatrizLegalReport([], []).empty).toBe(true);
   });
+
+  it('el cumplimiento es el del tablero y lo de lo evaluado va en su columna', () => {
+    // Un artículo cumplido y tres sin evaluar: 25 % de cumplimiento, 100 % de
+    // lo evaluado. Hasta el 21-sep el reporte decía 100 % a secas.
+    const norma = {
+      id: 'n1',
+      nombre: 'DS 148',
+      fuente: 'BCN',
+      plantIds: [],
+      articulos: [
+        { id: 'a', respuesta: 'SI', incluidoEnCalculo: true },
+        { id: 'b', respuesta: 'N_E', incluidoEnCalculo: true },
+        { id: 'c', respuesta: 'N_E', incluidoEnCalculo: true },
+        { id: 'd', respuesta: 'N_E', incluidoEnCalculo: true },
+      ],
+    } as unknown as LegalNorm;
+    const r = buildMatrizLegalReport([norma], []);
+    const col = (h: string) => r.rows[0][r.headers.indexOf(h)];
+
+    expect(col('% Cumplimiento')).toBe('25%');
+    expect(col('% de lo evaluado')).toBe('100%');
+  });
 });
 
 describe('buildAuditFolderContent', () => {

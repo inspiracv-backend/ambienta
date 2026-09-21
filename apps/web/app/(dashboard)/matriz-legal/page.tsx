@@ -1,5 +1,6 @@
 'use client';
 
+import { normasVisibles } from '@/lib/legal-matrix';
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -22,7 +23,7 @@ export default function MatrizLegalPage() {
   const router = useRouter();
   const { user, cargando } = useSession();
   const { tenants } = useTenants();
-  const { norms } = useLegalMatrix();
+  const { norms, enMatriz } = useLegalMatrix();
 
   useEffect(() => {
     if (!cargando && user === null) router.replace('/login');
@@ -43,9 +44,8 @@ export default function MatrizLegalPage() {
       ? (tenant?.plants ?? []).filter((p) => user.plantIds.includes(p.id))
       : tenant?.plants ?? [];
 
-  const visibleNorms = norms.filter(
-    (n) => (n.tenantId === null || n.tenantId === user.tenantId) && n.plantIds.some((id) => scopedPlants.some((p) => p.id === id)),
-  );
+  // Las de la matriz de la empresa aunque no tengan planta, y las de sus plantas.
+  const visibleNorms = normasVisibles(norms, { tenantId: user.tenantId, enMatriz, plantas: scopedPlants });
 
   return (
     <div className="flex flex-col gap-6">

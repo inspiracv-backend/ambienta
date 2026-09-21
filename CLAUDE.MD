@@ -566,8 +566,38 @@ del tablero**, con los pendientes en el denominador y la cobertura al lado
 evaluado, contra su propio design (§6), que ya decia lo mismo que el tablero; se
 alineo el spec.
 
+**Y desde el 21-sep hay un solo "% de cumplimiento" en todo el producto**: el
+conservador, con lo sin evaluar en el denominador —el del tablero y el
+`porcentaje` de `resumen_cumplimiento.py`— (decision 3 y 12 del plan de cierre).
+`computeNormComplianceOrNull` lo calcula; el de lo evaluado paso a
+`computeNormComplianceSobreEvaluadosOrNull` y se muestra como dato secundario.
+Antes la matriz decia 100 % y el tablero 6 % para la misma norma, con el mismo
+nombre.
+
 `computeNormCompliance` **se queda igual**: es el espejo de
-`resumen_cumplimiento.py`. Y al medirlo aparecio que **la API ya lo hacia bien**
+`porcentaje_sobre_evaluados` en `resumen_cumplimiento.py`.
+
+**La Matriz Legal mostraba solo las normas asignadas a una planta** (hasta el
+21-sep). La sincronizacion de normativa aplicable crea las normas en la matriz
+**sin planta**, asi que una empresa nueva veia la pantalla vacia mientras el
+tablero calculaba su cumplimiento sobre esas normas; con el seed, 5 de las 7
+evaluadas no aparecian. Ahora `lib/legal-matrix.ts::normasVisibles` muestra las
+de la matriz tengan o no planta (una sin planta es de toda la empresa, regla 2
+del alcance) y las asignadas a las plantas del alcance.
+
+**Y el catalogo publico traia las normas propias.** `/catalog/norms` corre con
+la empresa declarada (el router pasa por la guarda, ver `deps.get_db`) y no
+filtraba `tenant_id`: la Matriz Legal concatena esa lista con la normativa
+propia, y cada RCA salia dos veces. Ahora filtra `tenant_id IS NULL`, y por eso
+la web ya puede pedir el catalogo con la empresa —lo que tambien arreglo el 401
+de desarrollo—.
+
+**Pendiente, y conocido:** los porcentajes por norma de la pantalla se calculan
+en el navegador con una evaluacion por articulo y sobre el texto vigente;
+`GET /compliance/matrices/{id}/resumen` cuenta todas las filas por planta sobre
+la version evaluada, y **la web no lo llama**. Con normas desactualizadas o
+evaluadas por planta, los dos numeros difieren. Pasar la tabla al resumen de la
+API es el arreglo de fondo. Y al medirlo aparecio que **la API ya lo hacia bien**
 —devuelve `None`, no cero, y su docstring lo explica— asi que el acoplamiento
 que se temia no existia: el `0%` lo ponia solo el frontend.
 

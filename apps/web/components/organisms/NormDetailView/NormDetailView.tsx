@@ -101,6 +101,14 @@ export function NormDetailView({ norm: normProp, activeTenantId, responsableOpti
                   <span className="ml-1 text-xs font-normal text-slate-500">de cumplimiento</span>
                 </p>
               )}
+              {/* Lo sin evaluar cuenta como no cumplido en el numero de arriba
+                  (la definicion del tablero). Este dice cuanto se cumple de lo
+                  que ya se reviso, solo si es otro numero. */}
+              {resumen.pct !== null && resumen.sinEvaluar > 0 && resumen.pctSobreEvaluados !== null && (
+                <p className="mt-1 text-xs text-slate-600">
+                  {Math.round(resumen.pctSobreEvaluados * 100)}% de lo evaluado
+                </p>
+              )}
 
               <div className="mt-3">
                 <div className="flex items-baseline justify-between text-xs text-slate-600">

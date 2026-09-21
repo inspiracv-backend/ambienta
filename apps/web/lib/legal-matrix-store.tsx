@@ -10,6 +10,9 @@ import { api, mensajeDeError } from '@/lib/api-client';
 
 interface LegalMatrixContextValue {
   norms: LegalNorm[];
+  /** Las normas que están en la matriz de la empresa (`matrix_norms`), tengan o
+      no planta asignada. Ver `normasVisibles`. */
+  enMatriz: Set<string>;
   loading: boolean;
   /** Por que la lista esta vacia, si es que fallo (#208). `null` = se pregunto. */
   errorDeCarga: string | null;
@@ -121,6 +124,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
 
   /** `norma` → id de esa norma **dentro de la matriz de esta empresa**. */
   const matrizNormaRef = useRef(new Map<string, string>());
+  const [enMatriz, setEnMatriz] = useState<Set<string>>(() => new Set());
 
   /**
    * `articulo` → los `attributes` que ya tiene guardados su evaluación.
@@ -342,12 +346,18 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         .catch(() => []);
     }
 
+    // **Con la empresa, desde el 21-sep.** Sin ella, en modo desarrollo la
+    // peticion salia sin credencial y respondia 401: la matriz no cargaba.
+    // Mandarla no duplica las normas propias porque la API filtra el catalogo
+    // a lo publico (`catalog.py::list_norms`); antes no lo hacia, y con Clerk
+    // —donde el token siempre trae la empresa— cada RCA salia dos veces.
+    const conEmpresa = { tenantId: user.tenantId! };
     Promise.all([
-      api.get<Record<string, unknown>[]>('/catalog/norms'),
+      api.get<Record<string, unknown>[]>('/catalog/norms', conEmpresa),
       plantasPorNorma(),
       // Las normas traen `source_id`, no el codigo. Sin esta lista no hay forma
       // de saber si una norma es de la BCN, una ISO o una RCA de la empresa.
-      api.get<Record<string, unknown>[]>('/catalog/sources').catch(() => []),
+      api.get<Record<string, unknown>[]>('/catalog/sources', conEmpresa).catch(() => []),
       propiasDeLaEmpresa(),
     ])
       .then(async ([publicas, porNorma, fuentes, propias]) => {
@@ -355,7 +365,8 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
 
         // **Se concatenan y no se mezclan por id.** Las dos listas son
         // disjuntas por construcción: `listar()` filtra `tenant_id IS NOT NULL`
-        // y el catálogo sólo ve lo público desde una sesión sin empresa.
+        // y el catálogo filtra `tenant_id IS NULL` (lo prueba
+        // `test_catalogo_es_solo_lo_publico.py`).
         const data = [...publicas, ...propias];
 
         const [evaluaciones, porNormaMatriz] = await Promise.all([
@@ -371,11 +382,14 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         evaluaciones.forEach((v, articulo) => ids.set(articulo, v.ac));
         evaluacionRef.current = ids;
         matrizNormaRef.current = porNormaMatriz;
+        setEnMatriz(new Set(porNormaMatriz.keys()));
 
         // Cada grupo por su propia ruta: el catálogo público es global y la
         // normativa propia exige declarar empresa. Ver el parámetro `ruta`.
         const [articulosPublicos, articulosPropios] = await Promise.all([
-          articulosDeLasNormas(publicas, evaluaciones),
+          // Con la empresa por la misma razon que el listado: sin ella, en
+          // desarrollo cada articulado respondia 401 y las normas llegaban vacias.
+          articulosDeLasNormas(publicas, evaluaciones, undefined, conEmpresa),
           articulosDeLasNormas(
             propias,
             evaluaciones,
@@ -894,7 +908,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   const cargandoDeVerdad = loading || (!!user?.tenantId && datosDe !== user.tenantId);
 
   return (
-    <LegalMatrixContext.Provider value={{ norms, loading: cargandoDeVerdad, errorDeCarga, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
+    <LegalMatrixContext.Provider value={{ norms, enMatriz, loading: cargandoDeVerdad, errorDeCarga, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
       {children}
     </LegalMatrixContext.Provider>
   );

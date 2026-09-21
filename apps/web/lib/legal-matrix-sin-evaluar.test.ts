@@ -127,7 +127,11 @@ describe('resumenDeNorma', () => {
     expect(r.evaluados).toBe(2);
     expect(r.sinEvaluar).toBe(1);
     expect(r.incumplidos).toBe(1);
-    expect(r.pct).toBe(0.5);
+    // **El cumplimiento cuenta lo sin evaluar como no cumplido** (decisión 3 del
+    // 21-sep, la definición del tablero): 1 de 3 aplicables. Hasta ese día daba
+    // 0,5, que es el de lo evaluado y queda como dato secundario.
+    expect(r.pct).toBeCloseTo(1 / 3);
+    expect(r.pctSobreEvaluados).toBe(0.5);
   });
 
   it('en una norma recien importada el avance es cero y el pct no existe', () => {

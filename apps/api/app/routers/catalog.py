@@ -135,7 +135,12 @@ def list_norms(
     adelantado que guardara *su* hora se saltaria filas, y no habria como
     notarlo.
     """
-    stmt = select(LegalNorm).where(LegalNorm.deleted_at.is_(None))
+    # **Solo lo publico.** Este router pasa por la guarda, asi que la sesion
+    # viene con la empresa declarada (ver `deps.get_db`) y RLS dejaria ver
+    # tambien sus normas propias. La Matriz Legal pide esas aparte
+    # (`/compliance/normativa-propia/`) y concatena las dos listas: sin este
+    # filtro, cada RCA salia dos veces. Medido el 21-sep.
+    stmt = select(LegalNorm).where(LegalNorm.deleted_at.is_(None), LegalNorm.tenant_id.is_(None))
 
     if updated_since is not None:
         stmt = stmt.where(LegalNorm.updated_at > updated_since)

@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
 import {
   computeNormComplianceOrNull,
+  computeNormComplianceSobreEvaluadosOrNull,
   computeNormCoverage,
   countArticulosEnIncumplimiento,
   countArticulosSinEvaluar,
@@ -27,7 +28,9 @@ export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
 
   const filtered = useMemo(() => {
     return norms.filter((norm) => {
-      if (plantaFiltro !== 'todas' && !norm.plantIds.includes(plantaFiltro)) return false;
+      // Una norma sin planta es de toda la empresa: le aplica tambien a la
+      // planta elegida (regla 2 del alcance).
+      if (plantaFiltro !== 'todas' && norm.plantIds.length > 0 && !norm.plantIds.includes(plantaFiltro)) return false;
       if (tipoFiltro !== 'todos' && norm.fuente !== tipoFiltro) return false;
       if (estadoFiltro !== 'todos') {
         const semaforo = normSemaforoDe(computeNormComplianceOrNull(norm));
@@ -111,6 +114,13 @@ export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
                           "No cumple 0%", que es una afirmacion sobre la
                           empresa y no sobre lo que se midio. */}
                       <span className="ml-2 text-slate-500">{pct === null ? '—' : `${Math.round(pct * 100)}%`}</span>
+                      {/* El dato secundario, solo cuando dice algo distinto: con
+                          todo evaluado los dos numeros son el mismo. */}
+                      {pct !== null && countArticulosSinEvaluar(norm) > 0 && (
+                        <span className="block text-xs text-slate-500">
+                          {Math.round((computeNormComplianceSobreEvaluadosOrNull(norm) ?? 0) * 100)}% de lo evaluado
+                        </span>
+                      )}
                     </td>
                     {/* Cobertura y cumplimiento responden preguntas distintas: un
                         100% de cumplimiento sobre el 20% evaluado no es cumplimiento,

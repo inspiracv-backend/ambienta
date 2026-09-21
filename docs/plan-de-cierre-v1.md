@@ -244,6 +244,7 @@ este archivo.
 | 9 | Registro de quien emite cada PDF | **En v1.0** | Un endpoint que lo anota en el registro de actividades (RNF-26), como "abrio la impresion". Con su spec |
 | 10 | Pantalla global del registro de actividades | **Spec y conexion en v1.0** | Propuesta en OpenSpec y despues la pantalla contra `GET /system/audit-log` |
 | 11 | Equipo de plataforma (RF-84) | **Despues del piloto** | Un solo Admin Global, creado al desplegar |
+| 12 | El % de la Matriz Legal | **El mismo del tablero** (recomendacion aceptada) | **Hecho:** la matriz en pantalla, la ficha de norma y el reporte muestran el conservador como numero principal y "% de lo evaluado" como dato secundario. Una norma con 1 articulo cumplido y 15 sin evaluar pasa de 100 % a 6 % |
 
 **Lo que no es codigo y queda del lado de la cuenta:** cerrar el registro en
 Clerk (5), las credenciales de Google y el registro en Entra ID (4), rotar la

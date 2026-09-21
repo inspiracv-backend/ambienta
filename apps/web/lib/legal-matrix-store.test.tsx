@@ -118,7 +118,19 @@ describe('carga del articulado', () => {
 
   it('los pide al endpoint del articulado de esa norma', async () => {
     await montar([articuloApi()]);
-    expect(get).toHaveBeenCalledWith(`/catalog/norms/${NORMA}/articles`);
+    expect(get).toHaveBeenCalledWith(`/catalog/norms/${NORMA}/articles`, {
+      tenantId: expect.any(String),
+    });
+  });
+
+  it('el catalogo se pide con la empresa de la sesion', async () => {
+    // Sin ella, en modo desarrollo respondia 401 y la matriz no cargaba. No
+    // duplica las normas propias: la API filtra el catalogo a lo publico.
+    await montar([articuloApi()]);
+    const tenantId = (get.mock.calls.find((c) => c[0] === '/catalog/norms')?.[1] as { tenantId?: string } | undefined)
+      ?.tenantId;
+    expect(tenantId).toBeTruthy();
+    expect(get).toHaveBeenCalledWith('/catalog/sources', { tenantId });
   });
 
   it('entra sin evaluar, no como incumplido', async () => {
