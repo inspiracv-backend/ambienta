@@ -613,6 +613,11 @@ export function IsoProvider({ children }: { children: ReactNode }) {
       recargar,
       escribir,
       opts,
+      // `evaluarSignificancia` los usa directo. `opts` ya cambia con
+      // `tenantId`, pero depender de esa coincidencia es la forma de que
+      // alguien quite `opts` y la guarda quede leyendo una empresa vieja.
+      tenantId,
+      mostrarToast,
     ],
   );
 
