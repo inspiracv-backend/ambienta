@@ -53,7 +53,7 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 ## Fase 4 — Pantallas
 
 - [x] Matriz de aspectos e impactos, con filtro por proceso y condición de operación **(21-sep: columna y filtro por proceso, incluido "Sin proceso"; el formulario asigna el proceso y `PATCH` ya lo acepta —antes lo descartaba en silencio, asi que un aspecto quedaba para siempre en el proceso con que nacio)**
-- [x] Evaluación de significancia con los criterios del tenant **(con los criterios del sistema; los de cada empresa son la decision abierta #2)**
+- [x] Evaluación de significancia con los criterios del tenant **(con los criterios del sistema; **decidido el 21-sep**: son los de v1.0, y los de cada empresa quedan para despues del piloto — `docs/plan-de-cierre-v1.md` §6)**
 - [x] Matriz de riesgos y oportunidades
 - [ ] Detalle de norma: vigencia, aplicabilidad y obligación de monitoreo
 - [x] Inventario de equipos regulados con alerta de certificación por vencer
@@ -61,7 +61,7 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 
 ## Fase 5 — Configuración por tenant
 
-- [ ] Pantalla de criterios de significancia y umbral
+- [ ] Pantalla de criterios de significancia y umbral **(fuera de v1.0: decision del 21-sep, criterios del sistema para todos)**
 - [ ] Método de evaluación de riesgos (matriz probabilidad × consecuencia)
 - [x] Default del sistema para tenants nuevos — ver decisión abierta #2 **(hay un default global en `services/iso14001.py`: umbral 25 y legal >= 8)**
 

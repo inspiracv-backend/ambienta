@@ -225,6 +225,32 @@ cierra cuando:
 
 ---
 
+## 6. Decisiones tomadas el 21-sep-2026
+
+Las tomo Fabrizzio el 21-sep, sobre las opciones que se le presentaron con sus
+consecuencias. **Quedan escritas aca y no en una conversacion**: por eso existe
+este archivo.
+
+| # | Tema | Decision | Que implica |
+|---|---|---|---|
+| 1 | Normas de la BCN para el piloto | **Las cuatro de la reunion**: D.S. 609 (SISS), decretos 40 y 48, Ley 19.300 | Se sincronizan y se clasifican por sector a mano. Nada mas hasta que negocio pida otra cosa |
+| 2 | Empresa suspendida | **Solo lectura** | El servidor responde 403 a toda escritura de esa empresa (salvo el Admin Global) y se pausan sus avisos por correo. Puede entrar, ver y exportar |
+| 3 | Definicion de "% de cumplimiento" | **La del tablero, con la cobertura al lado** | Cumplen / aplicables; lo sin evaluar cuenta en el denominador. El spec de ISO se ajusta para decir lo mismo. La cobertura ya se muestra desde el 21-sep |
+| 4 | Como se entra al piloto | **Correo y clave, Google y Microsoft** | Google: credenciales propias en Clerk y el webhook. Microsoft: registrar la app en Entra ID como *cualquier directorio + cuentas personales*. Las dos son configuracion de cuentas, no codigo |
+| 5 | Registro publico de Clerk | **Cerrado: solo por invitacion** | Se cierra en el panel de Clerk. Es una accion de la cuenta, no del repositorio |
+| 6 | Ingreso con RUT (RF-06) | **Oculto en v1.0** | Queda construido; se quita la pestaña. Si el RUT es unico global o por empresa se decide cuando vuelva |
+| 7 | Escala de severidad (#57) | **Catalogo por empresa** | Lo que ya existe (`db/25`, `db/30`). Falta que cada empresa declare sus dias para cerrar; sin eso las etapas no tienen fecha limite |
+| 8 | Criterios de significancia ISO (#2) | **Los del sistema en v1.0** | Umbral 25 y legal >= 8 para todos. La pantalla por empresa (tarea 64) queda para despues del piloto |
+| 9 | Registro de quien emite cada PDF | **En v1.0** | Un endpoint que lo anota en el registro de actividades (RNF-26), como "abrio la impresion". Con su spec |
+| 10 | Pantalla global del registro de actividades | **Spec y conexion en v1.0** | Propuesta en OpenSpec y despues la pantalla contra `GET /system/audit-log` |
+| 11 | Equipo de plataforma (RF-84) | **Despues del piloto** | Un solo Admin Global, creado al desplegar |
+
+**Lo que no es codigo y queda del lado de la cuenta:** cerrar el registro en
+Clerk (5), las credenciales de Google y el registro en Entra ID (4), rotar la
+llave de B2 y verificar el dominio en Resend.
+
+---
+
 ## 5. Verificación
 
 ```bash

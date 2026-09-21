@@ -562,7 +562,8 @@ decia **0,0 %**. Ahora es `None` si no se evaluo nada, y `/dashboard/metrics`
 trae ademas la **cobertura** y los **pendientes**, que la tarjeta muestra al
 lado del cumplimiento. Ojo: los specs no coinciden en que es "cumplimiento" —el
 del tablero deja los pendientes en el denominador, el de ISO pide calcularlo
-sobre lo evaluado— y eso **no se cambio**: es una decision abierta.
+sobre lo evaluado—. **Decidido el 21-sep: manda la del tablero**, con la
+cobertura al lado (`docs/plan-de-cierre-v1.md`, §6).
 
 `computeNormCompliance` **se queda igual**: es el espejo de
 `resumen_cumplimiento.py`. Y al medirlo aparecio que **la API ya lo hacia bien**
@@ -1024,7 +1025,8 @@ sola— y el resto es **de la empresa**: el Admin Global recibe
 `plataforma_no_edita_contenido`. Se rechaza *cambiar*, no *mandar*: la pantalla
 reenvia `settings` completo al guardar el logo.
 
-**Ojo: suspender una empresa todavia no bloquea nada.** Medido: el servidor no
+**Ojo: suspender una empresa todavia no bloquea nada** —y el 21-sep se decidio
+que debe dejarla en **solo lectura** (§6 del plan de cierre)—. Medido: el servidor no
 mira `tenants.status` salvo en el acceso de invitados, ni el tope de usuarios ni
 los modulos. Son marcas que la interfaz muestra, no barreras.
 
