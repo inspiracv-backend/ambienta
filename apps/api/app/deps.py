@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .auth import CurrentUser, verify_token
 from .config import get_settings
 from .db import AdminSessionLocal, SessionLocal
-from .models.organization import User
+from .models.organization import Tenant, User
 from .services.auditoria_automatica import CONTEXTO as CONTEXTO_DE_AUDITORIA
 from .services.invitado import credencial_vigente
 from .services.perfil_empresa import estado as estado_del_perfil
@@ -579,6 +579,44 @@ CODIGO_SIN_PERMISO = "permiso_insuficiente"
 #: destrabar.
 CODIGO_PLATAFORMA_NO_EDITA = "plataforma_no_edita_contenido"
 
+#: En estos estados una empresa **lee y exporta, pero no escribe** (spec de RBAC,
+#: decision del 21-sep). Un solo lugar: lo usan esta guarda y el cron de avisos,
+#: y dos listas separadas se desincronizan sin que nada falle.
+ESTADOS_SOLO_LECTURA = frozenset({"suspended", "closed"})
+
+#: El rechazo de una escritura en una empresa en solo lectura. **Codigo propio**
+#: por la misma razon que el de arriba: no le falta un permiso que alguien de la
+#: empresa pueda concederle.
+CODIGO_EMPRESA_SOLO_LECTURA = "empresa_en_solo_lectura"
+
+_ESCRITURAS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def exigir_empresa_que_escribe(db: Session, empresas: set[UUID]) -> None:
+    """403 si cualquiera de estas empresas esta en solo lectura.
+
+    Se le pasan **la efectiva y la de la sesion**: si un gestor actua por un
+    cliente, las dos cuentan. Mirar solo la efectiva dejaria escribir a un
+    gestor suspendido a traves de sus clientes (ver el design del cambio).
+    """
+    filas = db.execute(select(Tenant.status).where(Tenant.id.in_(empresas))).all()
+    for (estado,) in filas:
+        if estado in ESTADOS_SOLO_LECTURA:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "codigo": CODIGO_EMPRESA_SOLO_LECTURA,
+                    "mensaje": (
+                        "La empresa esta suspendida: se puede consultar y exportar, "
+                        "pero no modificar. Para reactivarla, contacta a Ambienta."
+                        if estado == "suspended"
+                        else "La empresa esta cerrada: se puede consultar y exportar, "
+                        "pero no modificar."
+                    ),
+                    "estado": estado,
+                },
+            )
+
 
 def exigir_permiso(codigo: str):
     """Guarda de permiso para un endpoint (RF-08).
@@ -647,10 +685,33 @@ def exigir_permiso(codigo: str):
     return verificar
 
 
+def exigir_escritura_en_empresa_activa(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(tenant_efectivo),
+) -> None:
+    """Solo lectura para las empresas suspendidas o cerradas, en toda escritura.
+
+    Separada de `exigir_permiso_de_la_ruta` porque hay routers que no pasan por
+    esa guarda —los que deciden el permiso en el handler, como `comentarios`— y
+    comentar **tambien es escribir**. La usan los dos caminos.
+    """
+    if request.method.upper() not in _ESCRITURAS:
+        return
+    empresas = {tenant_id}
+    try:
+        empresas.add(UUID(str(user.tenant_id)))
+    except (TypeError, ValueError):
+        pass
+    exigir_empresa_que_escribe(db, empresas)
+
+
 def exigir_permiso_de_la_ruta(
     request: Request,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(tenant_efectivo),
 ) -> CurrentUser:
     """Guarda de permisos derivada de la ruta, para todos los endpoints.
 
@@ -674,13 +735,16 @@ def exigir_permiso_de_la_ruta(
     aislamiento entre empresas lo sigue garantizando Row Level Security, que es
     la unica barrera (CLAUDE.md §4).
     """
+    # **La empresa en solo lectura va antes del corte sin Clerk.** Las guardas de
+    # abajo dependen de quien es la persona, y sin Clerk no hay de donde sacarlo;
+    # esta depende del estado de la empresa, que se conoce igual. Puesta despues,
+    # quedaria escrita, en verde y sin ejecutarse en toda la suite.
+    exigir_escritura_en_empresa_activa(request, user, db, tenant_id)
+
     if not get_settings().clerk_configured:
         return user
 
-    from .permisos_de_rutas import (
-        escritura_vedada_al_admin_global,
-        permiso_requerido,
-    )
+    from .permisos_de_rutas import permiso_requerido
 
     ruta = request.scope.get("route")
     camino = getattr(ruta, "path", None) or request.url.path
@@ -688,6 +752,33 @@ def exigir_permiso_de_la_ruta(
     if codigo is None:
         return user
 
+    # **La persona y sus permisos se leen en SU empresa, no en la efectiva.**
+    # Si un gestor actua por un cliente (`X-Cliente-Id`), la sesion `db` esta
+    # declarada con la empresa del cliente, y RLS le esconde la fila del gestor
+    # y sus roles, que son de otra empresa. Hasta el 21-sep eso daba
+    # `permiso_insuficiente` en **todo**: el gestor podia leer lo suyo y no
+    # podia hacer nada por sus clientes, que es para lo que existe. Solo se veia
+    # con Clerk; en desarrollo esta guarda no corre.
+    try:
+        hogar = UUID(str(user.tenant_id))
+    except (TypeError, ValueError):
+        hogar = tenant_id
+    propia = db
+    if hogar != tenant_id:
+        propia = SessionLocal()
+        declarar(propia, hogar)
+    try:
+        return _decidir_permiso(propia, user, camino, request.method, codigo)
+    finally:
+        if propia is not db:
+            propia.close()
+
+
+def _decidir_permiso(
+    db: Session, user: CurrentUser, camino: str, metodo: str, codigo: str
+) -> CurrentUser:
+    """El Admin Global y el permiso, con la sesion de la empresa de la persona."""
+    from .permisos_de_rutas import escritura_vedada_al_admin_global
     from .services.permisos import tiene_permiso
 
     fila = db.scalar(select(User).where(User.clerk_id == user.user_id))
@@ -704,7 +795,7 @@ def exigir_permiso_de_la_ruta(
     if (
         fila is not None
         and fila.user_type == "platform_admin"
-        and escritura_vedada_al_admin_global(camino, request.method)
+        and escritura_vedada_al_admin_global(camino, metodo)
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

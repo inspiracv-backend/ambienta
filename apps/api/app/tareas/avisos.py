@@ -53,7 +53,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
-from ..deps import declarar, olvidar
+from ..deps import ESTADOS_SOLO_LECTURA, declarar, olvidar
 from ..services import despacho
 from ..services import avisos_de_etapas
 from ..services.avisos_de_vencimiento import generar
@@ -64,6 +64,10 @@ logger = logging.getLogger("ambienta.tareas.avisos")
 @dataclass
 class Informe:
     empresas: int = 0
+    #: Empresas suspendidas o cerradas: no se les genera ni despacha nada. **Se
+    #: cuentan** porque una pausa que no se informa se ve igual que "no vence
+    #: nada".
+    en_pausa: int = 0
     creados: int = 0
     repetidos: int = 0
     escalados: int = 0
@@ -81,6 +85,7 @@ class Informe:
     def resumen(self) -> str:
         lineas = [
             f"empresas atendidas: {self.empresas}",
+            f"empresas en pausa (suspendidas o cerradas): {self.en_pausa}",
             "",
             "generacion",
             f"  avisos nuevos: {self.creados}",
@@ -115,15 +120,17 @@ class Informe:
         return bool(self.sin_destinatario) or self.rendidos > 0 or self.atrasados > 0
 
 
-def _empresas(db: Session) -> list[UUID]:
-    """Todas las empresas vivas. `tenants` no lleva `tenant_id`, se lee sin contexto."""
-    return list(
-        db.execute(
-            text("SELECT id FROM tenants WHERE deleted_at IS NULL ORDER BY created_at")
-        )
-        .scalars()
-        .all()
-    )
+def _empresas(db: Session) -> tuple[list[UUID], int]:
+    """Las empresas a atender, y cuantas quedaron en pausa.
+
+    `tenants` no lleva `tenant_id`, se lee sin contexto. Las suspendidas o
+    cerradas **no se atienden**: sus avisos se pausan (spec de RBAC, 21-sep).
+    """
+    filas = db.execute(
+        text("SELECT id, status FROM tenants WHERE deleted_at IS NULL ORDER BY created_at")
+    ).all()
+    atender = [tid for tid, estado in filas if estado not in ESTADOS_SOLO_LECTURA]
+    return atender, len(filas) - len(atender)
 
 
 def correr(*, transporte: despacho.Transporte | None = None) -> Informe:
@@ -131,7 +138,7 @@ def correr(*, transporte: despacho.Transporte | None = None) -> Informe:
     informe = Informe()
 
     with SessionLocal() as db:
-        empresas = _empresas(db)
+        empresas, informe.en_pausa = _empresas(db)
 
     for tenant_id in empresas:
         # Una sesion por empresa. El contexto de RLS se fija con `SET LOCAL`, o

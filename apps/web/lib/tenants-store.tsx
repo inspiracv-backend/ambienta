@@ -105,7 +105,11 @@ function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
       tramo: leerTramo(raw.size_bracket) ?? undefined,
       giro: raw.business_activity ? String(raw.business_activity) : undefined,
       direccion: undefined,
-      estado: raw.status === 'active' ? 'activo' : raw.status === 'suspended' ? 'suspendido' : 'activo',
+      // `closed` se mostraba como activo: una empresa dada de baja, en solo
+      // lectura desde el 21-sep, aparecia activa en la cartera. `trial` si se
+      // lee como activo, porque opera igual que una activa.
+      estado:
+        raw.status === 'suspended' ? 'suspendido' : raw.status === 'closed' ? 'cerrado' : 'activo',
       // **Aproximación, y solo para la vista de plataforma.**
       //
       // El criterio de verdad vive en el servidor y se lee con `GET /me`

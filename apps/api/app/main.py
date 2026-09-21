@@ -21,6 +21,7 @@ from .config import get_settings
 from .db import SessionLocal, check_database
 from .errores import manejar_error_de_integridad
 from .deps import (
+    exigir_escritura_en_empresa_activa,
     exigir_perfil_de_empresa_completo,
     exigir_permiso_de_la_ruta,
     get_admin_db,
@@ -171,15 +172,25 @@ app.include_router(
     ],
 )
 app.include_router(documents.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
-app.include_router(crm.router, prefix=api_v1_prefix)
-app.include_router(gestor.router, prefix=api_v1_prefix)
-app.include_router(iso14001.router, prefix=api_v1_prefix)
+# **Estos tres se montaban sin la guarda** (hasta el 21-sep), desde la migracion
+# a FastAPI: 17 escrituras del CRM y 13 de ISO 14001 no pedian ningun permiso,
+# el Admin Global podia editarlas y la suspension no las alcanzaba. La web ya
+# contaba con ella —oculta el CRM a quien no tiene `manager`—, asi que el diseno
+# estaba decidido y la linea faltaba. Lo sostiene
+# `test_todas_las_rutas_pasan_por_la_guarda`.
+app.include_router(crm.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(gestor.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
+app.include_router(iso14001.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_permiso_de_la_ruta)])
 # Sin `exigir_permiso_de_la_ruta`: la guarda deriva el permiso del nombre del
 # recurso, y `comentarios` no es un recurso de negocio con permisos propios —
 # se comenta sobre trece entidades distintas, cada una con los suyos. Quien ve
 # el registro ve su conversacion; lo que si se comprueba en cada peticion es el
 # anclaje, que es lo que RLS puede sostener.
-app.include_router(comentarios.router, prefix=api_v1_prefix)
+# Comentar **es escribir**: aunque el permiso se decida en el handler, una
+# empresa en solo lectura no comenta.
+app.include_router(
+    comentarios.router, prefix=api_v1_prefix, dependencies=[Depends(exigir_escritura_en_empresa_activa)]
+)
 # Misma razon que `comentarios`: el permiso sale del cuerpo y no del camino,
 # y la comprobacion vive en el handler.
 app.include_router(historial.router, prefix=api_v1_prefix)

@@ -495,3 +495,27 @@ describe('la lista de empresas se pide con la empresa de la sesion', () => {
     expect(result.current.errorDeCarga).toBeTruthy();
   });
 });
+
+describe('el estado de la empresa', () => {
+  it('una empresa cerrada se lee como cerrada, no como activa', async () => {
+    // Hasta el 21-sep `closed` caia en 'activo': una empresa dada de baja —en
+    // solo lectura desde ese dia— aparecia activa en la cartera.
+    get.mockImplementation((ruta: string) =>
+      Promise.resolve(ruta.startsWith('/tenants') ? [{ ...tenantApi({}), status: 'closed' }] : []),
+    );
+    const { result } = renderHook(() => useTenants(), { wrapper });
+
+    await waitFor(() => expect(result.current.tenants).toHaveLength(1));
+    expect(result.current.tenants[0].estado).toBe('cerrado');
+  });
+
+  it('una en prueba opera como activa', async () => {
+    get.mockImplementation((ruta: string) =>
+      Promise.resolve(ruta.startsWith('/tenants') ? [{ ...tenantApi({}), status: 'trial' }] : []),
+    );
+    const { result } = renderHook(() => useTenants(), { wrapper });
+
+    await waitFor(() => expect(result.current.tenants).toHaveLength(1));
+    expect(result.current.tenants[0].estado).toBe('activo');
+  });
+});

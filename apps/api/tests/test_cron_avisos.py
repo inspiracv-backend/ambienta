@@ -259,7 +259,7 @@ class TestLaTarea:
         """
         db = Session(bind=conexion)
         try:
-            empresas = _empresas(db)
+            empresas, _en_pausa = _empresas(db)
             assert len(empresas) >= 1
             assert EMPRESA_A in empresas
         finally:

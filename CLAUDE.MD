@@ -206,7 +206,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Auth — Microsoft SSO | **Sin configurar.** Exige registro en Entra ID, y ahi el tipo de cuenta tiene que ser *cualquier directorio + cuentas personales*: con "solo este directorio" ningun cliente puede entrar |
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **85 %.** 33 de 39 acciones llegan a la base. **El 74 % anterior estaba mal en las dos direcciones**: decia 29 y eran 30 —`users.updatePermisos` ya estaba conectada desde que se hizo la pantalla de permisos— y tres de las "bloqueadas" habian dejado de estarlo al cerrar otros bloques, sin que nadie releyera la tabla. Las 6 que quedan tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
-| RBAC | **Completo desde el 10-sep, alcance incluido.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en los 18 routers, rol `servicio_lectura`, pantalla en `/usuarios`, **acotamiento por instalacion aplicado** (`app/alcance.py`) y **el Admin Global ya no edita contenido de una empresa**. Los dos ultimos eran reglas escritas en este archivo y en el spec que no aplicaba nadie. Es el primer modulo cuyo spec vivo existe: `openspec/specs/rbac/spec.md`, 6 requisitos |
+| RBAC | **Completo desde el 10-sep, alcance incluido.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en todos los routers salvo seis con motivo declarado (**`crm`, `gestor` e `iso14001` no la tenian hasta el 21-sep**, ver abajo), rol `servicio_lectura`, pantalla en `/usuarios`, **acotamiento por instalacion aplicado** (`app/alcance.py`) y **el Admin Global ya no edita contenido de una empresa**. Los dos ultimos eran reglas escritas en este archivo y en el spec que no aplicaba nadie. Es el primer modulo cuyo spec vivo existe: `openspec/specs/rbac/spec.md`, 8 requisitos |
 | Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas sincronizar-bcn`. Falta decidir **que normas importar** y la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla — ver abajo |
@@ -1025,10 +1025,27 @@ sola— y el resto es **de la empresa**: el Admin Global recibe
 `plataforma_no_edita_contenido`. Se rechaza *cambiar*, no *mandar*: la pantalla
 reenvia `settings` completo al guardar el logo.
 
-**Ojo: suspender una empresa todavia no bloquea nada** —y el 21-sep se decidio
-que debe dejarla en **solo lectura** (§6 del plan de cierre)—. Medido: el servidor no
-mira `tenants.status` salvo en el acceso de invitados, ni el tope de usuarios ni
-los modulos. Son marcas que la interfaz muestra, no barreras.
+**Suspender una empresa la deja en solo lectura desde el 21-sep** (y cerrarla
+tambien). Toda escritura responde 403 `empresa_en_solo_lectura`, se lee y se
+exporta igual, y el cron no le genera ni despacha avisos. La regla va **antes**
+del corte "sin Clerk no verifico" de la guarda, porque depende del estado de la
+empresa y no de quien es la persona. El tope de usuarios y los modulos siguen
+siendo marcas. Spec: `openspec/specs/rbac/spec.md`.
+
+**Y al probarlo en el navegador aparecieron dos defectos mas grandes**, con todas
+las pruebas en verde:
+
+1. **`crm`, `gestor` e `iso14001` se montaban sin `exigir_permiso_de_la_ruta`**
+   desde la migracion a FastAPI: 30 escrituras sin ningun permiso. La web ya
+   contaba con la guarda (oculta el CRM a quien no tiene `manager`) y
+   `permisos_de_rutas.py` les calculaba el permiso; la linea del
+   `include_router` faltaba. Lo sostiene `test_guarda_en_todas_las_rutas.py`,
+   que mira la dependencia **montada** en cada ruta, no el permiso calculado.
+2. **Con Clerk, un gestor no podia hacer nada por sus clientes.** La guarda
+   buscaba a la persona con la sesion declarada con la empresa del cliente, y
+   RLS le escondia la fila del gestor: `permiso_insuficiente` en todo. Ahora la
+   persona y sus permisos se leen en su empresa. `test_gestor_y_sus_clientes.py`
+   no lo veia porque corre sin Clerk; `test_gestor_con_clerk.py` si.
 
 **El ciclo de auditoria se puede ejecutar desde la pantalla desde el 19-sep.**
 La API tenia el alta, el checklist, la cobertura y el avance de estado, y
