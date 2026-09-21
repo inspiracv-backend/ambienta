@@ -66,6 +66,21 @@ TERMINOS: list[tuple[str, str]] = [
     ("centrales termoel", "13"),
     ("aprueba reglamento del sistema de evaluaci", "40"),
     ("reglamento del registro de emisiones y transferencias de contaminantes", "1"),
+    # D.S. 609/1998 MOP, la norma de RILes a alcantarillado que fiscaliza la
+    # SISS: una de las normas del piloto (decision 1 del plan de cierre,
+    # 21-sep). Trae tambien los dos decretos que la modifican (3592 y 601),
+    # porque su titulo contiene el de ella; el texto vigente del 609 ya los
+    # incorpora.
+    #
+    # **Empieza por "establece norma" a proposito.** Sin eso el termino calza
+    # tambien con las resoluciones que iniciaron y aprobaron el anteproyecto
+    # (1958 y 281 exenta), que no se cumplen: se corrio asi una vez el 21-sep y
+    # entraron las dos.
+    (
+        "establece norma de emision para la regulacion de contaminantes "
+        "asociados a las descargas de residuos industriales liquidos a sistemas",
+        "609",
+    ),
 ]
 
 #: Cuantas normas se piden por termino.

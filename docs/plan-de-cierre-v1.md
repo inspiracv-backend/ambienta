@@ -233,7 +233,7 @@ este archivo.
 
 | # | Tema | Decision | Que implica |
 |---|---|---|---|
-| 1 | Normas de la BCN para el piloto | **Las cuatro de la reunion**: D.S. 609 (SISS), decretos 40 y 48, Ley 19.300 | Se sincronizan y se clasifican por sector a mano. Nada mas hasta que negocio pida otra cosa |
+| 1 | Normas de la BCN para el piloto | **Las cuatro de la reunion**: D.S. 609 (SISS), decretos 40 y 48, Ley 19.300 | **En parte:** Ley 19.300 y D.S. 609 sincronizados; el 609 espera su clasificacion por sector. **Los "decretos 40 y 48" son ambiguos** y falta que negocio diga cuales son. Ver 6.1 |
 | 2 | Empresa suspendida | **Solo lectura** | **Hecho** (cambio archivado `2026-09-21-empresa-suspendida-solo-lectura`): 403 a toda escritura de esa empresa y avisos en pausa; puede entrar, ver y exportar |
 | 3 | Definicion de "% de cumplimiento" | **La del tablero, con la cobertura al lado** | Cumplen / aplicables; lo sin evaluar cuenta en el denominador. **Hecho:** el spec de ISO se alineo (contradecia a su propio design) y la cobertura se muestra desde el 21-sep |
 | 4 | Como se entra al piloto | **Correo y clave, Google y Microsoft** | Google: credenciales propias en Clerk y el webhook. Microsoft: registrar la app en Entra ID como *cualquier directorio + cuentas personales*. Las dos son configuracion de cuentas, no codigo |
@@ -245,6 +245,56 @@ este archivo.
 | 10 | Pantalla global del registro de actividades | **Spec y conexion en v1.0** | **Hecho:** `/historial` lee `GET /system/audit-log` (500 mas recientes o por periodo, en dias de la empresa) y avisa si hay mas. Spec vivo en `openspec/specs/registro-de-actividades` |
 | 11 | Equipo de plataforma (RF-84) | **Despues del piloto** | Un solo Admin Global, creado al desplegar |
 | 12 | El % de la Matriz Legal | **El mismo del tablero** (recomendacion aceptada) | **Hecho:** la matriz en pantalla, la ficha de norma y el reporte muestran el conservador como numero principal y "% de lo evaluado" como dato secundario. Una norma con 1 articulo cumplido y 15 sin evaluar pasa de 100 % a 6 % |
+
+### 6.1 Decision 1: lo que se sincronizo y lo que falta decidir
+
+**Sincronizado el 21-sep** (`python -m app.tareas sincronizar-bcn`): el catalogo
+paso de 24 a **27 normas**, 26 con identificador de la BCN.
+
+| norma | estado |
+|---|---|
+| Ley 19.300, bases generales del medio ambiente | Ya estaba, con su texto vigente. Clasificada en los 8 sectores (`db/23`) |
+| D.S. 609/1998 MOP, RILes a sistemas de alcantarillado | **Nueva**, con su texto vigente (id Ley Chile 121486). Entra con los dos decretos que la modifican, 3592/2000 y 601/2004, porque su titulo contiene el del 609. **Sin sector**: el CORE no la propone a nadie hasta clasificarla |
+
+**Los "decretos 40 y 48" no se pueden sincronizar sin preguntar.** El unico
+registro escrito de la reunion dice *"decretos 40 y 48 de seguridad minera"*, y
+en la BCN no hay decreto 40 ni 48 de seguridad minera: el reglamento de
+seguridad minera es el **D.S. 132/2002** de Mineria. Lo que si existe con esos
+numeros:
+
+| numero | candidatos en la BCN |
+|---|---|
+| 40 | **D.S. 40/2012 MMA**, reglamento del SEIA: ya esta en el catalogo y en los 8 sectores. **D.S. 40/1969 Trabajo**, reglamento sobre prevencion de riesgos profesionales (Ley 16.744): no esta |
+| 48 | **D.S. 48/1984 Salud**, reglamento de calderas y generadores de vapor, **reemplazado** por el D.S. 10/2013 Salud (calderas, autoclaves y equipos que usan vapor). Hay otro D.S. 48/1988 de Trabajo, un premio, que no viene al caso |
+
+Si la reunion hablaba de seguridad laboral, lo probable es el 40/1969 y el 10/2013
+(el sucesor del 48); si hablaba del SEIA, el 40 ya esta. **Elegir entre ellos es
+criterio legal**, y traer el equivocado es peor que no traer nada: la empresa
+evaluaria articulos que no le rigen. Agregar el que se decida es una linea en
+`TERMINOS`.
+
+**Propuesta de clasificacion del D.S. 609, para que negocio la valide.** No se
+aplico: decidir a que sectores llega una norma es criterio de negocio (mismo
+motivo por el que `db/23` no toca el DS 90). Lo que la activa es **descargar
+RIL a un alcantarillado** por encima de las cargas que fija la norma, no el
+rubro — el mismo razonamiento que el DS 148 con los residuos peligrosos. En el
+CORE, `directa` se propone como obligatoria y las otras dos como recomendadas.
+
+| sector | nivel propuesto | por que |
+|---|---|---|
+| C Industria manufacturera | directa | El caso tipico: establecimiento industrial en zona urbana conectado a la red |
+| A Agricultura, ganaderia, silvicultura y pesca | indirecta | La agroindustria (packing, lecherias, faenadoras) descarga al alcantarillado cuando esta en zona urbana |
+| B Mineria | indirecta | Las faenas rara vez estan conectadas a una red; si plantas de proceso y talleres en ciudad |
+| D Electricidad y gas | indirecta | Centrales y plantas de gas urbanas con agua de proceso |
+| E Agua y gestion de residuos | indirecta | Las sanitarias reciben y controlan la descarga; un relleno o planta de tratamiento de residuos puede ser emisor |
+| F Construccion | referencial | Descargas de obra puntuales; rara vez superan las cargas de la norma |
+| G Comercio | referencial | Lavanderias, cocinas industriales o lavado de vehiculos pueden calificar como emisores |
+| H Transporte y almacenamiento | referencial | Talleres y lavado de flota, mismo caso |
+
+Aprobada, se carga con `PUT /catalog/norms/{id}/sectors/{sector}` o con una
+migracion, con el motivo escrito como las demas. La pantalla
+`/clasificacion-normativa` la muestra pero **no la edita**: no llama a ese
+endpoint.
 
 **Lo que no es codigo y queda del lado de la cuenta:** cerrar el registro en
 Clerk (5), las credenciales de Google y el registro en Entra ID (4), rotar la
