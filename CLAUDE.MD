@@ -280,6 +280,27 @@ permiso que alguien pueda concederle.
 desarrollo. Sin `test_admin_global_no_edita.py`, que simula Clerk configurado,
 la guarda estaria escrita, en verde y sin ejecutarse nunca.
 
+**Una regla de permisos puede estar escrita y no alcanzar a ninguna ruta** (21-sep).
+`PERMISO_POR_ACCION` declaraba `"audit-log": "audit_log.read"`, pero la raiz
+`system` esta exenta y `permiso_requerido` salia antes: el registro de
+actividades no pedia permiso. Ahora las excepciones van en `PERMISO_POR_RUTA`,
+que se mira primero, y `test_registro_de_actividades.py` recorre las rutas reales
+y falla si alguna entrada de las tablas no decide el permiso de nadie. El mismo
+barrido corrigio que evaluar un aspecto ISO pidiera el permiso de la matriz
+legal por terminar en `evaluate`.
+
+**Y el alcance tiene que aplicarse tambien fuera de `CRUDBase`.**
+`comprobar_anclaje` —la puerta de la historia, los comentarios y los adjuntos—
+leia el registro con un `select` directo y solo filtraba por empresa. Cualquier
+lectura nueva que no pase por `_visibles()` necesita la misma condicion; la
+regla esta en `app/alcance.py`. El registro completo, que no sabe de que planta
+es cada fila, responde 403 a quien este acotado.
+
+**Ojo al limpiar pruebas que escriben por la API con una persona identificada:**
+`audit_log` la anota como autora y la clave foranea impide borrarla despues
+(el registro no se edita ni se borra). Retirarla con borrado logico; forzar el
+borrado seria justamente dejar huerfano el historial.
+
 **El CORE devuelve `sin_perfil`, y la causa NO es la que parece.** Conviene
 leerlo con cuidado porque son dos estados distintos con arreglos opuestos:
 

@@ -41,9 +41,10 @@ from typing import Any, NamedTuple
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from ..alcance import acota, instalaciones_permitidas
 from ..models.audit import ActionPlan, Audit, Nonconformity
 from ..models.catalog import LegalNorm
 from ..models.compliance import ArticleCompliance
@@ -144,6 +145,20 @@ def comprobar_anclaje(db: Session, entity_type: str, entity_id: UUID) -> None:
         # ya existia no se toca: borrarlo destruiria la prueba de que ese
         # registro estuvo respaldado mientras rigio.
         condiciones.append(modelo.deleted_at.is_(None))
+
+    # **Y dentro del alcance de la sesion**, con la misma regla que
+    # `CRUDBase._visibles()`: lo sin planta entra, lo de otra planta no. Hasta
+    # el 21-sep este `select` solo filtraba por empresa, asi que alguien acotado
+    # a una planta leia la historia de un registro de otra —con el antes y el
+    # despues de cada cambio— y podia comentarlo o adjuntarle archivos, con solo
+    # conocer su id. Se responde lo mismo que si no existiera, por el mismo
+    # motivo que las dos negativas de arriba.
+    if acota(modelo):
+        permitidas = instalaciones_permitidas(db)
+        if permitidas is not None:
+            condiciones.append(
+                or_(modelo.facility_id.is_(None), modelo.facility_id.in_(permitidas))
+            )
 
     if db.scalars(select(modelo).where(*condiciones)).first() is None:
         raise HTTPException(

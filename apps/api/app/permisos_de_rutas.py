@@ -178,7 +178,11 @@ SIN_GUARDA_DE_PERMISO: dict[str, str] = {
         "lo que puede tocar**: ningun endpoint de negocio sabe leer su token, "
         "que es de un tipo distinto de `CurrentUser`"
     ),
-    "system": "salud y diagnostico del esquema; no lee datos de negocio",
+    "system": (
+        "salud y diagnostico del esquema; no lee datos de negocio. **Salvo el "
+        "registro de actividades**, que si los lee y por eso esta en "
+        "`PERMISO_POR_RUTA`, que se mira antes que esta lista"
+    ),
     "me": (
         "preguntar quien soy y que puedo hacer **no puede exigir un permiso**: "
         "seria circular, porque la respuesta legitima puede ser 'ninguno' y "
@@ -199,8 +203,25 @@ PERMISO_POR_ACCION: dict[str, str] = {
     "close": "nonconformity.close",
     "evaluate": "legal_matrix.article.evaluate",
     "verify": "nonconformity.close",
-    "audit-log": "audit_log.read",
     "generate-notifications": "notification.configure",
+}
+
+#: Rutas con permiso propio que la regla general **no alcanza**, por
+#: `(raiz, ultimo segmento)`. Se miran antes que todo lo demas, incluida
+#: `SIN_GUARDA_DE_PERMISO`. Existe por dos defectos medidos el 21-sep:
+#:
+#: - **`/system/audit-log` no pedia ningun permiso.** `PERMISO_POR_ACCION`
+#:   declaraba `"audit-log": "audit_log.read"`, pero la raiz `system` esta
+#:   exenta y la funcion salia antes de llegar a esa linea: una guarda escrita
+#:   y sin efecto. El registro trae el antes y el despues de cada cambio de la
+#:   empresa, asi que cualquiera con sesion leia todo.
+#: - **Evaluar un aspecto ISO pedia el permiso de la matriz legal**, solo porque
+#:   la ruta termina en `evaluate`. Hoy los mismos roles tienen los dos, asi que
+#:   no bloqueaba a nadie; pero una excepcion individual caia en el permiso
+#:   equivocado. Evaluar la significancia es escribir el aspecto.
+PERMISO_POR_RUTA: dict[tuple[str, str], str] = {
+    ("system", "audit-log"): "audit_log.read",
+    ("iso14001", "evaluate"): "environmental_aspect.write",
 }
 
 #: Sub-rutas con familia propia, mas especifica que la de su raiz.
@@ -243,12 +264,15 @@ def permiso_requerido(camino: str, metodo: str) -> str | None:
         return None
 
     raiz = partes[0]
+    ultimo = partes[-1]
+    if (raiz, ultimo) in PERMISO_POR_RUTA:
+        return PERMISO_POR_RUTA[(raiz, ultimo)]
+
     if raiz in SIN_GUARDA_DE_PERMISO:
         return None
 
     # Las acciones ganan sobre todo lo demas: tienen permiso propio justamente
     # para no confundirse con editar el recurso.
-    ultimo = partes[-1]
     if ultimo in PERMISO_POR_ACCION:
         return PERMISO_POR_ACCION[ultimo]
 
