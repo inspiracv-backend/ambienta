@@ -21,6 +21,7 @@ import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { MODULO_LABEL } from '@/lib/tenant-status';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
+import { useSession } from '@/lib/session';
 import { leerTramo, type Tramo } from '@/lib/perfil-normativo';
 
 export interface NuevoTenantInput {
@@ -157,18 +158,36 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { mostrarToast } = useToast();
+  const { user } = useSession();
+  const tenantDeLaSesion = user?.tenantId ?? null;
+  // De que sesion son los datos cargados: sin esto, cambiar de sesion deja un
+  // instante los de la anterior con `loading: false` (mismo arreglo que el
+  // resto de los stores).
+  const [datosDe, setDatosDe] = useState<string | null>(null);
 
   useEffect(() => {
+    // **Se pide con la empresa de la sesion.** Sin ella, en modo desarrollo
+    // —sin Clerk— la peticion salia sin credencial y `/tenants/` respondia
+    // 401: la lista quedaba vacia y **21 pantallas** se quedaban sin plantas, y
+    // la ficha de auditoria sin quien emite el informe. Con Clerk no cambia
+    // nada: el token tiene prioridad sobre `tenantId` (`api-client`).
+    //
+    // **Sin empresa en la sesion se pregunta igual**, como antes. Saltarse la
+    // peticion dejaria la lista vacia y sin error, y la pantalla de empresas
+    // diria "no hay" cuando la verdad es "no se pudo preguntar" (#208).
     let cancelled = false;
+    setLoading(true);
+    setErrorDeCarga(null);
     // Las instalaciones se piden junto con la empresa y no aparte porque
     // `plants` venia siempre vacio, y **21 pantallas sacan de ahi su lista de
     // plantas**. Con la lista vacia esas pantallas caian a `mockTenants`, cuyos
     // identificadores son `planta-rancagua` mientras la API usa UUID: los datos
     // reales llegaban y no cruzaban con nada, asi que las pantallas se veian
     // vacias aunque la API respondiera bien.
+    const opts = tenantDeLaSesion ? { tenantId: tenantDeLaSesion } : undefined;
     Promise.all([
-      api.get<Record<string, unknown>[]>('/tenants/'),
-      api.get<Record<string, unknown>[]>('/facilities/').catch(() => []),
+      api.get<Record<string, unknown>[]>('/tenants/', opts),
+      api.get<Record<string, unknown>[]>('/facilities/', opts).catch(() => []),
     ])
       .then(([datosTenants, datosPlantas]) => {
         if (cancelled) return;
@@ -189,16 +208,20 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
         );
       })
       .catch((e: unknown) => {
+        // Una respuesta de la sesion anterior no pisa a la de esta.
+        if (cancelled) return;
         // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
         // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
         // preguntar' — la misma mentira de #208 en su otra forma.
         setErrorDeCarga(mensajeDeError(e));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setDatosDe(tenantDeLaSesion);
+        setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [tenantDeLaSesion]);
 
   async function createTenant(input: NuevoTenantInput): Promise<Tenant> {
     // **Sin fila optimista, a propósito.** Antes la empresa aparecía con un id
@@ -600,7 +623,7 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     <TenantsContext.Provider
       value={{
         tenants,
-        loading,
+        loading: loading || (!!tenantDeLaSesion && datosDe !== tenantDeLaSesion),
         errorDeCarga,
         createTenant,
         setEstado,

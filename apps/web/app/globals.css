@@ -31,6 +31,13 @@ body {
     display: block;
   }
 
+  /* El informe de auditoria se imprime solo. Su documento se monta directo en
+     <body> y, mientras dura la impresion, se oculta todo lo demas: sin esto el
+     PDF entregable salia precedido por la ficha entera. */
+  body.imprimiendo-informe > :not(.solo-impresion) {
+    display: none !important;
+  }
+
   /* Fuera todo lo que no es el documento: navegación, filtros, botones. */
   header:not(.reporte-imprimible header),
   nav,

@@ -8,6 +8,7 @@ import { SessionProvider } from './session';
 import { UsersProvider } from './users-store';
 import { ApiError } from './api-client';
 import { useAuditLog } from './audit-log-store';
+import { iniciarSesionComo } from '@/test/utils';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -461,5 +462,36 @@ describe('suspender una empresa', () => {
     await waitFor(() => expect(result.current.toast.toasts.length).toBeGreaterThan(0));
     expect(result.current.t.tenants[0].estado).toBe(empresa.estado);
     expect(result.current.toast.toasts[0].descripcion).toContain('Solo el Admin Global');
+  });
+});
+
+describe('la lista de empresas se pide con la empresa de la sesion', () => {
+  // Sin esto, en modo desarrollo `/tenants/` salia sin credencial y respondia
+  // 401: la lista quedaba vacia, 21 pantallas sin plantas y la ficha de
+  // auditoria sin quien emite el informe.
+  it('con sesion, `/tenants/` y `/facilities/` llevan su empresa', async () => {
+    const u = iniciarSesionComo('admin_empresa');
+    get.mockImplementation((ruta: string) =>
+      Promise.resolve(ruta.startsWith('/tenants') ? [tenantApi({})] : []),
+    );
+    renderHook(() => useTenants(), { wrapper });
+
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith('/tenants/', { tenantId: u.tenantId }),
+    );
+    expect(get).toHaveBeenCalledWith('/facilities/', { tenantId: u.tenantId });
+  });
+
+  it('sin empresa en la sesion pregunta igual y, si falla, lo dice', async () => {
+    // El Admin Global de desarrollo no tiene empresa. Saltarse la peticion
+    // dejaria "no hay empresas" en vez de "no se pudo cargar".
+    get.mockImplementation((ruta: string) =>
+      ruta.startsWith('/tenants') ? Promise.reject(new ApiError(401, 'No autenticado', null)) : Promise.resolve([]),
+    );
+    const { result } = renderHook(() => useTenants(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(get).toHaveBeenCalledWith('/tenants/', undefined);
+    expect(result.current.errorDeCarga).toBeTruthy();
   });
 });

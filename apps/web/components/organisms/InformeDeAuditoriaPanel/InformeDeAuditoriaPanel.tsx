@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/atoms';
 import { mensajeDeError } from '@/lib/api-client';
 import type { Tenant } from '@ambienta/shared';
@@ -16,6 +17,9 @@ import {
   type FilaDeLaMatriz,
   type InformeDeAuditoria,
 } from '@/lib/informe-auditoria';
+
+/** La marca que, al imprimir, deja en la hoja solo el documento (`globals.css`). */
+export const CLASE_IMPRIMIENDO_INFORME = 'imprimiendo-informe';
 
 const ESTILO: Record<Clasificacion, string> = {
   conforme: 'bg-semaforo-cumple-bg text-semaforo-cumple',
@@ -59,6 +63,53 @@ export function InformeDeAuditoriaPanel({
     void cargar();
   }, [cargar]);
 
+  // El documento se monta directo en <body> (ver abajo), y eso solo se puede
+  // hacer en el navegador.
+  const [montado, setMontado] = useState(false);
+  useEffect(() => setMontado(true), []);
+
+  const puedeEmitir = Boolean(tenant && user && informe);
+  const emisor = tenant?.id;
+  const codigo = informe?.codigo;
+  const titulo = informe?.titulo;
+
+  useEffect(() => {
+    if (!puedeEmitir || !emisor) return;
+    // **Imprimir en esta ficha es imprimir el informe**, venga del boton o de
+    // Ctrl+P. Por eso se engancha en `beforeprint` y no en el clic: con el
+    // clic, Ctrl+P sacaba la pantalla entera con el informe pegado al final, y
+    // no quedaba anotado.
+    function antes() {
+      document.body.classList.add(CLASE_IMPRIMIENDO_INFORME);
+      // Se anota que **se abrio la impresion**, no que se emitio: el navegador
+      // no avisa si la persona cancela el dialogo.
+      //
+      // Y es el historial **de esta sesion**, no el registro del servidor:
+      // `useRegistrarAuditoria` no llega a la API (lo dice `audit-log-store`),
+      // y el `audit_log` solo anota lo que cambia por la ORM. Que la emision
+      // quede guardada necesita un endpoint propio, que no existe.
+      registrar({
+        entidadTipo: 'auditoria',
+        entidadId: auditId,
+        entidadLabel: codigo ?? auditId,
+        tenantId: emisor,
+        accion: 'exportado',
+        resumen: `Abrió la impresión del informe de "${titulo ?? auditId}" (imprimir o guardar PDF)`,
+        cambios: [],
+      });
+    }
+    function despues() {
+      document.body.classList.remove(CLASE_IMPRIMIENDO_INFORME);
+    }
+    window.addEventListener('beforeprint', antes);
+    window.addEventListener('afterprint', despues);
+    return () => {
+      window.removeEventListener('beforeprint', antes);
+      window.removeEventListener('afterprint', despues);
+      despues();
+    };
+  }, [puedeEmitir, emisor, registrar, auditId, codigo, titulo]);
+
   if (error) {
     return (
       <section className="rounded-card border border-slate-200 bg-white p-6">
@@ -86,18 +137,8 @@ export function InformeDeAuditoriaPanel({
   ];
 
   function imprimir() {
-    if (!tenant || !user) return;
-    // Queda registrado: un documento entregado a un tercero es justo lo que
-    // RNF-26 pide poder rastrear.
-    registrar({
-      entidadTipo: 'auditoria',
-      entidadId: auditId,
-      entidadLabel: informe?.codigo ?? auditId,
-      tenantId: tenant.id,
-      accion: 'exportado',
-      resumen: `Emitió el informe de "${informe?.titulo ?? auditId}" en PDF`,
-      cambios: [],
-    });
+    // Lo demas —ocultar la pantalla y anotarlo— pasa en `beforeprint`, para
+    // que Ctrl+P haga exactamente lo mismo.
     window.print();
   }
 
@@ -111,10 +152,19 @@ export function InformeDeAuditoriaPanel({
             {informe.codigo} · {informe.titulo}
           </p>
         </div>
-        {tenant && user && (
+        {tenant && user ? (
           <Button variant="secondary" size="sm" onClick={imprimir}>
             Imprimir / Guardar PDF
           </Button>
+        ) : (
+          // **Se dice por que no se puede, en vez de esconder el boton.** El
+          // documento lleva quien lo emite —razon social, RUT, logo— y sin la
+          // empresa cargada seria un informe sin emisor. Un boton que
+          // desaparece se lee como que la funcion no existe.
+          <p className="max-w-xs text-xs text-slate-500">
+            Para emitir el PDF falta cargar la empresa que lo emite. Recarga la
+            pagina; si sigue igual, es que no se pudo leer su ficha.
+          </p>
         )}
       </div>
 
@@ -162,13 +212,19 @@ export function InformeDeAuditoriaPanel({
       )}
     </section>
 
-    {/* El documento entregable. Vive fuera de la pantalla y solo aparece al
-        imprimir, con el mismo informe que muestra el panel. */}
-    {tenant && user && (
-      <div className="solo-impresion">
-        <InformeDeAuditoriaPdf tenant={tenant} informe={informe} emitidoPor={user.nombre} />
-      </div>
-    )}
+    {/* El documento entregable, con el mismo informe que muestra el panel.
+        **Se monta directo en <body>** y no aca adentro: asi, al imprimir, la
+        hoja puede ocultar a todos los demas hijos de <body> —la ficha entera—
+        sin tener que marcar uno por uno lo que no es el informe. */}
+    {montado &&
+      tenant &&
+      user &&
+      createPortal(
+        <div className="solo-impresion">
+          <InformeDeAuditoriaPdf tenant={tenant} informe={informe} emitidoPor={user.nombre} />
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

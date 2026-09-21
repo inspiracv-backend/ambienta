@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
-import { InformeDeAuditoriaPanel } from './InformeDeAuditoriaPanel';
-import { AuditLogProvider } from '@/lib/audit-log-store';
+import { CLASE_IMPRIMIENDO_INFORME, InformeDeAuditoriaPanel } from './InformeDeAuditoriaPanel';
+import { AuditLogProvider, useAuditLog } from '@/lib/audit-log-store';
 import { SessionProvider } from '@/lib/session';
 import { ToastProvider } from '@/lib/toast-store';
 import { UsersProvider } from '@/lib/users-store';
@@ -171,4 +171,78 @@ describe('el informe como documento entregable', () => {
     expect(screen.getAllByText('62,5 %').length).toBeGreaterThan(1);
     expect(screen.getByText(/Informe de auditoría — Auditoría interna/)).toBeTruthy();
   });
+
+  it('sin la empresa emisora dice por que no se puede imprimir', async () => {
+    // Paso de verdad el 20-sep en el navegador: la ficha no tenia la empresa
+    // cargada, el boton desaparecia y la pantalla se leia como que el informe
+    // no se podia emitir nunca. Callar no es lo mismo que no poder.
+    iniciarSesionComo('admin_empresa');
+    render(<InformeDeAuditoriaPanel auditId="a-1" />, { wrapper });
+    await screen.findAllByText('Gestión de residuos');
+
+    expect(screen.queryByRole('button', { name: 'Imprimir / Guardar PDF' })).toBeNull();
+    expect(screen.getByText(/falta cargar la empresa que lo emite/)).toBeTruthy();
+  });
+});
+
+describe('imprimir en la ficha es imprimir el informe', () => {
+  function Historial() {
+    const { entries } = useAuditLog();
+    return (
+      <ul aria-label="historial">
+        {entries.map((e) => (
+          <li key={e.id}>{e.resumen}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  async function montarConHistorial() {
+    iniciarSesionComo('admin_empresa');
+    render(
+      <>
+        <InformeDeAuditoriaPanel auditId="a-1" tenant={EMPRESA} />
+        <Historial />
+      </>,
+      { wrapper },
+    );
+    await screen.findAllByText('Gestión de residuos');
+  }
+
+  it('el documento cuelga directo de <body>, que es lo que deja ocultar el resto', async () => {
+    // La hoja de impresion oculta a los hermanos del documento. Anidado dentro
+    // de la ficha no tendria hermanos que ocultar y el PDF saldria con toda la
+    // pantalla delante, que es como salia.
+    await montar();
+    expect(document.querySelector('body > .solo-impresion')).not.toBeNull();
+  });
+
+  it('Ctrl+P hace lo mismo que el boton: marca la hoja y lo anota', async () => {
+    await montarConHistorial();
+
+    // Ctrl+P no pasa por el boton: el navegador solo avisa con `beforeprint`.
+    window.dispatchEvent(new Event('beforeprint'));
+
+    expect(document.body.classList.contains(CLASE_IMPRIMIENDO_INFORME)).toBe(true);
+    expect(await screen.findByText(/Abrió la impresión del informe/)).toBeTruthy();
+
+    window.dispatchEvent(new Event('afterprint'));
+    expect(document.body.classList.contains(CLASE_IMPRIMIENDO_INFORME)).toBe(false);
+  });
+
+  it('no dice que se emitio: el navegador no avisa si se cancela', async () => {
+    await montarConHistorial();
+    window.dispatchEvent(new Event('beforeprint'));
+    await screen.findByText(/Abrió la impresión del informe/);
+    expect(screen.queryByText(/Emitió el informe/)).toBeNull();
+    window.dispatchEvent(new Event('afterprint'));
+  });
+});
+
+it('el pie del documento no dobla el punto despues de la hora', async () => {
+  // Con reloj de 12 horas `es-CL` termina en «p. m.», y la frase agregaba el
+  // suyo: «12:57:21 p. m..». Visto en el navegador el 21-sep.
+  await montar();
+  const pie = screen.getByText(/Documento generado por Ambienta/);
+  expect(pie.textContent).not.toMatch(/\.\./);
 });
