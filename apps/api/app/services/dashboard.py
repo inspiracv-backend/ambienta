@@ -61,6 +61,31 @@ def _condiciones_pendientes(
     return condiciones
 
 
+def _porcentajes(aplicables: int, cumplen: int, pendientes: int) -> tuple[float | None, float | None]:
+    """Cumplimiento y cobertura, **los dos**, a partir de los mismos conteos.
+
+    - **Cumplimiento** = que cumplen / aplicables. Los pendientes quedan en el
+      denominador (spec del tablero): si no, una matriz con un solo articulo
+      evaluado y cumplido mostraria 100 %.
+    - **Cobertura** = evaluados / aplicables (ISO 14001, "cumplimiento y
+      cobertura son indicadores distintos"). Es lo que explica un cumplimiento
+      bajo: no es lo mismo un 30 % porque se incumple que un 30 % porque falta
+      evaluar el 70 %.
+
+    **`None` cuando no hay nada que medir**, en los dos. Y el cumplimiento
+    tambien es `None` si **nada se evaluo todavia**: hasta el 21-sep eso daba
+    0,0 %, porque el `None` solo cubria "sin filas" y la sincronizacion crea
+    las filas en `pending`. Una empresa con la matriz recien cargada quedaba
+    acusada de no cumplir nada — lo que el docstring de abajo dice evitar.
+    """
+    if not aplicables:
+        return None, None
+    evaluados = aplicables - pendientes
+    cobertura = round(evaluados / aplicables * 100, 1)
+    cumplimiento = round(cumplen / aplicables * 100, 1) if evaluados else None
+    return cumplimiento, cobertura
+
+
 def _cumplimiento_global(db: Session, tenant_id: UUID) -> dict:
     """% de cumplimiento sobre los articulos evaluados del tenant.
 
@@ -80,7 +105,7 @@ def _cumplimiento_global(db: Session, tenant_id: UUID) -> dict:
     cumplimientos parciales no equivalen a uno completo, y sumarlos como medio
     punto cada uno inventaria una precision que la evaluacion no tiene.
     """
-    total, cumplen, incumplen = db.execute(
+    total, cumplen, incumplen, pendientes = db.execute(
         select(
             func.count(ArticleCompliance.id).filter(
                 ArticleCompliance.compliance_status != "not_applicable"
@@ -90,6 +115,9 @@ def _cumplimiento_global(db: Session, tenant_id: UUID) -> dict:
             ),
             func.count(ArticleCompliance.id).filter(
                 ArticleCompliance.compliance_status == "non_compliant"
+            ),
+            func.count(ArticleCompliance.id).filter(
+                ArticleCompliance.compliance_status == "pending"
             ),
         )
         .select_from(ArticleCompliance)
@@ -114,10 +142,12 @@ def _cumplimiento_global(db: Session, tenant_id: UUID) -> dict:
     # `resumen_cumplimiento.py` ya devolvia `None` en el mismo caso y lo explica
     # en su docstring. Este servicio se habia escrito aparte y no heredo la
     # decision — dos calculos del mismo numero, uno correcto y otro no.
-    pct = round(cumplen / total * 100, 1) if total else None
+    pct, cobertura = _porcentajes(total, cumplen, pendientes)
     return {
         "compliance_percentage": pct,
+        "coverage_percentage": cobertura,
         "articles_evaluated": total,
+        "articles_pending": pendientes,
         "articles_non_compliant": incumplen,
     }
 
@@ -141,6 +171,9 @@ def _cumplimiento_por_facility(db: Session, tenant_id: UUID) -> dict[UUID, dict]
             func.count(ArticleCompliance.id).filter(
                 ArticleCompliance.compliance_status == "non_compliant"
             ),
+            func.count(ArticleCompliance.id).filter(
+                ArticleCompliance.compliance_status == "pending"
+            ),
         )
         .select_from(ArticleCompliance)
         .join(MatrixNorm, MatrixNorm.id == ArticleCompliance.matrix_norm_id)
@@ -159,10 +192,10 @@ def _cumplimiento_por_facility(db: Session, tenant_id: UUID) -> dict[UUID, dict]
 
     return {
         fid: {
-            "compliance_percentage": round(ok / total * 100, 1) if total else None,
+            "compliance_percentage": _porcentajes(total, ok, pendientes)[0],
             "articles_non_compliant": malos,
         }
-        for fid, total, ok, malos in filas
+        for fid, total, ok, malos, pendientes in filas
     }
 
 

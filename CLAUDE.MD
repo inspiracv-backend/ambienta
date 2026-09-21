@@ -555,6 +555,15 @@ cuando no hay nada que medir. **Los reportes tambien lo usan desde el 26-ago**
 planta deja fuera las normas sin evaluar en lugar de contarlas como ceros — una
 planta con dos normas, una al 100 % y otra sin revisar, salia en 50 %.
 
+**Y el tablero tenia el mismo cero, por otro camino** (21-sep). El `None` del
+cumplimiento global solo cubria "sin filas", pero la sincronizacion crea las
+filas en `pending`: con la matriz recien cargada y nada evaluado, el tablero
+decia **0,0 %**. Ahora es `None` si no se evaluo nada, y `/dashboard/metrics`
+trae ademas la **cobertura** y los **pendientes**, que la tarjeta muestra al
+lado del cumplimiento. Ojo: los specs no coinciden en que es "cumplimiento" —el
+del tablero deja los pendientes en el denominador, el de ISO pide calcularlo
+sobre lo evaluado— y eso **no se cambio**: es una decision abierta.
+
 `computeNormCompliance` **se queda igual**: es el espejo de
 `resumen_cumplimiento.py`. Y al medirlo aparecio que **la API ya lo hacia bien**
 —devuelve `None`, no cero, y su docstring lo explica— asi que el acoplamiento

@@ -5,6 +5,7 @@ export * from './GuestAccessCard';
 export * from './TicketForm';
 export * from './AppSidebar';
 export * from './AppHeader';
+export * from './AspectosSinTratarResumen';
 export * from './DashboardHeroCard';
 export * from './DeadlinesList';
 export * from './MultiPlantTable';

@@ -23,12 +23,26 @@ class GlobalMetrics(BaseModel):
     compliance_percentage: float | None = Field(
         description=(
             "0 a 100, un decimal. Los articulos 'not_applicable' salen del "
-            "denominador; los 'not_evaluated' se quedan dentro, para que una "
-            "matriz a medio evaluar no pueda mostrar 100%."
+            "denominador; los 'pending' se quedan dentro, para que una matriz "
+            "a medio evaluar no pueda mostrar 100%. Null si no hay articulos "
+            "**o si todavia no se evaluo ninguno**: eso no es 0 %."
         ),
     )
     articles_evaluated: int = Field(
         description="Denominador del porcentaje: articulos que aplican."
+    )
+    coverage_percentage: float | None = Field(
+        default=None,
+        description=(
+            "0 a 100, un decimal: que parte de los articulos que aplican ya se "
+            "evaluo. Va aparte del cumplimiento a proposito (ISO 14001): un "
+            "cumplimiento bajo puede ser incumplimiento o falta de evaluacion, "
+            "y el numero solo no lo distingue. Null si no hay articulos."
+        ),
+    )
+    articles_pending: int = Field(
+        default=0,
+        description="Articulos que aplican y todavia no se evaluaron (`pending`).",
     )
     articles_non_compliant: int
     total_obligations: int = Field(

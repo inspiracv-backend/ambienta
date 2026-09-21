@@ -4,8 +4,10 @@ import { visibleEnAlcance } from '@/lib/alcance';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileWarning, ShieldAlert, Clock, RefreshCw, WifiOff } from 'lucide-react';
+import { FEATURE_FLAGS } from '@ambienta/shared';
 import { MetricCounter, PageHeader } from '@/components/molecules';
 import {
+  AspectosSinTratarResumen,
   DashboardHeroCard,
   DeadlinesList,
   GestorSummary,
@@ -165,7 +167,14 @@ export default function DashboardPage() {
         <DashboardSkeleton />
       ) : (
         <>
-          <DashboardHeroCard obligation={proximoCritico} cumplimientoPct={cumplimientoGlobal} />
+          <DashboardHeroCard
+            obligation={proximoCritico}
+            cumplimientoPct={cumplimientoGlobal}
+            // Solo con datos de la API: el respaldo de ejemplo no sabe cuanto
+            // se evaluo, y adivinarlo seria inventar la cifra que explica a la otra.
+            cobertura={metrics?.cobertura ?? null}
+            porEvaluar={metrics?.porEvaluar ?? null}
+          />
 
           <div className="grid gap-4 sm:grid-cols-3">
             <MetricCounter
@@ -187,6 +196,11 @@ export default function DashboardPage() {
               tone="neutral"
             />
           </div>
+
+          {/* ISO 14001 §6.1.4: lo primero que pregunta una auditoria. */}
+          {FEATURE_FLAGS.matricesIso && user.tenantId && (
+            <AspectosSinTratarResumen tenantId={user.tenantId} />
+          )}
         </>
       )}
 

@@ -67,7 +67,7 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 
 ## Fase 6 — Consecuencias
 
-- [ ] Dashboard: aspectos significativos sin tratar, requisitos por evaluar
+- [x] Dashboard: aspectos significativos sin tratar, requisitos por evaluar **(21-sep: la tarjeta de cumplimiento muestra la cobertura y cuantos requisitos faltan; un contador de aspectos sin tratar, de la misma vista que el panel de aspectos. La definicion del cumplimiento NO se cambio: el spec del tablero deja los pendientes en el denominador y el de este cambio pide cumplimiento sobre lo evaluado — es una decision abierta)**
 - [ ] Calendario: vencimientos de evaluación periódica y de monitoreo
 - [ ] Registro de mejora: enlazar `riesgo` y `oportunidad` a la matriz en vez de duplicarlos
 - [x] Reportes: matriz de aspectos exportable **(21-sep: PDF y CSV desde la pantalla de aspectos, con lo filtrado y el filtro declarado en el documento; lleva los tres puntajes por separado. De paso, "No significativo" dejo de incluir lo sin evaluar)**

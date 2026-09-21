@@ -13,7 +13,12 @@ function diasRestantes(iso: string) {
  * global. El botón de configuración del cálculo (RF-51 / S-11) vive por norma
  * en Matriz Legal (Sección D) — aquí solo enlaza hacia allá.
  */
-export function DashboardHeroCard({ obligation, cumplimientoPct }: DashboardHeroCardProps) {
+export function DashboardHeroCard({
+  obligation,
+  cumplimientoPct,
+  cobertura = null,
+  porEvaluar = null,
+}: DashboardHeroCardProps) {
   // Se prefiere el valor que ya calculo la API: si el navegador tiene el reloj
   // corrido, recalcular aca daria un numero distinto al del resto del tablero.
   // El calculo local queda para el modo mock, que no trae `diasRestantes`.
@@ -75,6 +80,20 @@ export function DashboardHeroCard({ obligation, cumplimientoPct }: DashboardHero
         ) : (
           <p className="mt-2 text-3xl font-semibold text-brand-700">
             {Math.round(cumplimientoPct * 100)}%
+          </p>
+        )}
+        {cobertura !== null && (
+          <p className="mt-2 text-sm text-slate-600">
+            <span className="font-medium tabular-nums">{Math.round(cobertura * 100)}%</span> de los
+            requisitos evaluados
+            {porEvaluar !== null && porEvaluar > 0 && (
+              <>
+                {' · '}
+                <Link href="/matriz-legal" className="font-medium text-brand-700 hover:underline">
+                  {porEvaluar} por evaluar
+                </Link>
+              </>
+            )}
           </p>
         )}
       </div>
