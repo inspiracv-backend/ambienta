@@ -368,8 +368,12 @@ def evaluar_significancia(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from None
+    # **Se lee ANTES de confirmar.** El `commit` cierra la transaccion y con ella
+    # se va la empresa declarada, asi que `db.refresh` ve cero filas y revienta
+    # con "Could not refresh instance": el endpoint respondia **500**. No lo
+    # detecto nadie porque ninguna pantalla lo llamaba —el mismo patron que ya
+    # aparecio con `fulfill` y con el checklist—, y las pruebas eran del
+    # servicio, no del endpoint. Encontrado en el navegador el 20-sep.
+    leido = EnvironmentalAspectRead.model_validate(aspecto)
     db.commit()
-    db.refresh(aspecto)
-    return ResultadoDeSignificancia(
-        aspect=EnvironmentalAspectRead.model_validate(aspecto), motivos=motivos
-    )
+    return ResultadoDeSignificancia(aspect=leido, motivos=motivos)
