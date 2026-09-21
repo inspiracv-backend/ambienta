@@ -5,6 +5,8 @@ import {
   countArticulosSinEvaluar,
 } from '@/lib/legal-matrix';
 import { AUDIT_ESTADO_LABEL, NC_ESTADO_LABEL, CRITICIDAD_LABEL } from '@/lib/audit-status';
+import { aspectoSinTratar, type AspectoApi, type RiesgoApi } from '@/lib/iso-store';
+import { CONDICION_OPERACION, SIGNIFICANCIA, TIPO_IMPACTO, etiqueta } from '@/lib/iso-vocabulario';
 
 export type TipoReporte = 'cumplimiento' | 'no-conformidades' | 'matriz-legal';
 
@@ -201,6 +203,83 @@ export function buildMatrizLegalReport(norms: LegalNorm[], plants: Plant[]): Rep
     // falta, y un 100 % sobre un articulo de doscientos se lee igual que un
     // 100 % sobre los doscientos.
     ['El % de cumplimiento se calcula sobre los articulos ya evaluados. La ultima columna dice cuantos faltan.'],
+  );
+}
+
+export interface ContextoMatrizAspectos {
+  plantas: { id: string; nombre: string }[];
+  riesgos: RiesgoApi[];
+  nombreDe: (userId: string) => string;
+  /** Los filtros de la pantalla, dichos en palabras. Vacio = la matriz entera. */
+  filtros: string[];
+  /** Cuantos aspectos tiene la matriz sin filtrar. */
+  total: number;
+}
+
+/**
+ * La matriz de aspectos e impactos (ISO 14001 §6.1.2), para entregar a un
+ * certificador. Sale **lo que la pantalla muestra filtrado**, y el documento lo
+ * dice: una matriz filtrada sin aviso se lee como la matriz completa.
+ *
+ * Lleva los tres puntajes por separado aunque la tabla muestre solo el total:
+ * es la evidencia de como se evaluo, que es lo que el auditor revisa.
+ */
+export function buildMatrizAspectosReport(
+  aspectos: AspectoApi[],
+  ctx: ContextoMatrizAspectos,
+): Reporte {
+  const puntaje = (n: number | null) => (n === null ? '—' : String(n));
+  const rows = aspectos.map((a) => [
+    ctx.plantas.find((p) => p.id === a.facilityId)?.nombre ?? a.facilityId,
+    a.actividad,
+    a.aspecto,
+    etiqueta(TIPO_IMPACTO, a.tipoImpacto),
+    etiqueta(CONDICION_OPERACION, a.condicionOperacion),
+    puntaje(a.puntajeFrecuencia),
+    puntaje(a.puntajeSeveridad),
+    puntaje(a.puntajeLegal),
+    // `null` es "sin evaluar", no cero: un cero diria que se evaluo y salio sin
+    // importancia, que es lo contrario.
+    a.puntajeTotal === null ? 'Sin evaluar' : String(a.puntajeTotal),
+    etiqueta(SIGNIFICANCIA, a.significancia),
+    a.significancia === 'significant'
+      ? aspectoSinTratar(a, ctx.riesgos)
+        ? 'Sin tratar'
+        : 'Tratado'
+      : '—',
+    a.responsableId ? ctx.nombreDe(a.responsableId) : 'Sin asignar',
+  ]);
+
+  const notas = [
+    'La significancia la decide el servidor con el umbral de la empresa: un requisito legal puede hacer significativo un aspecto aunque su puntaje sea bajo.',
+    '"Sin evaluar" quiere decir que el aspecto todavia no tiene puntajes, no que no sea significativo.',
+    '"Tratado": el aspecto significativo esta ligado a un requisito legal o a un riesgo u oportunidad (§6.1.4).',
+  ];
+  if (ctx.filtros.length > 0) {
+    notas.unshift(
+      `Filtrado: ${ctx.filtros.join(' · ')}. Muestra ${aspectos.length} de los ${ctx.total} aspectos de la matriz.`,
+    );
+  }
+
+  return armar(
+    'Matriz de aspectos e impactos ambientales',
+    [
+      'Planta',
+      'Actividad',
+      'Aspecto',
+      'Tipo de impacto',
+      'Condición',
+      'Frecuencia',
+      'Severidad',
+      'Legal',
+      'Puntaje',
+      'Significancia',
+      'Tratamiento',
+      'Responsable',
+    ],
+    rows,
+    aspectos.length === 0,
+    notas,
   );
 }
 

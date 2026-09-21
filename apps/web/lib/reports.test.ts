@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Audit, LegalNorm, NonConformity, Obligation, Plant } from '@ambienta/shared';
+import type { AspectoApi, RiesgoApi } from './iso-store';
 import {
   buildAuditFolderContent,
   buildCumplimientoReport,
+  buildMatrizAspectosReport,
   buildMatrizLegalReport,
   buildNoConformidadesReport,
   downloadTextFile,
@@ -481,5 +483,106 @@ describe('la carpeta de una auditoría sin fecha ni planta', () => {
     const texto = buildAuditFolderContent(sinFecha, undefined, []);
     expect(texto).toContain('Toda la empresa');
     expect(texto.split('\n')[0]).not.toMatch(/—\s*$/);
+  });
+});
+
+describe('buildMatrizAspectosReport', () => {
+  function aspecto(over: Partial<AspectoApi> & { id: string }): AspectoApi {
+    return {
+      facilityId: 'p1',
+      procesoId: null,
+      articleComplianceId: null,
+      actividad: 'Chancado',
+      aspecto: 'Emisión de polvo',
+      tipoImpacto: 'emision_atmosferica',
+      condicionOperacion: 'normal',
+      puntajeSeveridad: null,
+      puntajeFrecuencia: null,
+      puntajeLegal: null,
+      puntajeTotal: null,
+      significancia: 'pending',
+      responsableId: null,
+      ...over,
+    };
+  }
+  const ctx = {
+    plantas: [{ id: 'p1', nombre: 'Planta Calama' }],
+    riesgos: [] as RiesgoApi[],
+    nombreDe: (id: string) => (id === 'u1' ? 'Ana Rojas' : id),
+    filtros: [] as string[],
+    total: 3,
+  };
+
+  it('sin puntajes dice "Sin evaluar", no cero', () => {
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], ctx);
+
+    expect(r.rows[0][8]).toBe('Sin evaluar');
+    expect(r.rows[0][9]).toBe('Sin evaluar');
+    expect(r.rows[0].slice(5, 8)).toEqual(['—', '—', '—']);
+  });
+
+  it('lleva los tres puntajes, que son la evidencia de como se evaluo', () => {
+    const r = buildMatrizAspectosReport(
+      [
+        aspecto({
+          id: 'a1',
+          puntajeFrecuencia: 8,
+          puntajeSeveridad: 7,
+          puntajeLegal: 3,
+          puntajeTotal: 56,
+          significancia: 'significant',
+        }),
+      ],
+      ctx,
+    );
+
+    expect(r.rows[0].slice(5, 10)).toEqual(['8', '7', '3', '56', 'Significativo']);
+  });
+
+  it('distingue significativo tratado de sin tratar', () => {
+    const riesgo = { id: 'r1', aspectoAmbientalId: 'a2' } as RiesgoApi;
+    const r = buildMatrizAspectosReport(
+      [
+        aspecto({ id: 'a1', significancia: 'significant' }),
+        aspecto({ id: 'a2', significancia: 'significant' }),
+        aspecto({ id: 'a3', significancia: 'significant', articleComplianceId: 'ac1' }),
+        aspecto({ id: 'a4', significancia: 'not_significant' }),
+      ],
+      { ...ctx, riesgos: [riesgo] },
+    );
+
+    expect(r.rows.map((f) => f[10])).toEqual(['Sin tratar', 'Tratado', 'Tratado', '—']);
+  });
+
+  it('traduce planta, tipo, condicion y responsable', () => {
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1', responsableId: 'u1' })], ctx);
+
+    expect(r.rows[0][0]).toBe('Planta Calama');
+    expect(r.rows[0][3]).toBe('Emisión atmosférica');
+    expect(r.rows[0][4]).toBe('Normal');
+    expect(r.rows[0][11]).toBe('Ana Rojas');
+  });
+
+  it('filtrada, lo dice y dice cuantos de cuantos', () => {
+    // Una matriz filtrada sin aviso se lee como la matriz completa.
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], {
+      ...ctx,
+      filtros: ['Planta: Planta Calama'],
+    });
+
+    expect(r.notas[0]).toBe('Filtrado: Planta: Planta Calama. Muestra 1 de los 3 aspectos de la matriz.');
+  });
+
+  it('sin filtro no inventa uno', () => {
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], ctx);
+
+    expect(r.notas.some((n) => n.startsWith('Filtrado'))).toBe(false);
+  });
+
+  it('el CSV sale de las mismas filas que el PDF', () => {
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], ctx);
+
+    expect(r.csv.split('\n')[0]).toBe(r.headers.join(','));
+    expect(r.csv).toContain('Planta Calama');
   });
 });

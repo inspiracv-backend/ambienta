@@ -70,7 +70,7 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 - [ ] Dashboard: aspectos significativos sin tratar, requisitos por evaluar
 - [ ] Calendario: vencimientos de evaluación periódica y de monitoreo
 - [ ] Registro de mejora: enlazar `riesgo` y `oportunidad` a la matriz en vez de duplicarlos
-- [ ] Reportes: matriz de aspectos exportable
+- [x] Reportes: matriz de aspectos exportable **(21-sep: PDF y CSV desde la pantalla de aspectos, con lo filtrado y el filtro declarado en el documento; lleva los tres puntajes por separado. De paso, "No significativo" dejo de incluir lo sin evaluar)**
 
 ---
 

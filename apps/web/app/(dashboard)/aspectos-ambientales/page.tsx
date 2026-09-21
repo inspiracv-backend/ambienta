@@ -84,7 +84,7 @@ function Contenido() {
         ))}
         vacio="Todos los aspectos significativos tienen un riesgo u oportunidad asociado."
       />
-      <AspectosAmbientalesTable aspectos={aspectos} plants={plantas} />
+      <AspectosAmbientalesTable aspectos={aspectos} plants={plantas} tenant={tenant} />
     </div>
   );
 }

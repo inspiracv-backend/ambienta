@@ -9,3 +9,4 @@ export * from './PageHeader';
 export * from './EmptyState';
 export * from './StatCard';
 export * from './PanelDeAtencion';
+export * from './DocumentoImprimible';

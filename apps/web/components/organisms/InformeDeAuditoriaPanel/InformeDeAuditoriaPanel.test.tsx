@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
-import { CLASE_IMPRIMIENDO_INFORME, InformeDeAuditoriaPanel } from './InformeDeAuditoriaPanel';
+import { InformeDeAuditoriaPanel } from './InformeDeAuditoriaPanel';
+import { CLASE_IMPRIMIENDO_DOCUMENTO } from '@/components/molecules';
 import { AuditLogProvider, useAuditLog } from '@/lib/audit-log-store';
 import { SessionProvider } from '@/lib/session';
 import { ToastProvider } from '@/lib/toast-store';
@@ -223,11 +224,11 @@ describe('imprimir en la ficha es imprimir el informe', () => {
     // Ctrl+P no pasa por el boton: el navegador solo avisa con `beforeprint`.
     window.dispatchEvent(new Event('beforeprint'));
 
-    expect(document.body.classList.contains(CLASE_IMPRIMIENDO_INFORME)).toBe(true);
+    expect(document.body.classList.contains(CLASE_IMPRIMIENDO_DOCUMENTO)).toBe(true);
     expect(await screen.findByText(/Abrió la impresión del informe/)).toBeTruthy();
 
     window.dispatchEvent(new Event('afterprint'));
-    expect(document.body.classList.contains(CLASE_IMPRIMIENDO_INFORME)).toBe(false);
+    expect(document.body.classList.contains(CLASE_IMPRIMIENDO_DOCUMENTO)).toBe(false);
   });
 
   it('no dice que se emitio: el navegador no avisa si se cancela', async () => {
