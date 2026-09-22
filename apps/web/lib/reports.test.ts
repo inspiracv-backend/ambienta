@@ -587,7 +587,10 @@ describe('buildMatrizAspectosReport', () => {
       { ...ctx, riesgos: [riesgo] },
     );
 
-    expect(r.rows.map((_, i) => celda(r, i, 'Tratamiento'))).toEqual(['Sin tratar', 'Tratado', 'Tratado', '—']);
+    // a3 tiene un requisito legal enlazado y ningun riesgo: sin tratar. El
+    // requisito que le aplica no es una accion sobre el aspecto, y el panel del
+    // servidor ya lo contaba asi (21-sep, se unificaron los criterios).
+    expect(r.rows.map((_, i) => celda(r, i, 'Tratamiento'))).toEqual(['Sin tratar', 'Tratado', 'Sin tratar', '—']);
   });
 
   it('traduce planta, tipo, condicion y responsable', () => {

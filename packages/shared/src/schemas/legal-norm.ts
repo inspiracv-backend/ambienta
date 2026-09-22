@@ -65,6 +65,13 @@ export const ArticuloSchema = z.object({
   responsableId: z.string().optional(),
   evidenciaUrl: z.string().optional(),
   incluidoEnCalculo: z.boolean().default(true),
+  /**
+   * El id de la evaluación de la empresa sobre este artículo
+   * (`article_compliance.id`). Ausente = nadie lo evaluó. Es lo que se enlaza
+   * desde un aspecto ambiental: el requisito legal **de esta empresa**, no el
+   * texto de la ley, que es igual para todos.
+   */
+  evaluacionId: z.string().optional(),
 
   // --- Campos de `matrices-ambientales-iso-14001` (flag `matricesIso`) ---
   // Opcionales a proposito: la matriz legal actual valida igual sin ellos.

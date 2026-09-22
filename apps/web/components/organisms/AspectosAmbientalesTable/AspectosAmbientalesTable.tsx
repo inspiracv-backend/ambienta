@@ -9,7 +9,8 @@ import { ReporteImprimible } from '@/components/organisms/ReporteImprimible';
 import { ConfirmarBorrado, FormularioIso, type CampoIso } from '@/components/organisms/IsoForms';
 import { EvaluarSignificanciaModal } from '@/components/organisms/EvaluarSignificanciaModal';
 import { useNombreDeUsuario } from '@/lib/get-user-name';
-import { aspectoSinTratar, useIso, type AspectoApi, type PlantaApi } from '@/lib/iso-store';
+import { aspectoSinTratar, useIso, type AspectoApi, type PlantaApi, type RiesgoApi } from '@/lib/iso-store';
+import { useLegalMatrix } from '@/lib/legal-matrix-store';
 import { CONDICION_OPERACION, TIPO_IMPACTO, etiqueta, opciones } from '@/lib/iso-vocabulario';
 import { buildMatrizAspectosReport, downloadTextFile } from '@/lib/reports';
 import { useAnotarEmision } from '@/lib/emisiones';
@@ -35,7 +36,11 @@ const FILTRO_SIGNIFICANCIA: Record<string, string> = {
  * "guardado" y los pierda al recargar — que ya pasó en este repositorio con
  * `evidence_url` y es la forma más silenciosa de perder un dato.
  */
-function campos(plants: PlantaApi[], procesos: { id: string; nombre: string }[]): CampoIso[] {
+function campos(
+  plants: PlantaApi[],
+  procesos: { id: string; nombre: string }[],
+  requisitos: { value: string; label: string }[],
+): CampoIso[] {
   return [
     {
       nombre: 'facility_id',
@@ -53,6 +58,19 @@ function campos(plants: PlantaApi[], procesos: { id: string; nombre: string }[])
       tipo: 'select',
       opciones: procesos.map((p) => ({ value: p.id, label: p.nombre })),
       ayuda: 'El proceso del mapa de procesos al que pertenece la actividad.',
+    },
+    {
+      // El eslabon legal de la cadena (§6.1.3): una evaluacion de la Matriz
+      // Legal de esta empresa. Hasta el 21-sep no se podia elegir desde ninguna
+      // pantalla, asi que ningun aspecto quedaba enlazado a su requisito.
+      nombre: 'article_compliance_id',
+      etiqueta: 'Requisito legal que le aplica',
+      tipo: 'select',
+      opciones: requisitos,
+      ayuda:
+        requisitos.length > 0
+          ? 'Un artículo ya evaluado en la Matriz Legal.'
+          : 'Evalúa el artículo en la Matriz Legal para poder enlazarlo.',
     },
     {
       nombre: 'activity',
@@ -112,10 +130,34 @@ interface Props {
  * ## El filtro que importa
  *
  * "Sin tratar" es un aspecto **significativo** que no está ligado a ningún
- * requisito legal ni a ningún riesgo. Es el hallazgo más común en una auditoría
+ * riesgo u oportunidad (`iso-store.ts::aspectoSinTratar`, el mismo criterio del
+ * panel del servidor). Es el hallazgo más común en una auditoría
  * de 14001: la empresa identificó el problema y no hizo nada. Por eso es un
  * filtro y no una columna — se busca, no se mira de pasada.
  */
+function recortar(texto: string, largo = 48): string {
+  return texto.length > largo ? `${texto.slice(0, largo - 1)}…` : texto;
+}
+
+/** Requisito legal y riesgos de un aspecto, en palabras. Vacío se dice. */
+function CadenaDelAspecto({ requisito, riesgos }: { requisito: string | null; riesgos: RiesgoApi[] }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span>{requisito ?? <span className="text-slate-400">Sin requisito enlazado</span>}</span>
+      {riesgos.length === 0 ? (
+        <span className="text-slate-400">Sin riesgo enlazado</span>
+      ) : (
+        riesgos.map((rg) => (
+          <span key={rg.id}>
+            {rg.codigo}
+            {rg.planAccionId ? ' · con plan de acción' : ' · sin plan de acción'}
+          </span>
+        ))
+      )}
+    </div>
+  );
+}
+
 export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
   // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
   const getUserName = useNombreDeUsuario();
@@ -132,6 +174,23 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
   const [evaluando, setEvaluando] = useState<AspectoApi | null>(null);
 
   const { riesgos, crearAspecto, editarAspecto, borrarAspecto } = useIso();
+  // Los requisitos legales se eligen entre las evaluaciones de la Matriz Legal:
+  // el aspecto se enlaza a lo que esta empresa respondio sobre un articulo, no al
+  // texto de la ley.
+  const { norms } = useLegalMatrix();
+  const requisitos = useMemo(
+    () =>
+      norms.flatMap((n) =>
+        n.articulos
+          .filter((art) => art.evaluacionId)
+          .map((art) => ({ value: art.evaluacionId!, label: `${recortar(n.nombre)} · ${art.numero}` })),
+      ),
+    [norms],
+  );
+  const requisitoPorId = useMemo(
+    () => new Map<string, string>(requisitos.map((q) => [q.value, q.label] as [string, string])),
+    [requisitos],
+  );
   const { departamentos: procesos } = useDepartamentos();
   const nombreDeProceso = (id: string | null) =>
     // Un proceso que no esta en la lista —retirado, o de un mapa que no cargo—
@@ -330,6 +389,7 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
                 <th className="px-4 py-3">Condición</th>
                 <th className="px-4 py-3">Puntaje</th>
                 <th className="px-4 py-3">Significativo</th>
+                <th className="px-4 py-3">Requisito y riesgo</th>
                 <th className="px-4 py-3">Responsable</th>
                 <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
@@ -379,6 +439,14 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
                       <StatusBadge status="cumple" label="No significativo" />
                     )}
                   </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {/* La cadena de §6.1 desde el aspecto: el requisito que le
+                        aplica y el riesgo que lo trata, con su plan. */}
+                    <CadenaDelAspecto
+                      requisito={a.articleComplianceId ? requisitoPorId.get(a.articleComplianceId) ?? 'Requisito enlazado' : null}
+                      riesgos={riesgos.filter((rg) => rg.aspectoAmbientalId === a.id)}
+                    />
+                  </td>
                   <td className="px-4 py-3 text-slate-600">
                     {a.responsableId ? getUserName(a.responsableId) : '—'}
                   </td>
@@ -424,8 +492,8 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
         open={creando}
         onOpenChange={setCreando}
         titulo="Nuevo aspecto ambiental"
-        descripcion="La significancia la calcula el servidor con los puntajes y el umbral de la empresa."
-        campos={campos(plants, procesos)}
+        descripcion="La significancia la calcula el servidor con los puntajes y el criterio del sistema."
+        campos={campos(plants, procesos, requisitos)}
         onGuardar={crearAspecto}
       />
 
@@ -433,11 +501,12 @@ export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
         open={editando !== null}
         onOpenChange={(v) => !v && setEditando(null)}
         titulo="Editar aspecto ambiental"
-        campos={campos(plants, procesos)}
+        campos={campos(plants, procesos, requisitos)}
         valores={
           editando && {
             facility_id: editando.facilityId,
             process_id: editando.procesoId,
+            article_compliance_id: editando.articleComplianceId,
             activity: editando.actividad,
             aspect: editando.aspecto,
             impact_type: editando.tipoImpacto,

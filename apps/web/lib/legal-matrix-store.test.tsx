@@ -125,6 +125,8 @@ describe('las evaluaciones llegan todas', () => {
     const { result } = await montar([articuloApi()], []);
 
     expect(result.current.norms[0]!.articulos[0]!.respuesta).toBe('SI');
+    // Y el id de la evaluacion, que es lo que se enlaza desde un aspecto ambiental.
+    expect(result.current.norms[0]!.articulos[0]!.evaluacionId).toBe(AC);
   });
 
   it('si no se pudieron leer, lo dice en vez de mostrar la matriz entera sin evaluar', async () => {

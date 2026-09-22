@@ -51,6 +51,10 @@ class EnvironmentalAspectUpdate(BaseModel):
     #: siempre en el proceso con el que nacio. Lo valida `_validar_referencias`
     #: como en el alta (las claves foraneas no pasan por RLS).
     process_id: UUID | None = None
+    #: El requisito legal que le aplica (una evaluacion de la Matriz Legal).
+    #: Solo se podia fijar al crear el aspecto: un aspecto cargado sin requisito
+    #: quedaba asi para siempre, y la cadena de §6.1 no se podia cerrar (21-sep).
+    article_compliance_id: UUID | None = None
     activity: str | None = None
     aspect: str | None = None
     impact_type: str | None = None

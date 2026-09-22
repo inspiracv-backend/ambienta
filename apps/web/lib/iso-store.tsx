@@ -60,7 +60,7 @@ export interface AspectoApi {
   id: string;
   facilityId: string;
   procesoId: string | null;
-  /** El requisito legal con el que se trata. `null` = eslabón sin cerrar. */
+  /** El requisito legal que le aplica (§6.1.3). No es un tratamiento: ver `aspectoSinTratar`. */
   articleComplianceId: string | null;
   actividad: string;
   aspecto: string;
@@ -164,15 +164,20 @@ function mapEquipo(r: Record<string, unknown>): EquipoApi {
 }
 
 /**
- * Un aspecto significativo **sin nada que lo trate**.
+ * Un aspecto significativo **que nadie enlazó a un riesgo u oportunidad**.
  *
  * Es el hallazgo más común en una auditoría de 14001: la empresa identificó el
  * problema y no hizo nada. Se necesita la lista de riesgos para responderlo, y
  * por eso las tres colecciones viven en el mismo store.
+ *
+ * **Es el espejo de `services/iso14001.py::significativos_sin_riesgo`**, que
+ * alimenta el panel. Hasta el 21-sep esta copia contaba además el vínculo con un
+ * requisito legal como tratamiento: la tabla y el panel podían decir cosas
+ * distintas del mismo aspecto, y un requisito que le aplica no es una acción
+ * sobre él. Si una cambia, la otra también.
  */
 export function aspectoSinTratar(aspecto: AspectoApi, riesgos: RiesgoApi[]): boolean {
   if (aspecto.significancia !== 'significant') return false;
-  if (aspecto.articleComplianceId) return false;
   return !riesgos.some((r) => r.aspectoAmbientalId === aspecto.id);
 }
 

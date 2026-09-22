@@ -20,10 +20,10 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 
 ## Fase 2 — Datos de ejemplo
 
-- [ ] `mocks/aspectos-ambientales.ts` con las tres condiciones de operación **(medido: hay 3 `normal` y 1 `emergencia`, ninguno `anormal`)**
+- [ ] `mocks/aspectos-ambientales.ts` con las tres condiciones de operación **(medido: hay 3 `normal` y 1 `emergencia`, ninguno `anormal`)** → **no aplica desde el 6-sep**: las pantallas ISO leen la API, y los mocks solo alimentan pruebas del modelo compartido
 - [x] `mocks/riesgos-oportunidades.ts` con riesgos y oportunidades reales
 - [x] `mocks/equipos-regulados.ts` con caldera y grupo electrógeno
-- [ ] Enriquecer `mocks/catalog.ts` con los campos nuevos en al menos una norma **(medido: `mocks/catalog.ts` no tiene vigencia, aplicabilidad ni monitoreo)**
+- [ ] Enriquecer `mocks/catalog.ts` con los campos nuevos en al menos una norma **(medido: `mocks/catalog.ts` no tiene vigencia, aplicabilidad ni monitoreo)** → **no aplica**: la Matriz Legal lee la vigencia y la aplicabilidad de la API desde el 21-sep
 - [ ] Ampliar el catálogo con las normas que pidió la reunión: D.S. 609 (SISS), decretos 40 y 48 de seguridad minera, ley de bases del medio ambiente **(parcial, 21-sep: D.S. 609 y Ley 19.300 sincronizados; el 609 espera su clasificación por sector. En la BCN no hay decretos 40 ni 48 de seguridad minera: cuáles son lo decide negocio, ver `docs/plan-de-cierre-v1.md` §6.1)**
 
 ## Fase 3 — Cálculo
@@ -62,14 +62,14 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 ## Fase 5 — Configuración por tenant
 
 - [ ] Pantalla de criterios de significancia y umbral **(fuera de v1.0: decision del 21-sep, criterios del sistema para todos)**
-- [ ] Método de evaluación de riesgos (matriz probabilidad × consecuencia)
+- [ ] Método de evaluación de riesgos (matriz probabilidad × consecuencia) → **después del piloto**: hoy el riesgo lleva `risk_level`, sin matriz. Ningún requisito de este cambio lo pide
 - [x] Default del sistema para tenants nuevos — ver decisión abierta #2 **(hay un default global en `services/iso14001.py`: umbral 25 y legal >= 8)**
 
 ## Fase 6 — Consecuencias
 
 - [x] Dashboard: aspectos significativos sin tratar, requisitos por evaluar **(21-sep: la tarjeta de cumplimiento muestra la cobertura y cuantos requisitos faltan; un contador de aspectos sin tratar, de la misma vista que el panel de aspectos. La definicion del cumplimiento es la del tablero —decidido el 21-sep—; el spec de este cambio decia otra cosa que su propio design y se alineo)**
 - [ ] Calendario: vencimientos de evaluación periódica y de monitoreo **(parcial, 21-sep: la **evaluación periódica** ya está —`GET /compliance/matrix-norms/revisiones` la deriva de la última evaluación y la frecuencia, y el calendario la muestra junto con el vencimiento de inscripción de los equipos—. Falta el **monitoreo**: `obligacionMonitoreo` del design.md no existe en la base, así que no hay fechas que mostrar)**
-- [ ] Registro de mejora: enlazar `riesgo` y `oportunidad` a la matriz en vez de duplicarlos
+- [ ] Registro de mejora: enlazar `riesgo` y `oportunidad` a la matriz en vez de duplicarlos → **después del piloto**: el modelo ya tiene `nonconformities.risk_opportunity_id`; falta decidir la pantalla
 - [x] Reportes: matriz de aspectos exportable **(21-sep: PDF y CSV desde la pantalla de aspectos, con lo filtrado y el filtro declarado en el documento; lleva los tres puntajes por separado. De paso, "No significativo" dejo de incluir lo sin evaluar)**
 
 ---

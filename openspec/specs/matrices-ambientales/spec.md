@@ -1,4 +1,19 @@
-## ADDED Requirements
+# Matrices ambientales (ISO 14001)
+
+## Purpose
+
+La cadena de planificación de ISO 14001 §6.1: de la actividad de un proceso al
+aspecto ambiental y su impacto, de ahí al requisito legal que le aplica y al
+riesgo u oportunidad que lo trata, con su plan de acción. Más los equipos
+regulados, cuya habilitación vencida es un incumplimiento que no depende de
+ninguna evaluación.
+
+El trabajo de esta capacidad no es guardar matrices sino **que la cadena se
+pueda recorrer y que sus huecos se vean**: un aspecto significativo que nadie
+trató, un equipo que nadie puede operar hoy, una matriz evaluada a medias que
+no puede presentarse como cumplida.
+
+## Requirements
 
 ### Requirement: La cadena de ISO 14001 se recorre completa
 El sistema SHALL enlazar proceso, aspecto ambiental, impacto, requisito legal y riesgo, de modo que se pueda recorrer desde una actividad hasta el plan de acción que la trata.
@@ -17,12 +32,19 @@ Un derrame no es lo mismo en operación normal que durante una emergencia, y eva
 - **WHEN** se evalúa un aspecto en condición de emergencia
 - **THEN** el sistema lo trata como una evaluación distinta de la de operación normal
 
-### Requirement: La significancia se decide con los criterios de la empresa
-El sistema SHALL permitir que cada empresa configure sus criterios de significancia y el umbral a partir del cual un aspecto es significativo.
+### Requirement: La significancia se decide con un criterio explícito
+El sistema SHALL decidir si un aspecto es significativo con un criterio único y declarado —frecuencia × severidad desde 25, o un requisito legal de nivel 8 o más— y SHALL informar el motivo de cada veredicto.
 
-#### Scenario: Cambio de umbral
-- **WHEN** una empresa modifica su umbral de significancia
-- **THEN** el sistema recalcula qué aspectos son significativos con el criterio nuevo
+En la v1.0 el criterio es el del sistema para todas las empresas (plan de cierre, §6, decisión 8 del 21-sep). Que cada empresa configure el suyo queda para después del piloto. Lo que no se negocia es el motivo: en una auditoría la pregunta no es si el aspecto es significativo sino por qué.
+
+#### Scenario: Aspecto de magnitud baja con obligación legal
+- **GIVEN** un aspecto con frecuencia × severidad bajo el umbral y un requisito legal de nivel 8
+- **WHEN** se evalúa su significancia
+- **THEN** el sistema lo declara significativo y dice que es por el requisito legal
+
+#### Scenario: Faltan puntajes
+- **WHEN** se pide evaluar un aspecto sin los tres puntajes
+- **THEN** el sistema no lo declara ni significativo ni no significativo: queda sin evaluar
 
 ### Requirement: Cumplimiento y cobertura son indicadores distintos
 El sistema SHALL informar, al lado del porcentaje de cumplimiento, qué proporción de los requisitos aplicables ya fue evaluada.
@@ -40,11 +62,18 @@ El cumplimiento se calcula sobre los requisitos aplicables, con los no evaluados
 - **THEN** el cumplimiento se informa como sin evaluar, no como 0 %, y la cobertura como 0 %
 
 ### Requirement: Un aspecto significativo sin tratar es visible
-El sistema SHALL señalar los aspectos significativos que no tienen riesgo, control ni plan de acción asociado.
+El sistema SHALL señalar los aspectos significativos que no tienen un riesgo u oportunidad asociado, y SHALL usar el mismo criterio en todas las pantallas y reportes.
+
+El tratamiento pasa por el riesgo u oportunidad (§6.1.1 pide determinarlos para los aspectos, y el riesgo lleva el tratamiento y su plan de acción). Los controles de un aspecto son una lista de texto libre, sin responsable ni verificación, y el requisito legal que le aplica no es una acción sobre él: ninguno de los dos cuenta como tratamiento. Hasta el 21-sep la tabla y el panel usaban criterios distintos para el mismo aspecto.
 
 #### Scenario: Significativo y huérfano
-- **WHEN** un aspecto se marca significativo y no tiene tratamiento
-- **THEN** el sistema lo muestra como pendiente de tratar
+- **WHEN** un aspecto se marca significativo y ningún riesgo u oportunidad lo trata
+- **THEN** el sistema lo muestra como pendiente de tratar, en el panel y en la tabla
+
+#### Scenario: Con requisito legal y sin riesgo
+- **GIVEN** un aspecto significativo enlazado a un requisito legal y a ningún riesgo
+- **WHEN** se consulta
+- **THEN** el sistema lo sigue mostrando como pendiente de tratar
 
 ### Requirement: Equipos regulados con habilitación vigente
 El sistema SHALL alertar cuando un equipo regulado no tenga operador con certificación vigente o su inscripción esté vencida.

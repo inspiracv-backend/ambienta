@@ -51,7 +51,7 @@ vi.mock('@/lib/iso-store', async (importarReal) => {
   return {
     ...real,
     useIso: () => ({
-      riesgos: [],
+      riesgos,
       crearAspecto: vi.fn(),
       editarAspecto: (...a: unknown[]) => editarAspecto(...a),
       borrarAspecto: vi.fn(),
@@ -59,6 +59,25 @@ vi.mock('@/lib/iso-store', async (importarReal) => {
     }),
   };
 });
+
+// La Matriz Legal: una norma con un articulo evaluado (el que se puede enlazar)
+// y otro sin evaluar (el que no).
+vi.mock('@/lib/legal-matrix-store', () => ({
+  useLegalMatrix: () => ({
+    norms: [
+      {
+        id: 'n1',
+        nombre: 'DS 40 Reglamento del SEIA',
+        articulos: [
+          { id: 'art-1', numero: 'Artículo 3', evaluacionId: 'ac-1' },
+          { id: 'art-2', numero: 'Artículo 4' },
+        ],
+      },
+    ],
+  }),
+}));
+
+let riesgos: unknown[] = [];
 
 const descargar = vi.fn();
 vi.mock('@/lib/reports', async (importarReal) => {
@@ -118,6 +137,7 @@ const ASPECTOS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  riesgos = [];
   editarAspecto.mockResolvedValue(true);
   post.mockResolvedValue({});
   window.localStorage.clear();
@@ -263,5 +283,63 @@ describe('la matriz por proceso', () => {
 
     expect(editarAspecto).toHaveBeenCalledOnce();
     expect(editarAspecto.mock.calls[0][1]).toMatchObject({ process_id: 'pr1' });
+  });
+});
+
+describe('la cadena de §6.1 desde el aspecto', () => {
+  it('se puede enlazar el requisito legal, y solo a un articulo ya evaluado', async () => {
+    // Hasta el 21-sep ningun formulario ofrecia `article_compliance_id`: la
+    // cadena aspecto -> requisito no se podia cerrar desde la pantalla.
+    montar();
+    await screen.findAllByText('Chancado primario');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Editar Chancado' }));
+    const campo = await screen.findByLabelText('Requisito legal que le aplica');
+    const opciones = Array.from((campo as HTMLSelectElement).options).map((o) => o.textContent);
+    expect(opciones).toContain('DS 40 Reglamento del SEIA · Artículo 3');
+    expect(opciones.some((o) => o?.includes('Artículo 4'))).toBe(false);
+
+    await userEvent.selectOptions(campo, 'ac-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(editarAspecto.mock.calls[0][1]).toMatchObject({ article_compliance_id: 'ac-1' });
+  });
+
+  it('editar sin tocarlo conserva el requisito: el formulario lo manda', async () => {
+    // Mismo caso que el proceso: sin el requisito entre los valores iniciales,
+    // guardar cualquier cambio lo habria dejado en null.
+    render(
+      <AspectosAmbientalesTable
+        aspectos={[aspecto({ id: 'a1', actividad: 'Chancado', articleComplianceId: 'ac-1' })]}
+        plants={PLANTAS}
+        tenant={EMPRESA}
+      />,
+      { wrapper },
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar Chancado' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Guardar' }));
+
+    expect(editarAspecto.mock.calls[0][1]).toMatchObject({ article_compliance_id: 'ac-1' });
+  });
+
+  it('cada aspecto dice su requisito y el riesgo que lo trata, con su plan', async () => {
+    riesgos = [{ id: 'r1', codigo: 'R-001', aspectoAmbientalId: 'a1', planAccionId: 'pa-1' }];
+    render(
+      <AspectosAmbientalesTable
+        aspectos={[aspecto({ id: 'a1', actividad: 'Chancado', articleComplianceId: 'ac-1' }), aspecto({ id: 'a2', actividad: 'Riego' })]}
+        plants={PLANTAS}
+        tenant={EMPRESA}
+      />,
+      { wrapper },
+    );
+
+    // Por su boton: el nombre aparece tambien en el documento imprimible.
+    const chancado = (await screen.findByRole('button', { name: 'Editar Chancado' })).closest('tr')!;
+    expect(within(chancado).getByText('DS 40 Reglamento del SEIA · Artículo 3')).toBeTruthy();
+    expect(within(chancado).getByText('R-001 · con plan de acción')).toBeTruthy();
+
+    const riego = screen.getByRole('button', { name: 'Editar Riego' }).closest('tr')!;
+    expect(within(riego).getByText('Sin requisito enlazado')).toBeTruthy();
+    expect(within(riego).getByText('Sin riesgo enlazado')).toBeTruthy();
   });
 });

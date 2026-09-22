@@ -127,3 +127,32 @@ def test_la_negativa_no_distingue_ajeno_de_inexistente(cliente, aspecto) -> None
 
     assert ajeno.status_code == inventado.status_code == 422
     assert ajeno.json() == inventado.json()
+
+
+def _evaluacion_de(empresa: str) -> str:
+    with SessionLocal() as db:
+        declarar(db, uuid.UUID(empresa))
+        ac = db.execute(
+            text("SELECT id FROM article_compliance WHERE deleted_at IS NULL ORDER BY id LIMIT 1")
+        ).scalar()
+    if ac is None:  # pragma: no cover
+        pytest.skip(f"la empresa {empresa} no tiene evaluaciones en el seed")
+    return str(ac)
+
+
+def test_se_le_enlaza_su_requisito_legal_al_editarlo(cliente, aspecto) -> None:
+    """El eslabon legal de la cadena de §6.1. Hasta el 21-sep solo se podia
+    fijar al crear el aspecto: el `PATCH` descartaba el campo con 200."""
+    requisito = _evaluacion_de(EMPRESA_A)
+
+    r = cliente.patch(f"/api/v1/iso14001/aspects/{aspecto['id']}", json={"article_compliance_id": requisito})
+
+    assert r.status_code == 200, r.text
+    assert cliente.get(f"/api/v1/iso14001/aspects/{aspecto['id']}").json()["article_compliance_id"] == requisito
+
+
+def test_no_se_enlaza_a_una_evaluacion_inexistente(cliente, aspecto) -> None:
+    r = cliente.patch(
+        f"/api/v1/iso14001/aspects/{aspecto['id']}", json={"article_compliance_id": str(uuid.uuid4())}
+    )
+    assert r.status_code == 422, r.text

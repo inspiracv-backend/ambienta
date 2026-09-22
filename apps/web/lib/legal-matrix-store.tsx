@@ -263,6 +263,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
               // articulo es `content`, que es NOT NULL.
               descripcion: String(f.heading || f.content || ''),
               respuesta: RESPUESTA_POR_STATUS[evaluacion?.estado ?? ''] ?? 'N_E',
+              ...(evaluacion?.ac ? { evaluacionId: evaluacion.ac } : {}),
               ...(evaluacion?.forma ? { formaCumplimiento: evaluacion.forma } : {}),
               ...(evaluacion?.responsableId
                 ? { responsableId: evaluacion.responsableId }
