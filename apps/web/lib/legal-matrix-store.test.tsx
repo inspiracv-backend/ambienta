@@ -18,6 +18,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/mocks/catalog', () => ({ mockLegalNorms: [] }));
 
 const get = vi.fn();
+const getTodas = vi.fn();
 const post = vi.fn();
 const patch = vi.fn();
 
@@ -27,6 +28,8 @@ vi.mock('./api-client', async (importarReal) => {
     ...real,
     api: {
       get: (...a: unknown[]) => get(...a),
+      // Los listados completos se leen con `getTodas`; aca responde lo mismo que `get`.
+      getTodas: (...a: unknown[]) => getTodas(...a),
       patch: (...a: unknown[]) => patch(...a),
       post: (...a: unknown[]) => post(...a),
       delete: vi.fn(),
@@ -100,9 +103,46 @@ const articuloApi = (extra: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Por defecto responde lo mismo que `get`; las pruebas de listados completos lo separan.
+  getTodas.mockImplementation((...a: unknown[]) => get(...a));
   post.mockResolvedValue({ id: AC });
   patch.mockResolvedValue({});
   window.localStorage.clear();
+});
+
+describe('las evaluaciones llegan todas', () => {
+  it('una evaluacion que no viene en la primera pagina se ve evaluada', async () => {
+    // La API corta en 100 si no se le pide otra cosa. Con `get`, la evaluacion
+    // numero 101 no llegaba y el articulo se mostraba "sin evaluar" (21-sep:
+    // 164 de 264 en la empresa de prueba). `get` responde aca como la primera
+    // pagina de la API: sin esta evaluacion.
+    const evaluacion = { id: AC, article_id: ARTICULO, compliance_status: 'compliant', attributes: {} };
+    const original = getTodas.getMockImplementation()!;
+    getTodas.mockImplementation((ruta: string, ...resto: unknown[]) =>
+      ruta.startsWith('/compliance/article-compliance') ? Promise.resolve([evaluacion]) : original(ruta, ...resto),
+    );
+
+    const { result } = await montar([articuloApi()], []);
+
+    expect(result.current.norms[0]!.articulos[0]!.respuesta).toBe('SI');
+  });
+
+  it('si no se pudieron leer, lo dice en vez de mostrar la matriz entera sin evaluar', async () => {
+    // El respaldo vacio de antes pintaba cada articulo como "nadie lo miro".
+    const original = getTodas.getMockImplementation()!;
+    getTodas.mockImplementation((ruta: string, ...resto: unknown[]) =>
+      ruta.startsWith('/compliance/article-compliance')
+        ? Promise.reject(new ApiError(500, 'Internal Server Error', null))
+        : original(ruta, ...resto),
+    );
+    iniciarSesionComo('admin_empresa');
+    responder([articuloApi()]);
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+
+    await waitFor(() => expect(result.current.errorDeCarga).toBeTruthy());
+    expect(result.current.norms.flatMap((n) => n.articulos).some((a) => a.respuesta === 'N_E')).toBe(false);
+  });
 });
 
 describe('carga del articulado', () => {

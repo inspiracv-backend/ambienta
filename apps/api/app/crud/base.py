@@ -19,7 +19,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, inspect as sa_inspect, or_, select
 from sqlalchemy.orm import Session
 
 from .. import alcance
@@ -102,10 +102,35 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         """
         return db.scalar(self._visibles(db).where(self._columna_id() == id))
 
+    def _orden(self) -> list:
+        """Un orden **total y estable**: la creacion y despues la clave primaria.
+
+        Sin `ORDER BY`, Postgres no promete que dos consultas con `OFFSET`
+        devuelvan las filas en el mismo orden, asi que leer un listado por
+        paginas podia **repetir filas y saltarse otras** sin que nada fallara.
+        Pasaba inadvertido mientras la web leia solo la primera pagina; dejo de
+        ser teorico el 21-sep, cuando la Matriz Legal empezo a leer todas
+        (`api.getTodas`) porque la primera traia 100 de 264 evaluaciones.
+
+        La clave primaria va al final porque `created_at` empata: vale `now()`,
+        que es el inicio de la transaccion, y todo lo que se crea junto comparte
+        el mismo instante.
+        """
+        columnas = []
+        creado = getattr(self.model, "created_at", None)
+        if creado is not None:
+            columnas.append(creado)
+        columnas.extend(sa_inspect(self.model).primary_key)
+        return columnas
+
     def get_multi(
         self, db: Session, *, skip: int = 0, limit: int = 100
     ) -> list[ModelType]:
-        return list(db.scalars(self._visibles(db).offset(skip).limit(limit)).all())
+        return list(
+            db.scalars(
+                self._visibles(db).order_by(*self._orden()).offset(skip).limit(limit)
+            ).all()
+        )
 
     def create(
         self, db: Session, *, obj_in: CreateSchemaType, tenant_id: UUID | None = None

@@ -595,9 +595,64 @@ de desarrollo—.
 **Pendiente, y conocido:** los porcentajes por norma de la pantalla se calculan
 en el navegador con una evaluacion por articulo y sobre el texto vigente;
 `GET /compliance/matrices/{id}/resumen` cuenta todas las filas por planta sobre
-la version evaluada, y **la web no lo llama**. Con normas desactualizadas o
-evaluadas por planta, los dos numeros difieren. Pasar la tabla al resumen de la
-API es el arreglo de fondo. Y al medirlo aparecio que **la API ya lo hacia bien**
+la version evaluada, y **la web no lo llama**. Medido el 21-sep, **coinciden en
+las normas evaluadas sobre su texto vigente** (DS 40: 60 % y 60,3 %; RETC: 62 % y
+62,2 %). Difieren en dos casos: evaluaciones hechas sobre una version anterior
+—la pantalla dice "sin evaluar" sobre el texto nuevo y el aviso de normas con
+version mas nueva lo explica— y articulos evaluados por varias plantas, donde la
+pantalla se queda con una sola fila. Pasar la tabla al resumen de la API sigue
+siendo el arreglo de fondo.
+
+**Y hasta el 21-sep la matriz no recibia todas las evaluaciones.** La API corta
+cada listado en 100 si no se le pide otra cosa, y `api.get` no miraba
+`X-Has-More`: llegaban 100 de las 264 evaluaciones de la empresa de prueba y **las
+otras 164 se mostraban "sin evaluar"** —el DS 40 tiene sus 210 articulos
+evaluados—. Peor: escribir sobre una de esas evaluaciones "perdidas" creaba otra.
+Habia **quince listados mas** leidos igual, esperando a pasar de cien (las
+obligaciones iban en 81). Ahora `api.get` **completa la lista** cuando la API la
+corto sin que nadie pidiera un limite (`api-client.ts`); quien pone `limit=` en la
+ruta recibe esa pagina, y quien necesita saber si hubo mas usa `getPagina`.
+`getTodas` hace lo mismo explicitamente, para las listas que falsean la pantalla
+si llegan incompletas. Si una lista pasa de 20.000 filas, falla en vez de
+devolver lo que alcanzo.
+
+Y recorrer paginas destapo otro: **`CRUDBase.get_multi` paginaba con `OFFSET` sin
+`ORDER BY`**, y Postgres no promete el mismo orden entre dos consultas: leer por
+paginas podia repetir filas y saltarse otras. Ahora ordena por `created_at` y la
+clave primaria (`created_at` empata: vale el inicio de la transaccion).
+`test_listados_con_orden_estable.py` lo fija sobre las 52 instancias, **por la
+forma de la consulta**: una prueba que pagine contra la base pasaria igual con el
+defecto, porque en tablas chicas el orden fisico casi siempre coincide.
+
+**Las escrituras de la matriz no comprobaban ningun identificador del cuerpo**
+hasta el 21-sep: `routers/compliance.py` no llamaba a `validar_visible` ni una
+vez. Una evaluacion se podia colgar de la matriz, la planta o la persona de otra
+empresa, y de **un articulo de otra norma**, que el resumen cuenta despues en el
+porcentaje de la norma de la fila. El seed tiene dos asi: la RCA
+`f1000000-...-008` no tiene articulado propio y sus dos evaluaciones cuelgan de
+articulos de la Ley 19.300, por eso la API le da 0 % y la pantalla "Sin
+articulado". `test_referencias_de_la_matriz.py` compara cada rechazo con el de un
+identificador inventado.
+
+Tres defectos mas de la misma pantalla, todos medidos en el navegador:
+
+- **`attributes` se descartaba en silencio al crear una evaluacion.** Excluir del
+  calculo un articulo que nadie evaluo crea la evaluacion con
+  `{"incluidoEnCalculo": false}`, y `ArticleComplianceCreate` no declaraba el
+  campo: 201 y, al recargar, el articulo volvia a contar.
+- **Guardar la configuracion del calculo escribia todos los articulos**: desmarcar
+  uno de los 151 de la Ley 19.300 eran 151 peticiones y 150 evaluaciones nuevas
+  que nadie toco. Ahora escribe solo lo que cambio.
+- **Una norma sin articulado mostraba "cobertura 100 %"** (`computeNormCoverage`
+  da 1 sobre cero articulos). Ahora dice "Sin articulado".
+
+**Y una trampa que queda abierta:** `uq_article_compliance` es unico sobre
+`(matrix_norm_id, article_id, facility_id)` **incluidas las filas retiradas**, asi
+que una evaluacion borrada con `DELETE` no se puede volver a crear: responde 409
+para siempre. La pantalla no borra evaluaciones, pero la API si. Arreglarlo es
+una migracion y una decision —una evaluacion es evidencia, y quizas no deberia
+poder borrarse—. Ojo al limpiar pruebas: retirar una evaluacion bloquea ese
+articulo. Y al medirlo aparecio que **la API ya lo hacia bien**
 —devuelve `None`, no cero, y su docstring lo explica— asi que el acoplamiento
 que se temia no existia: el `0%` lo ponia solo el frontend.
 
@@ -1636,8 +1691,8 @@ funcionan en la terminal. Un comando por linea.
 ```bash
 python herramientas/auditar.py          # los detectores de las clases de defecto ya sufridas
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 1530 pruebas (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
-cd apps/web && npx vitest run           # 897 pruebas, 95 archivos (medido el 21-sep)
+cd apps/api && python -m pytest         # 1659 pruebas, medido el 21-sep (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
+cd apps/web && npx vitest run           # 908 pruebas, 98 archivos (medido el 21-sep)
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las corre solo)
 ```
 

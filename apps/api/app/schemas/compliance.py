@@ -106,6 +106,11 @@ class ArticleComplianceCreate(BaseModel):
     assessment_reason: str | None = None
     risk_level: str | None = None
     responsible_user_id: UUID | None = None
+    #: **Faltaba hasta el 21-sep, y se descartaba en silencio.** Excluir del
+    #: calculo (RF-24) un articulo que nadie evaluo crea la evaluacion con
+    #: `{"incluidoEnCalculo": false}`; sin este campo Pydantic lo tiraba, la
+    #: respuesta era 201 y al recargar el articulo volvia a contar.
+    attributes: dict = Field(default_factory=dict)
 
 
 class ArticleComplianceRead(OrmBase):

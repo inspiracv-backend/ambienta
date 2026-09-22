@@ -17,7 +17,9 @@ from ..services.sincronizar_matriz import (
     sincronizar as sincronizar_matriz,
 )
 from ._paginacion import Pagina, paginacion, recortar
-from ._comun import borrar_o_404, obtener_o_404
+from ._comun import borrar_o_404, obtener_o_404, validar_visible
+from ..crud.catalog import crud_legal_article, crud_legal_norm, crud_legal_norm_version
+from ..crud.organization import crud_department, crud_facility, crud_user
 from ..schemas.obligations import ObligacionDesdeArticulo, ObligationRead
 from ..schemas.compliance import (
     NormaAplicableRead,
@@ -58,12 +60,41 @@ def get_matrix(matrix_id: UUID, db: Session = Depends(get_tenant_db)):
     return obj
 
 
+def _de_la_norma(db: Session, *, norm_id: UUID, version_id: UUID | None = None, article_id: UUID | None = None) -> None:
+    """La version o el articulo tienen que ser **de esa norma**.
+
+    Que existan no alcanza: una evaluacion que apunta al articulo de otra norma
+    se cuenta en el resumen de la norma de su fila, y el porcentaje queda
+    calculado sobre un texto que no es el suyo. Pasa en el seed —dos
+    evaluaciones de una RCA cuelgan de articulos de la Ley 19.300— y la API lo
+    aceptaba igual.
+
+    Mismo mensaje exista o no, y sea o no de la empresa: el articulado propio
+    de una empresa esta bajo RLS, y distinguir los casos seria un oraculo.
+    """
+    if article_id is not None:
+        articulo = crud_legal_article.get(db, article_id)
+        version_id = articulo.norm_version_id if articulo is not None else None
+        campo = "article_id"
+    else:
+        campo = "selected_version_id"
+    version = crud_legal_norm_version.get(db, version_id) if version_id is not None else None
+    if version is None or version.norm_id != norm_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{campo} no corresponde a un texto de esa norma.",
+        )
+
+
 @router.post("/matrices", response_model=TenantLegalMatrixRead, status_code=status.HTTP_201_CREATED)
 def create_matrix(
     data: TenantLegalMatrixCreate,
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    # **Las claves foraneas no pasan por RLS**: sin esto se aceptaba la planta
+    # de otra empresa. Ver `_comun.validar_visible`.
+    validar_visible(crud_facility, db, data.facility_id, campo="facility_id")
     obj = crud_matrix.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return obj
@@ -111,6 +142,10 @@ def create_matrix_norm(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    validar_visible(crud_matrix, db, data.matrix_id, campo="matrix_id")
+    validar_visible(crud_legal_norm, db, data.norm_id, campo="norm_id")
+    _de_la_norma(db, norm_id=data.norm_id, version_id=data.selected_version_id)
+    validar_visible(crud_user, db, data.owner_user_id, campo="owner_user_id")
     obj = crud_matrix_norm.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return obj
@@ -121,6 +156,7 @@ def update_matrix_norm(mn_id: UUID, data: MatrixNormUpdate, db: Session = Depend
     obj = crud_matrix_norm.get(db, mn_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Matrix norm not found")
+    validar_visible(crud_user, db, data.owner_user_id, campo="owner_user_id")
     obj = crud_matrix_norm.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
@@ -137,6 +173,19 @@ def create_article_compliance(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    # Los cinco identificadores del cuerpo. Hasta el 21-sep no se miraba
+    # ninguno: la evaluacion se podia colgar de la matriz, la planta o la
+    # persona de otra empresa, y de un articulo de otra norma.
+    fila = crud_matrix_norm.get(db, data.matrix_norm_id)
+    if fila is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="matrix_norm_id no corresponde a un registro de esta empresa.",
+        )
+    _de_la_norma(db, norm_id=fila.norm_id, article_id=data.article_id)
+    validar_visible(crud_facility, db, data.facility_id, campo="facility_id")
+    validar_visible(crud_department, db, data.department_id, campo="department_id")
+    validar_visible(crud_user, db, data.responsible_user_id, campo="responsible_user_id")
     obj = crud_article_compliance.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return obj
@@ -147,6 +196,7 @@ def update_article_compliance(ac_id: UUID, data: ArticleComplianceUpdate, db: Se
     obj = crud_article_compliance.get(db, ac_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Article compliance not found")
+    validar_visible(crud_user, db, data.responsible_user_id, campo="responsible_user_id")
     obj = crud_article_compliance.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
@@ -243,6 +293,8 @@ def generar_obligacion_desde_articulo(
         EvaluacionInvisible,
         crear_obligacion_desde_articulo,
     )
+    # El responsable llega del cuerpo: lo mismo que `POST /obligations/`.
+    validar_visible(crud_user, db, data.owner_user_id, campo="owner_user_id")
     try:
         obj = crear_obligacion_desde_articulo(
             db,

@@ -126,9 +126,17 @@ export function LegalMatrixTable({ norms, plants }: LegalMatrixTableProps) {
                         100% de cumplimiento sobre el 20% evaluado no es cumplimiento,
                         es una muestra. Mostrarlos juntos evita esa lectura. */}
                     <td className="px-4 py-3">
-                      <span className={countArticulosSinEvaluar(norm) > 0 ? 'text-amber-700' : 'text-slate-600'}>
-                        {Math.round(computeNormCoverage(norm) * 100)}%
-                      </span>
+                      {/* Sin articulado no hay cobertura que medir. Antes salia
+                          "100%" —`computeNormCoverage` da 1 sobre cero
+                          articulos—, que se lee como "se reviso todo" cuando
+                          no se cargo nada (21-sep). */}
+                      {norm.articulos.length === 0 ? (
+                        <span className="text-slate-500">Sin articulado</span>
+                      ) : (
+                        <span className={countArticulosSinEvaluar(norm) > 0 ? 'text-amber-700' : 'text-slate-600'}>
+                          {Math.round(computeNormCoverage(norm) * 100)}%
+                        </span>
+                      )}
                       {countArticulosSinEvaluar(norm) > 0 && (
                         <span className="ml-1 text-xs text-slate-500">
                           ({countArticulosSinEvaluar(norm)} sin evaluar)

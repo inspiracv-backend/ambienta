@@ -69,9 +69,10 @@ def _norma_con_articulos(db: Session):
         text(
             "SELECT v.norm_id FROM legal_norm_versions v "
             "  JOIN legal_norms n ON n.id = v.norm_id AND n.tenant_id IS NULL "
+            "  AND n.deleted_at IS NULL "
             "JOIN legal_articles a ON a.norm_version_id = v.id "
             "WHERE v.is_current AND v.deleted_at IS NULL AND a.deleted_at IS NULL "
-            "GROUP BY v.norm_id LIMIT 1"
+            "GROUP BY v.norm_id ORDER BY v.norm_id LIMIT 1"
         )
     ).scalar()
     if fila is None:
@@ -248,12 +249,19 @@ class TestNuncaBorra:
         db.execute(text("DELETE FROM norm_sectors WHERE sector_id = :s"), {"s": sid})
         # Se deja otra clasificada para que el calculo no devuelva vacio: sin
         # normativa el servicio no toca nada, y no se probaria el marcado.
+        #
+        # **Viva** (`deleted_at IS NULL`): el calculo ignora las retiradas, asi
+        # que si le toca una la otra no cuenta y responde `sector_sin_clasificar`.
+        # Paso el 21-sep, al retirar dos resoluciones que trajo la BCN de mas.
         otra = db.execute(
             text(
                 "SELECT v.norm_id FROM legal_norm_versions v "
-            "  JOIN legal_norms n ON n.id = v.norm_id AND n.tenant_id IS NULL "
+                "  JOIN legal_norms n ON n.id = v.norm_id AND n.tenant_id IS NULL "
+                "  AND n.deleted_at IS NULL "
                 "JOIN legal_articles a ON a.norm_version_id = v.id "
-                "WHERE v.is_current AND v.norm_id <> :n GROUP BY v.norm_id LIMIT 1"
+                "WHERE v.is_current AND v.deleted_at IS NULL AND a.deleted_at IS NULL "
+                "  AND v.norm_id <> :n "
+                "GROUP BY v.norm_id ORDER BY v.norm_id LIMIT 1"
             ),
             {"n": norm_id},
         ).scalar()

@@ -155,7 +155,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     async function plantasPorNorma(): Promise<Map<string, string[]>> {
       const mapa = new Map<string, string[]>();
       const plantas = await api
-        .get<Record<string, unknown>[]>('/facilities/', { tenantId: user!.tenantId })
+        .getTodas<Record<string, unknown>>('/facilities/', { tenantId: user!.tenantId })
         .catch(() => []);
       const asignaciones = await Promise.all(
         plantas.map((p) =>
@@ -274,15 +274,22 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
      * También deja el `id` de la evaluación, que es contra el que se escribe:
      * `/article-compliance` se direcciona por la evaluación, no por el
      * artículo.
+     *
+     * **Todas las páginas, y sin respaldo vacío** (21-sep). Con `get` llegaban
+     * las primeras 100 —la API corta ahí si no se le pide otra cosa— y en la
+     * empresa de prueba **164 de 264 evaluaciones** se mostraban "sin evaluar".
+     * Y si la petición fallaba, el `catch` devolvía una lista vacía: la matriz
+     * entera aparecía sin evaluar. Las dos cosas le dicen a la empresa que
+     * nadie miró lo que sí miró; ahora un fallo se informa como tal
+     * (`errorDeCarga`). Además, escribir sobre una evaluación "perdida" creaba
+     * otra en vez de corregir la que existía.
      */
     async function evaluacionesPorArticulo(): Promise<
       Map<string, { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }>
     > {
-      const filas = await api
-        .get<Record<string, unknown>[]>('/compliance/article-compliance', {
-          tenantId: user!.tenantId,
-        })
-        .catch(() => []);
+      const filas = await api.getTodas<Record<string, unknown>>('/compliance/article-compliance', {
+        tenantId: user!.tenantId,
+      });
       const mapa = new Map<
         string,
         { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }
@@ -317,7 +324,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
      */
     async function matrizPorNorma(): Promise<Map<string, string>> {
       const filas = await api
-        .get<Record<string, unknown>[]>('/compliance/matrix-norms', {
+        .getTodas<Record<string, unknown>>('/compliance/matrix-norms', {
           tenantId: user!.tenantId,
         })
         .catch(() => []);
@@ -353,7 +360,9 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     // —donde el token siempre trae la empresa— cada RCA salia dos veces.
     const conEmpresa = { tenantId: user.tenantId! };
     Promise.all([
-      api.get<Record<string, unknown>[]>('/catalog/norms', conEmpresa),
+      // Todas las páginas: el catálogo crece con cada sincronización de la
+      // BCN, y una norma más allá de la número 100 desaparecería de la matriz.
+      api.getTodas<Record<string, unknown>>('/catalog/norms', conEmpresa),
       plantasPorNorma(),
       // Las normas traen `source_id`, no el codigo. Sin esta lista no hay forma
       // de saber si una norma es de la BCN, una ISO o una RCA de la empresa.
