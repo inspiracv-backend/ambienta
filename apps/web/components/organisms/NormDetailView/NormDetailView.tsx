@@ -6,6 +6,7 @@ import type { Articulo } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
 import { ArticleEvaluationModal } from '@/components/organisms/ArticleEvaluationModal';
 import { ComplianceConfigModal } from '@/components/organisms/ComplianceConfigModal';
+import { RelacionesDeNorma } from '@/components/organisms/RelacionesDeNorma';
 import { articuloSemaforo, noAplica, normSemaforoDe, resumenDeNorma, VIGENCIA_LABEL } from '@/lib/legal-matrix';
 import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
@@ -156,6 +157,9 @@ export function NormDetailView({ norm: normProp, activeTenantId, responsableOpti
           </div>
         </div>
       </div>
+
+      {/* Solo las de la BCN: es la fuente que publica las relaciones. */}
+      {norm.fuente === 'BCN' && <RelacionesDeNorma normId={norm.id} tenantId={activeTenantId ?? null} />}
 
       <div className="overflow-x-auto rounded-card border border-slate-200 bg-white">
         <table className="w-full min-w-[840px] table-fixed text-sm">

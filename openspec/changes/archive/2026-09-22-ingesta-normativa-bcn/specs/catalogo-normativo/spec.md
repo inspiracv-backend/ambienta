@@ -34,12 +34,15 @@ la fuente después sin adivinar a qué norma corresponde cada fila.
 - **AND** las decisiones tomadas en el sistema se conservan
 
 ### Requirement: Las relaciones entre normas se leen de la fuente
-El sistema SHALL registrar qué normas modifican, derogan, rectifican o regulan a
-cuáles, tomándolo de la fuente oficial.
+El sistema SHALL registrar qué normas modifican, reglamentan, refunden,
+rectifican o concuerdan con cuáles, tomándolo de la fuente oficial, y SHALL
+registrar cada relación una sola vez aunque la fuente la declare desde las dos
+normas.
 
-Que una norma derogue a otra lo declara la ley, no quien carga el catálogo.
-Sostenerlo de memoria es como se llega a evaluar el cumplimiento de una norma que
-ya no rige.
+Que una norma modifique a otra lo declara la ley, no quien carga el catálogo.
+Sostenerlo de memoria es como se llega a evaluar el cumplimiento de un texto que
+ya cambió. La fuente no publica las derogaciones como relación: que una norma ya
+no rige se sabe por su vigencia, que el catálogo también conserva.
 
 #### Scenario: Se incorpora una relación entre dos normas
 - **WHEN** la fuente declara que una norma modifica a otra
@@ -49,7 +52,12 @@ ya no rige.
 #### Scenario: Una relación apunta a una norma que no está en el catálogo
 - **WHEN** la fuente declara una relación hacia una norma que el catálogo no tiene
 - **THEN** el sistema no inventa la norma faltante
-- **AND** deja registro de que esa relación quedó sin resolver
+- **AND** deja registro en la bitácora de la sincronización de que esa relación quedó sin resolver
+
+#### Scenario: La misma relación declarada desde las dos normas
+- **GIVEN** una norma que la fuente declara modificada por otra, y la otra que se declara modificándola
+- **WHEN** el sistema sincroniza las dos
+- **THEN** queda una sola relación, de la norma que modifica a la modificada
 
 ### Requirement: Se conserva qué versión de una norma estaba vigente
 El sistema SHALL registrar las versiones de una norma con su fecha, de modo que

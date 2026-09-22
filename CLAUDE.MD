@@ -524,6 +524,28 @@ Ademas SPARQL **devuelve filas duplicadas** y **marca mas de una version como
 vigente** —en la Ley 19.300, la de 1994 y la de 2010 a la vez—. Ninguna de las
 dos cosas se ve leyendo la documentacion.
 
+**Las relaciones entre normas se leen de la BCN desde el 22-sep** (el
+requisito que impedia archivar la ingesta). `legal_relations` existia desde el
+esquema inicial y nadie la escribia. `sincronizar_relaciones` lee las cinco
+propiedades que publica la ontologia —`modifiesTo`, `regulates`, `recasts`,
+`rectifies`, `agreeWith`— y sus inversas, y guarda cada relacion **una vez**, en
+su sentido directo (`db/33`, indice unico). Tres cosas que conviene saber:
+
+- **La BCN no publica derogaciones como relacion.** Consultado contra la
+  ontologia: no existe la propiedad. Que una norma ya no rige se sabe por su
+  vigencia, que la Matriz Legal muestra.
+- **Solo entre normas del catalogo.** La primera corrida trajo 8 y dejo **292 sin
+  resolver** —casi todas concordancias de la Ley 19.300 hacia normas que no se
+  importaron—, anotadas en `response_metadata` de la corrida. No se inventa la
+  norma que falta.
+- **La bitacora es de solo agregar**, tambien para la aplicacion: `db/33` le
+  quito `UPDATE` y `DELETE` al rol, como a `audit_log`. El spec decia que nadie
+  la edita y por la API era cierto, pero un error de codigo podia reescribirla.
+
+Y `bcn._consultar` **reintenta** con espera creciente ante un corte de red, un
+5xx o un 429; una consulta rechazada (400) no se reintenta, porque da lo mismo
+tres veces.
+
 **Sincronizar la BCN adopta la norma sembrada, no crea una al lado.** Las normas
 de ejemplo tienen el mismo numero que las reales, y `norm_sectors` —la
 clasificacion por sector, **el trabajo humano que hace funcionar el CORE**— esta
@@ -1714,7 +1736,9 @@ bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las
 
 Las pruebas marcadas `red` **salen a internet y se saltan por defecto**: una
 prueba que depende de un servicio ajeno falla cuando ellos tienen mantenimiento,
-y eso es ruido. Existen igual porque son las unicas que verifican que la
+y eso es ruido. **Hasta el 22-sep esta frase era falsa**: `pytest.ini` no las
+excluia, asi que corrian siempre y la suite fallaba cuando la BCN estaba lenta
+(paso, justo despues de una sincronizacion). Ahora lo dice `addopts`. Existen igual porque son las unicas que verifican que la
 consulta a la BCN se siga entendiendo del otro lado:
 
 ```bash

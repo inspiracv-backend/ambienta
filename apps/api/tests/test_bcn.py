@@ -188,6 +188,13 @@ class TestContraElServicioReal:
         pytest -m red
     """
 
+    def test_el_3592_declara_que_modifica_al_609(self) -> None:
+        """La relacion que la sincronizacion guarda (`bcn.relaciones_de`).
+        Consultado el 21-sep: `bcn:modifiesTo` hacia el D.S. 609 (121486)."""
+        uri = "http://datos.bcn.cl/recurso/cl/dto/ministerio-de-obras-publicas/2000-09-26/3592"
+        relaciones = bcn.relaciones_de(uri)
+        assert bcn.RelacionBCN("modifiesTo", "121486") in relaciones
+
     def test_la_ley_19300_llega_con_sus_versiones(self) -> None:
         normas = bcn.buscar("bases generales del medio ambiente", limite=1)
         assert normas, "La BCN no devolvio la Ley 19.300"

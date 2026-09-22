@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..models.catalog import NormSyncRun
+from ..models.catalog import LegalRelation, NormSyncRun
 from ..services import bcn
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,11 @@ class Informe:
     #: Terminos que **no** trajeron la norma que debian. Es lo primero que hay
     #: que mirar: significa que el catalogo quedo incompleto sin fallar.
     sin_su_norma: list[str] = field(default_factory=list)
+    #: Relaciones entre normas del catalogo que se registraron en esta corrida.
+    relaciones_nuevas: int = 0
+    #: Relaciones que la BCN declara hacia una norma **que el catalogo no
+    #: tiene**. No se inventa la norma que falta: se deja constancia aca.
+    relaciones_sin_resolver: list[dict] = field(default_factory=list)
     errores: list[str] = field(default_factory=list)
 
     def resumen(self) -> str:
@@ -127,6 +132,10 @@ class Informe:
                 f"{', '.join(self.con_version_nueva)} — puede haber empresas "
                 f"evaluadas contra el texto anterior"
             )
+        lineas.append(
+            f"relaciones nuevas {self.relaciones_nuevas} · "
+            f"sin resolver {len(self.relaciones_sin_resolver)} (la otra norma no esta en el catalogo)"
+        )
         if self.sin_su_norma:
             lineas.append(f"NO ENCONTRARON SU NORMA: {', '.join(self.sin_su_norma)}")
         if self.errores:
@@ -189,6 +198,15 @@ def sincronizar(db: Session, *, en_seco: bool = False) -> Informe:
         informe.con_version_nueva.extend(r.con_version_nueva)
         logger.info("%r: %s", termino, r)
 
+    try:
+        # Aparte y con su propio savepoint: un fallo al leer relaciones no puede
+        # deshacer las normas que ya se trajeron.
+        with db.begin_nested():
+            sincronizar_relaciones(db, informe)
+    except Exception as exc:
+        logger.error("Fallo al guardar las relaciones: %s", exc)
+        informe.errores.append(f"relaciones (al guardar): {exc}")
+
     if en_seco:
         db.rollback()
         logger.info("En seco: no se escribio nada.")
@@ -196,6 +214,78 @@ def sincronizar(db: Session, *, en_seco: bool = False) -> Informe:
         anotar_corrida(db, informe, inicio)
 
     return informe
+
+
+def sincronizar_relaciones(db: Session, informe: Informe) -> None:
+    """Lee de la BCN que normas modifican, reglamentan, refunden, rectifican o
+    concuerdan con cuales, para las normas del catalogo. **No hace `commit`.**
+
+    `legal_relations` existia desde el esquema inicial y nadie la escribia.
+    Que una norma modifique a otra lo declara la ley, no quien carga el
+    catalogo: sostenerlo de memoria es como se llega a evaluar un texto que ya
+    cambio.
+
+    Tres reglas:
+
+    - **Solo entre normas que estan.** Si la otra punta no esta en el catalogo,
+      no se inventa: la relacion queda en `relaciones_sin_resolver`, que va a
+      la bitacora de la corrida. Medido el 21-sep: de 306 relaciones, 14 tienen
+      las dos puntas; casi todo el resto son concordancias de la Ley 19.300.
+    - **Una sola vez.** La inversa se guarda en su sentido directo, la
+      concordancia (simetrica) en un orden fijo, y lo que ya estaba no se
+      vuelve a escribir. El indice `uq_legal_relations_entre_normas` lo exige.
+    - **Un fallo por norma no detiene a las demas**, igual que los terminos.
+    """
+    normas = db.execute(
+        text(
+            "SELECT id, external_norm_id, source_payload->>'uri' FROM legal_norms "
+            "WHERE tenant_id IS NULL AND deleted_at IS NULL "
+            "AND external_norm_id IS NOT NULL AND source_payload ? 'uri'"
+        )
+    ).all()
+    por_codigo = {str(codigo): norm_id for norm_id, codigo, _ in normas}
+    existentes = {
+        (a, b, t)
+        for a, b, t in db.execute(
+            text(
+                "SELECT source_norm_id, target_norm_id, relation_type FROM legal_relations "
+                "WHERE source_article_id IS NULL AND target_article_id IS NULL"
+            )
+        ).all()
+    }
+
+    for norm_id, codigo, uri in normas:
+        try:
+            relaciones = bcn.relaciones_de(uri)
+        except Exception as exc:  # la BCN es un servicio ajeno
+            logger.error("Fallo al leer las relaciones de %s: %s", codigo, exc)
+            informe.errores.append(f"relaciones de {codigo}: {exc}")
+            continue
+
+        for r in relaciones:
+            tipo, es_inversa = bcn.RELACIONES[r.predicado]
+            otra = por_codigo.get(r.codigo)
+            if otra is None:
+                informe.relaciones_sin_resolver.append(
+                    {"norma": str(codigo), "relacion": r.predicado, "otra": r.codigo}
+                )
+                continue
+            origen, destino = (otra, norm_id) if es_inversa else (norm_id, otra)
+            if tipo == "concordancia":
+                origen, destino = sorted((origen, destino), key=str)
+            if origen == destino or (origen, destino, tipo) in existentes:
+                continue
+            db.add(
+                LegalRelation(
+                    source_norm_id=origen,
+                    target_norm_id=destino,
+                    relation_type=tipo,
+                    metadata_={"fuente": "bcn", "predicado": r.predicado},
+                )
+            )
+            existentes.add((origen, destino, tipo))
+            informe.relaciones_nuevas += 1
+    db.flush()
 
 
 def estado_de(informe: Informe) -> str:
@@ -239,6 +329,8 @@ def anotar_corrida(db: Session, informe: Informe, inicio: datetime) -> NormSyncR
             "con_texto": informe.con_texto,
             "con_version_nueva": informe.con_version_nueva,
             "sin_su_norma": informe.sin_su_norma,
+            "relaciones_nuevas": informe.relaciones_nuevas,
+            "relaciones_sin_resolver": informe.relaciones_sin_resolver,
         },
         norms_created=informe.nuevas,
         norms_updated=informe.actualizadas + informe.adoptadas,

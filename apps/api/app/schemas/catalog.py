@@ -169,6 +169,24 @@ class LegalRelationRead(OrmBase):
     effective_date: date | None
 
 
+class RelacionDeNormaRead(BaseModel):
+    """Una relacion vista **desde esta norma**, con la otra punta resuelta.
+
+    `sentido` dice de que lado esta la norma consultada: `saliente` = esta norma
+    modifica, reglamenta, refunde o rectifica a la otra; `entrante` = la otra se
+    lo hace a esta. La concordancia es simetrica y se informa igual desde las
+    dos.
+    """
+
+    relation_type: str
+    sentido: str
+    norm_id: UUID
+    norm_type: str | None
+    norm_number: str | None
+    title: str
+    publication_date: date | None
+
+
 # ── Sector ────────────────────────────────────────────────────────────────
 
 class SectorRead(OrmBase):

@@ -60,6 +60,8 @@ def bcn_simulada(monkeypatch):
 
     monkeypatch.setattr(bcn, "buscar", buscar)
     monkeypatch.setattr(bcn, "sincronizar", sincronizar)
+    # Las relaciones entre normas tambien salen a la BCN: aca no traen nada.
+    monkeypatch.setattr(bcn, "relaciones_de", lambda uri: [])
     return fallar_en
 
 

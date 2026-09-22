@@ -17,6 +17,7 @@ from ..models.catalog import (
     LegalArticle,
     LegalNorm,
     LegalNormVersion,
+    LegalRelation,
     NormSector,
     RetcSystem,
     Sector,
@@ -37,6 +38,7 @@ from ..schemas.catalog import (
     LegalSourceCreate,
     LegalSourceRead,
     NormSyncRunRead,
+    RelacionDeNormaRead,
     LegalSourceUpdate,
     SectorCreate,
     NormSectorRead,
@@ -321,6 +323,51 @@ def cobertura_de_la_clasificacion(db: Session = Depends(get_db)):
             for s in c.por_sector
         ],
     )
+
+
+@router.get(
+    "/norms/{norm_id}/relations",
+    response_model=list[RelacionDeNormaRead],
+    tags=["business-logic"],
+    summary="Que normas modifican, reglamentan o concuerdan con esta",
+    description=(
+        "Las relaciones que publica la BCN, **consultables desde cualquiera de las "
+        "dos normas**: `sentido` dice si esta norma es la que modifica "
+        "(`saliente`) o la modificada (`entrante`). Solo entre normas del "
+        "catalogo: las que apuntan a una norma que no esta quedan en la bitacora "
+        "de la sincronizacion, sin inventar la que falta.\n\n"
+        "La BCN no publica derogaciones como relacion: eso lo dice la vigencia "
+        "de la norma (`status`)."
+    ),
+)
+def relaciones_de_la_norma(norm_id: UUID, db: Session = Depends(get_db)):
+    if not crud_legal_norm.get(db, norm_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Norm not found")
+
+    filas = db.execute(
+        select(LegalRelation, LegalNorm)
+        .join(
+            LegalNorm,
+            or_(
+                (LegalRelation.source_norm_id == norm_id) & (LegalNorm.id == LegalRelation.target_norm_id),
+                (LegalRelation.target_norm_id == norm_id) & (LegalNorm.id == LegalRelation.source_norm_id),
+            ),
+        )
+        .where(LegalNorm.deleted_at.is_(None))
+        .order_by(LegalRelation.relation_type, LegalNorm.publication_date, LegalNorm.id)
+    ).all()
+    return [
+        RelacionDeNormaRead(
+            relation_type=rel.relation_type,
+            sentido="saliente" if rel.source_norm_id == norm_id else "entrante",
+            norm_id=otra.id,
+            norm_type=otra.norm_type,
+            norm_number=otra.norm_number,
+            title=otra.title or "",
+            publication_date=otra.publication_date,
+        )
+        for rel, otra in filas
+    ]
 
 
 @router.get("/norms/{norm_id}/sectors", response_model=list[NormSectorRead])

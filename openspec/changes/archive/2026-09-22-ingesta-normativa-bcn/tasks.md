@@ -24,12 +24,12 @@ Probados contra el servicio real el 13-ago-2026, no leídos de la documentación
 
 **No empezar la fase que depende de cada uno sin resolverlo.**
 
-- [ ] **Qué subconjunto de las 748.783 normas se trae.** Sin criterio, la
-      ingesta no debe correr suelta. Bloquea la Fase 3
+- [x] **Qué subconjunto de las 748.783 normas se trae.** Sin criterio, la
+      ingesta no debe correr suelta. Bloquea la Fase 3 **(decidido el 21-sep, plan de cierre §6 decisión 1: las normas ya clasificadas y las de la reunión del piloto; viven en `TERMINOS`. Los "decretos 40 y 48" esperan que negocio diga cuáles son)**
 - [x] **Cuál de las cuatro formas de mandar la API key es la correcta**, cuando **(no aplica: el 401 era el `User-Agent`, no la clave (`bcn.py::NAVEGADOR`))**
       la BCN la active. Bloquea la Fase 5
-- [ ] **Qué gana cuando la fuente contradice lo cargado a mano**
-- [ ] **Cada cuánto sincroniza, y quién revisa lo que cambió.** Una norma
+- [x] **Qué gana cuando la fuente contradice lo cargado a mano** **(la fuente gana en lo que es suya —título, número, fechas, texto— y lo que decidió una persona se conserva: ver Fase 3)**
+- [ ] **Cada cuánto sincroniza, y quién revisa lo que cambió.** → **al desplegar**, fuera de la 1.0 (que no despliega): es una línea de cron. Lo que cambió ya se ve: la bitácora y el aviso de normas con versión más nueva. Una norma
       derogada río arriba cambia el cumplimiento de todas las empresas a la vez
 
 ## Fase 0 — Prerequisitos fuera de este módulo
@@ -45,10 +45,10 @@ Probados contra el servicio real el 13-ago-2026, no leídos de la documentación
 ## Fase 1 — El cliente de consulta
 
 - [x] Módulo aislado con las consultas SPARQL, sin lógica de negocio dentro
-- [ ] Prefijo fijado y validación de que la respuesta trae los campos esperados
+- [ ] Prefijo fijado y validación de que la respuesta trae los campos esperados → **parcial**: una fila sin `leychileCode` se descarta, y el término que no trae su norma deja la corrida en `partial`. No hay validación de esquema de la respuesta
 - [x] **Cero resultados no es un éxito**: se distingue de "no había novedades"
-- [ ] Reintento con espera creciente; un fallo de la fuente no rompe nada
-- [ ] Tests con la respuesta simulada, incluidas las malformadas
+- [x] Reintento con espera creciente; un fallo de la fuente no rompe nada **(22-sep: `bcn._consultar`, solo ante red, 5xx o 429; `test_bcn_reintentos.py`)**
+- [x] Tests con la respuesta simulada, incluidas las malformadas **(filas duplicadas y sin código en `test_catalogo_desde_la_bcn.py`; fallos de red y consultas rechazadas en `test_bcn_reintentos.py`)**
 - [x] **Una prueba contra el servicio real**, no solo simulada. Es la lección del
       JWT Template: verificar el proveedor antes de construir encima
 
@@ -58,7 +58,7 @@ Probados contra el servicio real el 13-ago-2026, no leídos de la documentación
 - [x] **Deduplicar por `leychileCode`, nunca por URI**: la URI identifica una
       representación, el código identifica la norma
 - [ ] Guardar la respuesta cruda en `source_payload`, para poder remapear sin
-      volver a pedir
+      volver a pedir → **después del piloto**: hoy guarda la URI y el tipo de la BCN, que es lo que usa la sincronización para volver a la fuente
 - [x] Extraer el organismo desde la ruta de la URI
 - [x] Tests del mapeo con la Ley 20.920 como caso conocido
 
@@ -69,10 +69,10 @@ Probados contra el servicio real el 13-ago-2026, no leídos de la documentación
 - [x] Buscar por `external_norm_id`: si existe actualiza, si no crea
 - [x] **Refrescar solo lo que la BCN es dueña.** Lo que decidió una persona
       —alcance, responsables, qué artículos entran en el cálculo— no se toca
-- [ ] Relaciones entre normas a `legal_relations`
+- [x] Relaciones entre normas a `legal_relations` **(22-sep: `sincronizar_relaciones`, las cinco propiedades de la ontología y sus inversas; una sola vez por el índice de `db/33`. La BCN no publica derogaciones como relación. Consultables en `GET /catalog/norms/{id}/relations` y en la ficha de la norma)**
 - [x] Versiones a `legal_norm_versions`, distinguiendo la vigente
-- [ ] Una relación hacia una norma ausente **no inventa la norma**: se registra
-      sin resolver
+- [x] Una relación hacia una norma ausente **no inventa la norma**: se registra
+      sin resolver **(en `response_metadata.relaciones_sin_resolver` de la corrida: 292 en la primera, casi todas concordancias de la Ley 19.300)**
 - [x] Tests de idempotencia: correr dos veces no duplica ni pisa decisiones
 
 ## Fase 4 — La bitácora
@@ -88,7 +88,9 @@ volvieron a mirar. Hay que auditarlas contra el código antes de archivar.
 - [x] Un fallo de la fuente deja registro y no deja el catálogo a medias: un
       savepoint por término — antes un fallo deshacía los términos anteriores
 - [x] **No exponerla como recurso editable**: `GET /catalog/sync-runs`, solo
-      lectura, declarado en `SIN_CRUD_COMPLETO`; el catálogo muestra la última
+      lectura, declarado en `SIN_CRUD_COMPLETO`; el catálogo muestra la última.
+      **Y desde el 22-sep tampoco la puede editar la aplicación**: `db/33` le
+      quita `UPDATE` y `DELETE` al rol, como a `audit_log`
 - [x] Tests de los desenlaces: completa, parcial, fallida, y en seco no deja
       corrida (`test_bitacora_bcn.py`, `test_bitacora_expuesta.py`)
 

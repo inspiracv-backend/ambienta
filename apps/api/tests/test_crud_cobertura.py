@@ -53,6 +53,11 @@ SUFIJOS_DE_ACCION = (
     # Anotar una emision escribe una fila en `audit_log`, que **no se edita ni
     # se borra** (el rol solo inserta y lee). Se lee por `/system/audit-log`.
     "/emisiones",
+    # Las relaciones entre normas las **declara la ley**, no una persona: las
+    # escribe la sincronizacion con la BCN (`sincronizar_relaciones`). Una
+    # relacion inventada a mano diria que una norma modifica a otra sin que
+    # ninguna fuente lo sostenga. Solo se leen.
+    "/relations",
     # El historial de presentaciones es **de solo lectura por diseño**: cada
     # fila la escribe `services/declaracion.py` al presentar, aceptar o
     # rechazar. Un `POST` aparte permitiria inventar una presentacion que nunca

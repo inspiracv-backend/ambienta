@@ -96,3 +96,4 @@ export * from './DocumentosView';
 
 // Formularios compartidos de las tres pantallas ISO 14001.
 export * from './IsoForms';
+export * from './RelacionesDeNorma';
