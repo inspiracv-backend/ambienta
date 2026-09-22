@@ -1,7 +1,17 @@
-# catalogo-normativo Specification
+# Catálogo normativo
 
 ## Purpose
-TBD - created by archiving change integracion-ai-service. Update Purpose after archive.
+
+La ley que aplica, igual para todas las empresas: normas, sus versiones con
+fecha, su articulado, sus relaciones con otras normas y de dónde salió cada dato.
+Se alimenta de la fuente oficial (la BCN) y deja registro de cada
+sincronización, porque la primera pregunta de una auditoría es cómo se sabe que
+el catálogo está completo y vigente.
+
+Lo que cada empresa responde sobre esas normas no vive acá: vive en su matriz
+legal. Y la API expone el catálogo a otros sistemas (el servicio de IA) con un
+contrato estable de paginación e identificación.
+
 ## Requirements
 ### Requirement: El catálogo se puede sincronizar de forma incremental
 El sistema SHALL permitir listar únicamente los registros modificados después de una fecha y hora dadas, conservando el comportamiento actual cuando no se indique ninguna.

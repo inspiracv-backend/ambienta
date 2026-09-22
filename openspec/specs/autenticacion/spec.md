@@ -1,7 +1,16 @@
-# autenticacion Specification
+# Autenticación
 
 ## Purpose
-TBD - created by archiving change integracion-clerk-auth. Update Purpose after archive.
+
+Quién es la persona que hace cada petición, comprobado y no declarado. La
+identidad la administra el proveedor (ADR-006: Clerk); el sistema verifica el
+token, refleja a las personas del proveedor en su base sin duplicarlas ni pisar
+lo que configuró un administrador, y distingue "no se pudo verificar" de "no
+está autenticado".
+
+Sin proveedor configurado, el modo de desarrollo permite trabajar en local; en
+producción ese modo no existe.
+
 ## Requirements
 ### Requirement: La identidad se verifica, no se declara
 El sistema SHALL determinar la empresa de la sesión a partir de una credencial firmada por el proveedor de identidad, y SHALL rechazar cualquier valor de empresa que llegue sin firmar.

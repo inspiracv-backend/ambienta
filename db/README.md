@@ -8,14 +8,24 @@ Esquema PostgreSQL del sistema. 52 tablas, RLS multi-tenant y catálogos base.
 seis scripts de init corrieron en orden sin un solo error, y las 9
 comprobaciones de `02_smoke_test.sql` pasaron.
 
+**Medido el 22-sep-2026** contra la base de desarrollo con las 33 migraciones.
+Hasta ese día esta tabla decía 52 tablas y 38 con RLS: eran las cifras del
+esquema inicial, y las migraciones siguieron agregando tablas sin que nadie la
+volviera a medir.
+
 | Qué | Cuánto |
 |---|---|
-| Tablas | 52 |
-| Políticas RLS · tablas con `FORCE` | 38 · 38 |
-| Claves foráneas | 156 |
-| Índices | 142 |
+| Tablas | 66 |
+| Tablas con política RLS · con `FORCE` | 54 · 51 |
+| Claves foráneas | 209 |
+| Índices | 196 |
 | Permisos sembrados | 39 |
-| Datos de demo | 2 empresas · 5 usuarios · 5 obligaciones · 6 artículos evaluados |
+| Datos de demo (del seed, sin volver a medir) | 2 empresas · 5 usuarios · 5 obligaciones · 6 artículos evaluados |
+
+Las tres con RLS y sin `FORCE` son `legal_norms`, `legal_norm_versions` y
+`legal_articles`: el catálogo global, que ganó política con la normativa propia
+de cada empresa (`29_normativa_propia.sql`). `FORCE` solo afecta al dueño de la
+tabla, y la API se conecta con `ambienta_app`, así que para ella RLS rige igual.
 
 Comprobado además: `user_permissions` tiene su política `tenant_isolation` y su
 `GRANT` (no los hereda por nacer en una migración), las dos unicidades tratan

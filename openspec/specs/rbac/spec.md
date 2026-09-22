@@ -1,7 +1,17 @@
-# rbac Specification
+# Roles y permisos (RBAC)
 
 ## Purpose
-TBD - created by archiving change sistema-actores-roles-rbac. Update Purpose after archive.
+
+Qué puede hacer cada persona, y sobre qué. El permiso efectivo combina los
+roles con excepciones individuales, se puede acotar a una instalación, y se
+verifica siempre en el servidor. Cubre también los accesos que no son de un
+empleado —el gestor que actúa por su cliente, el cliente invitado— y los límites
+de la plataforma: el administrador global no edita datos de una empresa, y una
+empresa suspendida o cerrada queda en solo lectura.
+
+RLS en la base separa a las empresas entre sí; esta capacidad decide lo que pasa
+dentro de cada una.
+
 ## Requirements
 ### Requirement: El permiso efectivo combina rol y excepción individual
 El sistema SHALL resolver qué puede hacer un usuario uniendo los permisos de sus roles vigentes con las concesiones o denegaciones asignadas a él en particular, y SHALL hacer que una denegación explícita gane sobre cualquier concesión.

@@ -23,35 +23,35 @@ Verificados contra el sistema real, no heredados del análisis.
 - [x] **El invitado no es cuenta de Clerk** (D2). Decisión abierta #1 del
       proposal. Bloquea la Fase 4 entera
 - [x] **Vigencia del acceso de invitado**: propuesta 30 días. Bloquea la Fase 4
-- [ ] **RUT global vs por empresa** (decisión abierta #3). Si el equipo dice
+- [ ] **RUT global vs por empresa** (decisión abierta #3). → **cuando vuelva el ingreso con RUT**: queda oculto en la v1.0 (decisión 6 del 21-sep). Si el equipo dice
       que un contratista debe servir a dos empresas, **este diseño se revisa
       antes de codear**: `users.tenant_id` es una sola columna
-- [ ] **Registro público**: sigue sin decidirse desde el cambio de Clerk. Con
+- [x] **Registro público** **(decidido el 21-sep, decisión 5: cerrado, solo por invitación. Se cierra en el panel de Clerk, del lado de la cuenta)**: sigue sin decidirse desde el cambio de Clerk. Con
       `username` habilitado y registro abierto, cualquiera reclama un RUT ajeno
-- [ ] **Verificación del RUT**: nada comprueba que el RUT sea de esa persona.
+- [ ] **Verificación del RUT** → **cuando vuelva el ingreso con RUT** (decisión 6): nada comprueba que el RUT sea de esa persona.
       ¿Alcanza el dígito verificador o se exige algo más?
 
 ## Fase 0 — Prerequisitos fuera de este módulo
 
-- [ ] **Habilitar Username como identificador** en el dashboard de Clerk
+- [ ] **Habilitar Username como identificador** → **del lado de la cuenta, y solo para el ingreso con RUT** (oculto en v1.0) — en el dashboard de Clerk
       (Configure → Email, phone, username). Sin esto el RUT no sirve para
       ingresar, aunque se guarde bien
-- [ ] Confirmar con una prueba que un usuario con `username` puede iniciar
+- [ ] → **con el ingreso con RUT** (oculto en v1.0): Confirmar con una prueba que un usuario con `username` puede iniciar
       sesión con él **antes** de escribir el formulario. Es la lección del
       template: verificar el proveedor antes de construir encima
-- [ ] Decidir el cierre del registro público
-- [ ] Definir cómo se prueba el webhook en local: túnel o esperar al VPS
+- [x] Decidir el cierre del registro público **(decisión 5 del 21-sep: cerrado)**
+- [x] Definir cómo se prueba el webhook en local: túnel o esperar al VPS **(esperar al VPS; mientras, el alta a mano de `docs/development/setup-local.md` §3)**
 
 ## Fase 1 — Cliente saliente hacia Clerk
 
 - [x] `CLERK_SECRET_KEY` al servicio `api` en compose y `.env.example`
-- [ ] Módulo con las llamadas salientes: crear invitación, fijar username,
+- [x] Módulo con las llamadas salientes **(`services/invitacion_de_usuario.py`, `clave_local.py` y `clerk_sync.py`)**: crear invitación, fijar username,
       fijar clave. Aislado como `auth.py`, para que cambiar de proveedor siga
       siendo reescribir un archivo (ADR-006)
-- [ ] Manejo de fallos del proveedor: distinguir "rechazó" de "no respondió".
+- [x] Manejo de fallos del proveedor **(`ErrorDeInvitacion` → 409/422; `ClerkNoDisponible` → 503; en los dos casos no queda fila)**: distinguir "rechazó" de "no respondió".
       El segundo no debe dejar la fila creada (D4)
-- [ ] Tests con el cliente HTTP simulado
-- [ ] **Prueba contra la instancia real**, no solo simulada: crear una
+- [x] Tests con el cliente HTTP simulado **(`test_invitacion_de_usuario.py`, `test_alta_de_empresa_con_administrador.py`)**
+- [ ] → **del lado de la cuenta**: necesita la clave secreta de Clerk, que no entra al repositorio. **Prueba contra la instancia real**, no solo simulada: crear una
       invitación de verdad y borrarla
 
 ## Fase 2 — Invitación de usuarios
@@ -143,20 +143,20 @@ Verificados contra el sistema real, no heredados del análisis.
 
 ## Fase 5 — Comprobación contra la instancia real
 
-- [ ] Script que emite un token con la clave secreta, pega a la API y verifica
+- [ ] → **al desplegar, con los secretos del entorno** (fuera de la 1.0): Script que emite un token con la clave secreta, pega a la API y verifica
       200 más la presencia del claim
-- [ ] Extenderlo a los tres caminos: correo, RUT e invitado
-- [ ] Job programado con secretos, **separado del CI de cada PR** porque
+- [ ] → idem: Extenderlo a los tres caminos: correo, RUT e invitado
+- [ ] → idem: Job programado con secretos, **separado del CI de cada PR** porque
       depende de un servicio externo
-- [ ] Documentar en `CLAUDE.md` la regla que faltaba: verificar contra el
+- [x] **(CLAUDE.md, "La regla general": lo que vive en la capa del servidor o en un proveedor se comprueba contra el sistema levantado)** Documentar en `CLAUDE.md` la regla que faltaba: verificar contra el
       proveedor real antes de escribir el código que depende de él
 
 ## Fase 6 — Documentación
 
-- [ ] `db/README.md` con la tabla nueva y el conteo de RLS actualizado
-- [ ] `.env.example` y ambos compose
-- [ ] Cómo dar de alta un usuario en local mientras el webhook no llegue
-- [ ] Archivar el cambio: fundir los deltas en `openspec/specs/`
+- [x] `db/README.md` con la tabla nueva y el conteo de RLS actualizado **(22-sep: la fila de `10_acceso_invitado.sql` y el conteo medido, 54 de 66)**
+- [x] `.env.example` y ambos compose **(`TOKEN_INVITADO_SECRETO` y `CLERK_SECRET_KEY`, sin valor; el de producción falla si faltan)**
+- [x] Cómo dar de alta un usuario en local mientras el webhook no llegue **(`docs/development/setup-local.md` §3 y CLAUDE.md)**
+- [x] Archivar el cambio: fundir los deltas en `openspec/specs/` **(22-sep)**
 
 ## Orden sugerido
 

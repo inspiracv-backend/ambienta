@@ -166,8 +166,8 @@ notificaciones con vencimientos.
 
 **Monolito modular**, no microservicios. Una sola base de datos, un solo
 `SessionLocal`, sin bus de eventos ni HTTP interno. Los 13 dominios comparten
-las 52 tablas y hay FKs cruzando entre ellos: 40 apuntan a `tenants` y 33 a
-`users`.
+las 66 tablas y hay FKs cruzando entre ellos: 58 apuntan a `tenants` y 49 a
+`users` (medido el 22-sep; ver `db/README.md`).
 
 Los limites entre dominios existen **en el codigo y por convencion**, no
 forzados por infraestructura. Esa es la diferencia con microservicios, y es
@@ -199,7 +199,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 
 | Area | Estado |
 |---|---|
-| Base de datos | **Completa y verificada, y ahora CI lo comprueba** (#55). 52 tablas, 38 con RLS, 9 smoke tests en verde. Hasta el 31-ago esta linea se sostenia sola: `02_smoke_test.sql` **reventaba en su tercer INSERT** desde que la migracion 13 exigio departamento a los usuarios, y como no lo corria nada, nadie se entero. Ahora corre en el job de API, antes de pytest |
+| Base de datos | **Completa y verificada, y ahora CI lo comprueba** (#55). 66 tablas, 54 con RLS (medido el 22-sep; decia 52 y 38, las cifras del esquema inicial), 9 smoke tests en verde. Hasta el 31-ago esta linea se sostenia sola: `02_smoke_test.sql` **reventaba en su tercer INSERT** desde que la migracion 13 exigio departamento a los usuarios, y como no lo corria nada, nadie se entero. Ahora corre en el job de API, antes de pytest |
 | API | **109 rutas, 225 operaciones.** Swagger con titulo y explicacion en **las 223 de negocio, sin excepciones**. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
 | Auth — Google SSO | **Verificado en local el 17-ago.** Entrada con `oauth_google`, el claim `tenant_id` viaja y la API responde 200. **Falta para produccion:** credenciales propias (hoy usa las compartidas de Clerk) y el webhook. Ver abajo |

@@ -1,7 +1,17 @@
 # Credenciales de acceso
 
-## ADDED Requirements
+## Purpose
 
+Cómo obtiene alguien una forma de entrar, además del inicio de sesión con un
+proveedor (`autenticacion`): la invitación de un usuario interno, que deja a la
+persona en su empresa sin configuración manual posterior; la clave local con
+RUT; y el acceso temporal del Cliente Invitado, que no es una cuenta y no
+alcanza ningún dato de negocio.
+
+La identidad la administra el proveedor (ADR-006); la pertenencia a la empresa
+y lo que cada credencial permite son del sistema.
+
+## Requirements
 ### Requirement: Invitación de usuario interno
 El sistema SHALL crear la identidad en el proveedor y la fila en la base como
 un solo acto, de modo que la empresa de la persona invitada quede determinada
@@ -57,6 +67,11 @@ por quien invita y no por una configuración manual posterior.
 El sistema SHALL permitir que un usuario interno que ya entra con un proveedor
 externo se fije una clave local y desde entonces ingrese con su RUT, sin
 perder el acceso que ya tenía.
+
+En la v1.0 la pantalla va oculta detrás de la bandera `ingresoConRut`, apagada
+(plan de cierre, §6, decisión 6 del 21-sep): falta decidir si el RUT es único en
+todo el sistema o por empresa. El flujo y sus reglas existen y se prueban igual;
+encender la bandera lo vuelve a ofrecer.
 
 #### Scenario: Fijar la clave local
 - **GIVEN** un usuario interno autenticado que entró con un proveedor externo
@@ -133,3 +148,4 @@ datos de negocio de la empresa.
 - **GIVEN** un Cliente Invitado con acceso a la empresa A
 - **WHEN** intenta usar sus credenciales contra la empresa B
 - **THEN** el sistema se lo niega
+

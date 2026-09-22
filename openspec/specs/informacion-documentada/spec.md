@@ -1,7 +1,15 @@
-# informacion-documentada Specification
+# Información documentada
 
 ## Purpose
-TBD - created by archiving change vinculacion-transversal-de-documentos. Update Purpose after archive.
+
+Lo que rodea a cualquier registro de la empresa: los documentos que lo
+respaldan, los comentarios con autor y en hilo, la historia que junta sus
+distintas fuentes y la búsqueda que las atraviesa (ISO 9001 e ISO 14001 §7.5).
+
+Es transversal a propósito: un documento o un comentario no pertenecen a un
+módulo sino a un registro. Y todo lo que muestra declara sus límites —qué fuentes
+faltan, dónde se cortó— en vez de presentarse como completo.
+
 ## Requirements
 ### Requirement: Un documento se vincula sólo a registros de la propia empresa
 El sistema SHALL rechazar la vinculación de un documento con una entidad que no sea visible para la empresa que la solicita.
