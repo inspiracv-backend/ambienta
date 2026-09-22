@@ -19,7 +19,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 from fastapi import HTTPException, status
-from sqlalchemy import func, inspect as sa_inspect, or_, select
+from sqlalchemy import func, inspect as sa_inspect, literal, or_, select
 from sqlalchemy.orm import Session
 
 from .. import alcance
@@ -139,6 +139,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         if tenant_id is not None:
             data["tenant_id"] = tenant_id
         self._exigir_alcance(db, data.get("facility_id"))
+        self._exigir_referencias(db, data)
         obj = self.model(**data)
         db.add(obj)
         db.flush()
@@ -154,6 +155,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         # aparecio en las etapas del CRM.
         if "facility_id" in update_data:
             self._exigir_alcance(db, update_data["facility_id"])
+        self._exigir_referencias(db, update_data)
         for field, value in update_data.items():
             setattr(db_obj, field, value)
         db.flush()
@@ -185,6 +187,46 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
                 "sobre esta."
             ),
         )
+
+    def _exigir_referencias(self, db: Session, data: dict) -> None:
+        """Toda clave foranea hacia una tabla de empresa tiene que apuntar a algo
+        que **esta empresa ve**.
+
+        **Las FK de Postgres no pasan por RLS**: solo exigen que la fila exista,
+        no que sea de la empresa (`_comun.validar_visible` lo explica). La regla
+        de este repositorio era que cada endpoint que acepte un id en el cuerpo
+        llame a `validar_visible`, y se cumplia a medias: el 21-sep
+        `routers/compliance.py` no lo llamaba ni una vez. Una regla que depende
+        de acordarse en cada endpoint es la que este archivo ya reemplazo dos
+        veces —borrado logico y alcance— por un punto unico.
+
+        Se lee el destino con **la misma sesion**, asi que RLS decide: si esta
+        empresa no lo ve, para ella no existe. Lo retirado tampoco cuenta. Las
+        tablas sin `tenant_id` —catalogo global, `tenants`— no se comprueban:
+        la FK basta.
+
+        Mismo codigo y mismo texto que `validar_visible`, exista o no el
+        destino: distinguirlos seria un oraculo de identificadores ajenos.
+        """
+        tabla = self.model.__table__
+        for nombre, valor in data.items():
+            if valor is None or nombre == "tenant_id":
+                continue
+            columna = tabla.c.get(nombre)
+            if columna is None:
+                continue
+            for fk in columna.foreign_keys:
+                destino = fk.column.table
+                if "tenant_id" not in destino.c:
+                    continue
+                consulta = select(literal(1)).select_from(destino).where(fk.column == valor)
+                if "deleted_at" in destino.c:
+                    consulta = consulta.where(destino.c.deleted_at.is_(None))
+                if db.execute(consulta.limit(1)).first() is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"{nombre} no corresponde a un registro de esta empresa.",
+                    )
 
     def remove(self, db: Session, *, id: Any) -> ModelType | None:
         """Marca la fila como borrada. `None` si no habia nada que borrar.

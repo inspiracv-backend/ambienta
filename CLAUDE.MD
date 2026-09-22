@@ -676,9 +676,16 @@ Dos sintomas distintos y el segundo es el grave: no solo se distinguia "no
 existe" de "existe pero es de otro" —un oraculo para enumerar identificadores
 ajenos— sino que la escritura se completaba.
 
-`routers/_comun.py::validar_visible` es el arreglo y ya existia. **Cualquier
-endpoint nuevo que acepte un id en el cuerpo tiene que llamarlo**, y las dos
-respuestas deben ser identicas: mismo codigo y mismo mensaje.
+`routers/_comun.py::validar_visible` es el arreglo y ya existia. **Desde el
+21-sep lo aplica `CRUDBase` solo** (`_exigir_referencias`, en `create` y
+`update`): toda clave foranea hacia una tabla con `tenant_id` se lee con la
+sesion de la empresa, y si RLS no la ve responde el mismo 422 que un id
+inventado. La regla anterior —"cada endpoint tiene que llamarlo"— se cumplia a
+medias: `compliance.py` no lo llamaba nunca, y apagando la comprobacion central
+se midio que `POST /obligations/` aceptaba como responsable a una persona de otra
+empresa. **Lo que escribe por fuera de `CRUDBase`** —un servicio que arma el
+modelo a mano— **sigue necesitando `validar_visible`**, y las dos respuestas
+deben ser identicas: mismo codigo y mismo mensaje.
 
 **El repositorio de plantillas Excel esta vacio, y es deliberado.**
 `declaration_templates` tiene **cero filas**. El mecanismo existe y esta probado
