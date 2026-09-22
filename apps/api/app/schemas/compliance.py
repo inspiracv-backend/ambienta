@@ -77,6 +77,9 @@ class MatrixNormRead(OrmBase):
     sector_id: int | None
     applicability: str
     applicability_reason: str | None
+    #: `automatic` = la agrego la sincronizacion por sector; `manual` = una
+    #: persona. Se escribia y no salia en ninguna respuesta (21-sep).
+    inclusion_source: str | None = None
     owner_user_id: UUID | None
     review_frequency: str
     next_review_date: datetime | None

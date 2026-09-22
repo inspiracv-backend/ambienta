@@ -145,6 +145,36 @@ describe('las evaluaciones llegan todas', () => {
   });
 });
 
+describe('vigencia y aplicabilidad', () => {
+  it('lee de la base si la norma rige y si le aplica a la empresa', async () => {
+    iniciarSesionComo('admin_empresa');
+    responder([articuloApi()], [], [
+      {
+        id: MATRIX_NORM,
+        norm_id: NORMA,
+        applicability: 'not_applicable',
+        applicability_reason: 'El calculo por sector dejo de incluirla.',
+        inclusion_source: 'automatic',
+      },
+    ]);
+    const original = get.getMockImplementation()!;
+    get.mockImplementation((ruta: string, ...resto: unknown[]) =>
+      ruta === '/catalog/norms'
+        ? Promise.resolve([{ id: NORMA, title: 'Ley 20.920', norm_type: 'ley', source_id: 1, status: 'derogada' }])
+        : original(ruta, ...resto),
+    );
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+    await waitFor(() => expect(result.current.norms).toHaveLength(1));
+
+    const n = result.current.norms[0]!;
+    expect(n.vigencia?.estado).toBe('derogada');
+    expect(n.aplicabilidad?.estado).toBe('no_aplica');
+    expect(n.aplicabilidad?.criterio).toBe('El calculo por sector dejo de incluirla.');
+    expect(n.aplicabilidad?.determinadaPor).toBe('automatica');
+  });
+});
+
 describe('carga del articulado', () => {
   it('trae los articulos de la API en vez de dejar la lista vacia', async () => {
     // El store armaba cada norma con `articulos: []`, asi que lo que se veia

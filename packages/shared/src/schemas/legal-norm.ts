@@ -114,7 +114,9 @@ export type SubtipoRequisito = z.infer<typeof SubtipoRequisitoSchema>;
 
 /** Una norma derogada sigue importando: hay que saber que dejo de aplicar y desde cuando. */
 export const VigenciaNormaSchema = z.object({
-  estado: z.enum(['vigente', 'derogada', 'modificada', 'proyecto']),
+  // Los de `legal_norms.status` (manda la base): `parcialmente_vigente` y
+  // `desconocida` existen alli y faltaban aca.
+  estado: z.enum(['vigente', 'derogada', 'modificada', 'proyecto', 'parcialmente_vigente', 'desconocida']),
   desde: z.string().optional(),
   hasta: z.string().optional(),
   reemplazaANormaId: z.string().optional(),
@@ -132,6 +134,12 @@ export type VigenciaNorma = z.infer<typeof VigenciaNormaSchema>;
  */
 export const AplicabilidadSchema = z.object({
   determinadaPor: z.enum(['automatica', 'manual']).default('manual'),
+  /**
+   * Lo que dice la matriz de la empresa (`matrix_norms.applicability`). Una
+   * norma que dejo de aplicar **se conserva** con sus evaluaciones: por eso
+   * sigue en la lista, y por eso hay que decir que no aplica.
+   */
+  estado: z.enum(['aplica', 'no_aplica', 'por_analizar']).optional(),
   /** Codigos CIIU de las actividades a las que aplica. */
   actividadesEconomicas: z.array(z.string()).default([]),
   criterio: z.string().optional(),

@@ -51,3 +51,52 @@ describe('la cobertura de una norma', () => {
     expect(within(fila('DS 40')).getAllByText('100%')).toHaveLength(2);
   });
 });
+
+describe('una norma que no aplica o que ya no rige', () => {
+  const articulosSinEvaluar = Array.from({ length: 3 }, (_, i) => ({
+    id: `x-${i}`,
+    normId: 'n-2',
+    numero: `${i + 1}`,
+    descripcion: '',
+    respuesta: 'N_E',
+    incluidoEnCalculo: true,
+  })) as LegalNorm['articulos'];
+
+  it('si la matriz dice que no aplica, lo dice y no pide evaluarla', () => {
+    // La Ley 20.920 de la empresa de prueba: marcada no aplicable por la
+    // sincronizacion y conservada. Salia "Pendiente de evaluar · 61 sin evaluar".
+    render(
+      <LegalMatrixTable
+        norms={[
+          norma({
+            id: 'n-2',
+            nombre: 'Ley 20.920',
+            articulos: articulosSinEvaluar,
+            aplicabilidad: {
+              determinadaPor: 'automatica',
+              estado: 'no_aplica',
+              criterio: 'El calculo por sector dejo de incluirla.',
+              actividadesEconomicas: [],
+              aspectoAmbientalIds: [],
+            },
+          }),
+        ]}
+        plants={[]}
+      />,
+    );
+
+    const celdas = within(fila('Ley 20.920'));
+    expect(celdas.getByText('No aplica')).toBeTruthy();
+    expect(celdas.getByText('El calculo por sector dejo de incluirla.')).toBeTruthy();
+    expect(celdas.queryByText(/sin evaluar/)).toBeNull();
+    expect(celdas.queryByText('Pendiente de evaluar')).toBeNull();
+  });
+
+  it('una norma derogada lleva la etiqueta', () => {
+    render(
+      <LegalMatrixTable norms={[norma({ nombre: 'DS viejo', vigencia: { estado: 'derogada' } })]} plants={[]} />,
+    );
+    expect(within(fila('DS viejo')).getByText('Derogada')).toBeTruthy();
+  });
+});
+

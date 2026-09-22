@@ -72,6 +72,22 @@ const TIPO_POR_NORM_TYPE: Record<string, TipoDocumento> = {
  * un artículo que estaba en `partial`, se guarda como `non_compliant` y el
  * matiz se pierde. Recuperarlo pide una quinta opción en la interfaz.
  */
+/** `legal_norms.status` → la vigencia de la pantalla. `draft` es un proyecto. */
+const VIGENCIA_POR_STATUS: Record<string, NonNullable<LegalNorm['vigencia']>['estado']> = {
+  vigente: 'vigente',
+  parcialmente_vigente: 'parcialmente_vigente',
+  derogada: 'derogada',
+  draft: 'proyecto',
+  desconocida: 'desconocida',
+};
+
+/** `matrix_norms.applicability` → si la norma le aplica a la empresa. */
+const APLICABILIDAD_POR_VALOR: Record<string, NonNullable<NonNullable<LegalNorm['aplicabilidad']>['estado']>> = {
+  applicable: 'aplica',
+  not_applicable: 'no_aplica',
+  pending_analysis: 'por_analizar',
+};
+
 const RESPUESTA_POR_STATUS: Record<string, Articulo['respuesta']> = {
   compliant: 'SI',
   non_compliant: 'NO',
@@ -328,6 +344,19 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
           tenantId: user!.tenantId,
         })
         .catch(() => []);
+      // De paso, **si le aplica**: la sincronizacion marca `not_applicable` lo
+      // que dejo de corresponderle y lo conserva. Sin leerlo, la Ley 20.920 de
+      // la empresa de prueba salia "Pendiente de evaluar · 61 sin evaluar": la
+      // pantalla pedia evaluar una norma que ya no le aplica (21-sep).
+      for (const f of filas) {
+        aplicabilidadPorNorma.set(String(f.norm_id), {
+          determinadaPor: f.inclusion_source === 'automatic' ? 'automatica' : 'manual',
+          estado: APLICABILIDAD_POR_VALOR[String(f.applicability ?? '')] ?? 'por_analizar',
+          ...(f.applicability_reason ? { criterio: String(f.applicability_reason) } : {}),
+          actividadesEconomicas: [],
+          aspectoAmbientalIds: [],
+        });
+      }
       return new Map(
         filas.map((f) => [String(f.norm_id), String(f.id)] as [string, string]),
       );
@@ -359,6 +388,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     // a lo publico (`catalog.py::list_norms`); antes no lo hacia, y con Clerk
     // —donde el token siempre trae la empresa— cada RCA salia dos veces.
     const conEmpresa = { tenantId: user.tenantId! };
+    const aplicabilidadPorNorma = new Map<string, NonNullable<LegalNorm['aplicabilidad']>>();
     Promise.all([
       // Todas las páginas: el catálogo crece con cada sincronización de la
       // BCN, y una norma más allá de la número 100 desaparecería de la matriz.
@@ -422,6 +452,14 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
           nombre: String(raw.title ?? raw.norm_number ?? ''),
           fuente: FUENTE_POR_CODIGO[codigoPorFuente.get(String(raw.source_id)) ?? ''] ?? 'RCA',
           articulos: articulosPorNorma.get(String(raw.id)) ?? [],
+          // Vigencia y aplicabilidad (tarea 58 de ISO). Una norma derogada o que
+          // dejo de aplicar se ve distinta de una vigente que aplica.
+          ...(VIGENCIA_POR_STATUS[String(raw.status ?? '')]
+            ? { vigencia: { estado: VIGENCIA_POR_STATUS[String(raw.status)]! } }
+            : {}),
+          ...(aplicabilidadPorNorma.has(String(raw.id))
+            ? { aplicabilidad: aplicabilidadPorNorma.get(String(raw.id))! }
+            : {}),
         }));
         // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
         // de antes no distinguia dos cosas muy distintas: que la API fallara

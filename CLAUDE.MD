@@ -646,6 +646,15 @@ Tres defectos mas de la misma pantalla, todos medidos en el navegador:
 - **Una norma sin articulado mostraba "cobertura 100 %"** (`computeNormCoverage`
   da 1 sobre cero articulos). Ahora dice "Sin articulado".
 
+**Y la matriz no decia que una norma dejo de aplicar** (21-sep). La
+sincronizacion marca `not_applicable` lo que ya no le corresponde a la empresa y
+lo conserva con sus evaluaciones, pero la pantalla no leia `applicability`: la
+Ley 20.920 de la empresa de prueba salia "Pendiente de evaluar · 61 sin evaluar".
+Ahora `semaforoDeNorma` (`lib/legal-matrix.ts`) la pinta "No aplica" con su
+motivo, la ficha lo dice, y una norma derogada lleva la etiqueta. **Queda una
+pregunta de negocio:** el resumen y el tablero siguen contando las evaluaciones
+de una norma que dejo de aplicar; hoy no pesa porque la 20.920 no tiene ninguna.
+
 **Y una trampa que queda abierta:** `uq_article_compliance` es unico sobre
 `(matrix_norm_id, article_id, facility_id)` **incluidas las filas retiradas**, asi
 que una evaluacion borrada con `DELETE` no se puede volver a crear: responde 409

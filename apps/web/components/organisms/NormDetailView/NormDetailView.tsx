@@ -6,7 +6,7 @@ import type { Articulo } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
 import { ArticleEvaluationModal } from '@/components/organisms/ArticleEvaluationModal';
 import { ComplianceConfigModal } from '@/components/organisms/ComplianceConfigModal';
-import { articuloSemaforo, normSemaforoDe, resumenDeNorma } from '@/lib/legal-matrix';
+import { articuloSemaforo, noAplica, normSemaforoDe, resumenDeNorma, VIGENCIA_LABEL } from '@/lib/legal-matrix';
 import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
 import type { NormDetailViewProps } from './NormDetailView.types';
@@ -70,6 +70,27 @@ export function NormDetailView({ norm: normProp, activeTenantId, responsableOpti
                 DE EMISIONES Y TRANSFERENCIAS DE CONTAMINANTES, RETC"— y a
                 tamano de titular ocupaban dos lineas de grito. */}
             <h1 className="mt-1 text-lg font-semibold leading-snug text-slate-900">{norm.nombre}</h1>
+            {/* Vigencia y aplicabilidad (ISO 14001 §6.1.3, tarea 58). Se dicen
+                solo cuando no son lo normal: vigente y que aplica. */}
+            {(norm.vigencia?.estado && norm.vigencia.estado !== 'vigente') || noAplica(norm) ? (
+              <dl className="mt-2 flex flex-col gap-1 text-sm">
+                {norm.vigencia?.estado && norm.vigencia.estado !== 'vigente' && (
+                  <div className="flex gap-2">
+                    <dt className="text-slate-500">Vigencia</dt>
+                    <dd className="font-medium text-amber-800">{VIGENCIA_LABEL[norm.vigencia.estado]}</dd>
+                  </div>
+                )}
+                {noAplica(norm) && (
+                  <div className="flex gap-2">
+                    <dt className="text-slate-500">Aplicabilidad</dt>
+                    <dd className="text-slate-700">
+                      <span className="font-medium">No aplica a la empresa.</span>{' '}
+                      {norm.aplicabilidad?.criterio}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            ) : null}
             {norm.fuenteUrl && (
               <a
                 href={norm.fuenteUrl}

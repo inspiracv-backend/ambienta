@@ -24,7 +24,7 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 - [x] `mocks/riesgos-oportunidades.ts` con riesgos y oportunidades reales
 - [x] `mocks/equipos-regulados.ts` con caldera y grupo electrógeno
 - [ ] Enriquecer `mocks/catalog.ts` con los campos nuevos en al menos una norma **(medido: `mocks/catalog.ts` no tiene vigencia, aplicabilidad ni monitoreo)**
-- [ ] Ampliar el catálogo con las normas que pidió la reunión: D.S. 609 (SISS), decretos 40 y 48 de seguridad minera, ley de bases del medio ambiente
+- [ ] Ampliar el catálogo con las normas que pidió la reunión: D.S. 609 (SISS), decretos 40 y 48 de seguridad minera, ley de bases del medio ambiente **(parcial, 21-sep: D.S. 609 y Ley 19.300 sincronizados; el 609 espera su clasificación por sector. En la BCN no hay decretos 40 ni 48 de seguridad minera: cuáles son lo decide negocio, ver `docs/plan-de-cierre-v1.md` §6.1)**
 
 ## Fase 3 — Cálculo
 
@@ -55,7 +55,7 @@ Plan de [`proposal.md`](./proposal.md) / [`design.md`](./design.md).
 - [x] Matriz de aspectos e impactos, con filtro por proceso y condición de operación **(21-sep: columna y filtro por proceso, incluido "Sin proceso"; el formulario asigna el proceso y `PATCH` ya lo acepta —antes lo descartaba en silencio, asi que un aspecto quedaba para siempre en el proceso con que nacio)**
 - [x] Evaluación de significancia con los criterios del tenant **(con los criterios del sistema; **decidido el 21-sep**: son los de v1.0, y los de cada empresa quedan para despues del piloto — `docs/plan-de-cierre-v1.md` §6)**
 - [x] Matriz de riesgos y oportunidades
-- [ ] Detalle de norma: vigencia, aplicabilidad y obligación de monitoreo
+- [ ] Detalle de norma: vigencia, aplicabilidad y obligación de monitoreo **(parcial, 21-sep: la vigencia sale de `legal_norms.status` y la aplicabilidad de la matriz, con su motivo; la tabla y la ficha dicen "Derogada" y "No aplica". Falta el **monitoreo**, que no existe en la base —el mismo hueco de la tarea 71—)**
 - [x] Inventario de equipos regulados con alerta de certificación por vencer
 - [x] Ítems de navegación condicionados a la flag
 

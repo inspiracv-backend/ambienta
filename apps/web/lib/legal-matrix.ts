@@ -106,6 +106,34 @@ export function computeNormComplianceSobreEvaluadosOrNull(norm: LegalNorm): numb
   return evaluables.filter((a) => a.respuesta === 'SI').length / evaluables.length;
 }
 
+/**
+ * **El semáforo de una norma de la matriz**, contando con si le aplica.
+ *
+ * La sincronización marca `no aplica` lo que dejó de corresponderle a la empresa
+ * y lo **conserva** con sus evaluaciones. Sin esto, la Ley 20.920 de la empresa
+ * de prueba salía "Pendiente de evaluar · 61 sin evaluar" (21-sep): la
+ * pantalla pedía evaluar una norma que ya no le aplica.
+ */
+export function semaforoDeNorma(norm: LegalNorm): SemaforoStatus {
+  if (noAplica(norm)) return 'na';
+  return normSemaforoDe(computeNormComplianceOrNull(norm));
+}
+
+/** Si la matriz de la empresa dice que esta norma no le aplica. */
+export function noAplica(norm: LegalNorm): boolean {
+  return norm.aplicabilidad?.estado === 'no_aplica';
+}
+
+/** Cómo se lee la vigencia de una norma. `vigente` no se rotula: es lo normal. */
+export const VIGENCIA_LABEL: Record<NonNullable<LegalNorm['vigencia']>['estado'], string> = {
+  vigente: 'Vigente',
+  parcialmente_vigente: 'Parcialmente vigente',
+  modificada: 'Modificada',
+  derogada: 'Derogada',
+  proyecto: 'Proyecto',
+  desconocida: 'Vigencia desconocida',
+};
+
 /** El semáforo de una norma, con `null` —nada evaluado— como `pendiente`. */
 export function normSemaforoDe(pct: number | null): SemaforoStatus {
   if (pct === null) return 'pendiente';
