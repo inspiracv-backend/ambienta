@@ -3,32 +3,38 @@
 ## MODIFIED Requirements
 
 ### Requirement: Inicio de sesión con cuenta corporativa
-El sistema SHALL permitir iniciar sesión con correo y contraseña y con Google, y
-SHALL redirigir al inicio de sesión a quien intente entrar a una pantalla sin
-sesión.
+El sistema SHALL permitir iniciar sesión con correo y contraseña y con los
+proveedores corporativos habilitados en el proveedor de identidad, SHALL
+redirigir al inicio de sesión a quien intente entrar sin sesión a una pantalla
+del sistema, y SHALL dejar ver sin sesión las pantallas públicas: el ingreso, el
+registro con invitación y el acceso de Cliente Invitado.
 
 Autenticarse con un proveedor corporativo demuestra **quién es** la persona, no
 que pertenezca a una empresa del sistema. Son dos hechos distintos y el sistema
 los trata por separado.
 
-**Microsoft quedó fuera de este requisito el 10-sep-2026, y es una decisión.**
-La versión anterior lo exigía junto con Google, y Microsoft nunca se configuró:
-exige un registro en Entra ID cuyo tipo de cuenta tiene que ser *cualquier
-directorio + cuentas personales* —con «sólo este directorio» ningún cliente
-puede entrar—. Mientras el requisito lo pedía, este cambio no se podía archivar y
-`openspec/specs/` seguía sin describir la autenticación **que sí funciona**.
-
-Un spec que exige lo que el sistema no hace no protege nada: hace que el próximo
-cambio se escriba contra un estado imaginado. Microsoft entra por su propio
-cambio (#92) cuando haya un cliente que lo pida.
+**Qué proveedores se ofrecen lo decide la cuenta del proveedor de identidad, no
+el código.** La pantalla de ingreso muestra los que estén habilitados ahí. Para
+el piloto se decidió correo y clave, Google y Microsoft (plan de cierre, §6,
+decisión 4 del 21-sep). Google funciona; Microsoft exige registrar la aplicación
+en Entra ID con tipo de cuenta *cualquier directorio + cuentas personales* —con
+«sólo este directorio» ningún cliente puede entrar—, y eso es configuración de
+la cuenta. El 10-sep este requisito había sacado a Microsoft porque exigirlo sin
+configurarlo describía un sistema que no existía; la forma de no repetir ese
+error es no nombrar proveedores en el requisito.
 
 #### Scenario: Acceso sin sesión
 - **WHEN** alguien sin sesión abre una pantalla del sistema
 - **THEN** se le redirige al inicio de sesión
 
+#### Scenario: Las pantallas públicas no exigen sesión
+- **GIVEN** alguien sin sesión
+- **WHEN** abre el acceso de Cliente Invitado, o el registro con el enlace de su invitación
+- **THEN** el sistema le muestra esa pantalla y no lo manda al inicio de sesión
+
 #### Scenario: Ingreso con proveedor corporativo
 - **GIVEN** una persona ya dada de alta en una empresa
-- **WHEN** entra con Google
+- **WHEN** entra con un proveedor corporativo habilitado
 - **THEN** accede al tablero de su empresa con los mismos datos que si hubiera
   entrado con correo y contraseña
 
@@ -59,6 +65,11 @@ tenga nada que ver con la empresa.
 - **WHEN** alguien intenta crear una cuenta por su cuenta desde el sistema
 - **THEN** el sistema no se lo permite
 - **AND** le indica que el acceso lo habilita la empresa
+
+#### Scenario: La persona invitada crea su cuenta
+- **GIVEN** una persona con una invitación de su empresa
+- **WHEN** abre el enlace de la invitación
+- **THEN** el sistema le permite crear su cuenta y la deja en esa empresa
 
 #### Scenario: Autenticarse no es darse de alta
 - **GIVEN** una persona con una cuenta corporativa válida y sin alta en el sistema

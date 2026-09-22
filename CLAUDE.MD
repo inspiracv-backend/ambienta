@@ -349,6 +349,21 @@ cargan en la ficha del plan (`lib/tareas-del-plan.ts`), no en el listado, y las
 rutas `/action-plans/tasks/...` van declaradas **antes** de `/action-plans/{plan_id}`. `audits` y `legal-matrix` ya
 mapean lo suyo desde el 17-ago. Ver `docs/escrituras-del-frontend.md`.
 
+**Con Clerk activo, las pantallas publicas rebotaban al ingreso** (hasta el
+22-sep). El middleware las dejaba pasar, pero `UsersProvider` —en el layout
+raiz— pide `/users/` al montar, sin sesion responde 401, y `ClerkApiBridge`
+mandaba a `/login`. Medido con Clerk: `/acceso-invitado` y `/signup` rebotaban,
+o sea que **el Cliente Invitado no podia pedir su acceso (RF-02) y la persona
+invitada no podia crear su cuenta**. En modo desarrollo no se ve: ahi no hay
+redireccion. Ahora las rutas publicas viven en `lib/rutas-publicas.ts`, que usan
+el middleware y el puente. **Probar la autenticacion solo sin Clerk no prueba
+la autenticacion.**
+
+Y `/signup` ya no es un registro abierto: muestra el formulario de Clerk solo con
+el `__clerk_ticket` de una invitacion (decision 5). No se quito la ruta porque la
+invitacion no fija `redirect_url` y su enlace puede volver ahi. El cierre de
+verdad es el modo restringido de Clerk, en su panel.
+
 **El SSO no deja un usuario utilizable por si solo.** Entrar con Google crea la
 sesion en Clerk, pero el `tenant_id` sale de `publicMetadata` —lo inyecta el
 JWT Template— y la fila en `users` la escribe el webhook. En local **el webhook

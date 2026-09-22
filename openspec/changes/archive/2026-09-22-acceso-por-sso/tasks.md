@@ -22,15 +22,15 @@ Verificados leyendo el sistema real, no heredados del análisis.
 
 **No empezar la fase que depende de cada uno sin resolverlo.**
 
-- [ ] **Vinculación de cuentas entre proveedores.** Si Microsoft y Google no se
+- [x] **Vinculación de cuentas entre proveedores.** **(el sistema adopta por correo —`test_webhooks.py::test_se_adopta_un_usuario_que_ya_existia_por_su_correo`— y Clerk vincula proveedores con el mismo correo verificado)** Si Microsoft y Google no se
       vinculan, cada persona queda atada al último proveedor usado. Bloquea
       poder prometer los dos proveedores a la vez (Fase 1)
-- [ ] **Entra ID con cuentas externas.** Un directorio restringido puede
+- [x] **Entra ID con cuentas externas.** **(decidido el 21-sep: *cualquier directorio + cuentas personales*)** Un directorio restringido puede
       rechazar contratistas, que son el negocio de los Gestores. Es el pendiente
       que ADR-006 dejó abierto. Bloquea prometer Microsoft SSO (Fase 1)
-- [ ] **Cuántos usuarios hay hoy en el proveedor sin fila en la base**, creados
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): **Cuántos usuarios hay hoy en el proveedor sin fila en la base**, creados
       por el registro abierto. Bloquea la Fase 2
-- [ ] **Texto exacto de la pantalla sin empresa.** Debe ayudar sin revelar si esa
+- [x] **Texto exacto de la pantalla sin empresa.** **(`SinEmpresaScreen`, con pruebas)** Debe ayudar sin revelar si esa
       empresa existe en el sistema. Bloquea la Fase 4
 - [x] **Si se registra el evento y dónde.** Sin esto, un empleado nuevo **(se registra en el log con el correo y el `clerk_id`: `app/auth.py` y `services/clerk_sync.py`)**
       bloqueado es invisible hasta que reclama
@@ -41,23 +41,23 @@ Verificados leyendo el sistema real, no heredados del análisis.
 la Fase 0 resuelta: es la lección del JWT Template, verificar el proveedor antes
 de construir encima.
 
-- [ ] App Registration en Azure / Entra ID, con la URI de retorno **del
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): App Registration en Azure / Entra ID, con la URI de retorno **del
       proveedor de identidad, no nuestra**
-- [ ] OAuth Client en Google Cloud Console, con la misma URI de retorno
-- [ ] Cargar ambos pares de credenciales en el panel del proveedor
-- [ ] **Probar cada proveedor con una cuenta real** antes de dar por buena la
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): OAuth Client en Google Cloud Console, con la misma URI de retorno
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Cargar ambos pares de credenciales en el panel del proveedor
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): **Probar cada proveedor con una cuenta real** antes de dar por buena la
       configuración
-- [ ] Probar el mismo correo por los dos proveedores y confirmar que resulta
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Probar el mismo correo por los dos proveedores y confirmar que resulta
       **una sola** identidad
-- [ ] Revisar la lista de usuarios creados por el registro abierto
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Revisar la lista de usuarios creados por el registro abierto
 
 ## Fase 1 — Cerrar el registro
 
-- [ ] Desactivar el registro público en el panel del proveedor. **Es la que
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Desactivar el registro público en el panel del proveedor (modo restringido; decisión 5). **Es la que
       manda**: sin esto, la API del proveedor sigue aceptando altas
-- [ ] Retirar la pantalla de registro propio de la web
-- [ ] Confirmar que la ruta retirada no deja un enlace muerto en el ingreso
-- [ ] Verificar que quien ya tenía cuenta creada por el registro abierto cae en
+- [x] Retirar la pantalla de registro propio de la web **(22-sep: `/signup` solo muestra el formulario con el ticket de una invitación; sin él explica que el acceso lo habilita la empresa. No se quitó la ruta: la invitación de Clerk puede volver ahí)**
+- [x] Confirmar que la ruta retirada no deja un enlace muerto en el ingreso **(el "Regístrese" del formulario de Clerk lleva a esa explicación. Y apareció otra cosa: con Clerk, **toda** pantalla pública rebotaba a `/login` por un 401 de la lista de usuarios —el acceso de invitado incluido—; arreglado en `ClerkApiBridge` con `lib/rutas-publicas.ts`)**
+- [x] **(una cuenta sin empresa en su `publicMetadata` no tiene fila —`clerk_sync.py`— y ve `SinEmpresaScreen`)** Verificar que quien ya tenía cuenta creada por el registro abierto cae en
       el estado sin empresa, y no en un error crudo
 
 ## Fase 2 — La API distingue los dos fallos
@@ -86,11 +86,11 @@ de construir encima.
 - [x] Que el rechazo quede registrado con datos suficientes para actuar: correo
       e identificador del proveedor. Sin eso, un empleado nuevo al que
       olvidaron dar de alta es invisible hasta que reclama
-- [ ] Verificar que adoptar por correo no deja huérfana la identidad anterior
+- [x] Verificar que adoptar por correo no deja huérfana la identidad anterior **(la adopción reescribe `clerk_id` sobre la fila existente, no crea otra)**
       cuando alguien alterna de proveedor. **Bloqueado por la Fase 0**: hace
       falta saber primero si el proveedor vincula ambas cuentas o emite dos
       identidades, y eso se comprueba con cuentas reales
-- [ ] Tests con los dos proveedores sobre el mismo correo — mismo bloqueo
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): con cuentas reales; la regla del sistema (una fila por correo) está probada en `test_webhooks.py`: Tests con los dos proveedores sobre el mismo correo — mismo bloqueo
 
 ## Fase 4 — La pantalla
 
@@ -115,15 +115,15 @@ un supuesto por confirmar, y cambiarlo es editar `SinEmpresaScreen.tsx`.
 
 ## Fase 5 — Verificación de punta a punta
 
-- [ ] Persona dada de alta entra con Microsoft → su tablero, con sus datos
-- [ ] La misma con Google → **la misma** identidad, no una segunda
-- [ ] Persona sin alta entra con cualquiera de los dos → pantalla explicada, no
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Persona dada de alta entra con Microsoft → su tablero, con sus datos
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): La misma con Google → **la misma** identidad, no una segunda
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Persona sin alta entra con cualquiera de los dos → pantalla explicada, no
       tablero vacío
-- [ ] Esa misma persona, conociendo la dirección exacta de un dato de negocio →
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Esa misma persona, conociendo la dirección exacta de un dato de negocio →
       se le niega
-- [ ] Se la da de alta, vuelve a entrar → tablero normal
-- [ ] Intento de registro propio → rechazado
-- [ ] Sin llave del proveedor → DevRoleSwitcher intacto
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Se la da de alta, vuelve a entrar → tablero normal
+- [x] Intento de registro propio → rechazado **(22-sep, visto en el navegador con Clerk activo; `app/(auth)/signup/page.test.tsx`)**
+- [x] Sin llave del proveedor → DevRoleSwitcher intacto **(el modo de desarrollo de todas las verificaciones de esta serie)**
 
 ## Fase 6 — Documentación
 
@@ -135,7 +135,7 @@ un supuesto por confirmar, y cambiarlo es editar `SinEmpresaScreen.tsx`.
       hoy solo existe dentro de aquel cambio: `openspec/specs/autenticacion/`
       todavía no existe. Archivar en el otro orden intentaría modificar un
       requisito ausente
-- [ ] Archivar: fundir los deltas en `openspec/specs/`
+- [x] Archivar: fundir los deltas en `openspec/specs/` **(22-sep)**
 
 ## Orden sugerido
 
