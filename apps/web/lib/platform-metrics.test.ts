@@ -57,8 +57,6 @@ function ticket(over: Partial<SupportTicket> & { id: string }): SupportTicket {
     descripcion: 'Descripción',
     estado: 'abierto',
     fecha: '2026-07-01T00:00:00.000Z',
-    visibleParaCliente: true,
-    correcciones: [],
     ...over,
   } as SupportTicket;
 }

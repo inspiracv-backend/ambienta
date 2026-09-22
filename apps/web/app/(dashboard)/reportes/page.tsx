@@ -1,5 +1,6 @@
 'use client';
 
+import { visibleEnAlcance } from '@/lib/alcance';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/atoms';
@@ -41,14 +42,14 @@ export default function ReportesPage() {
       : (tenant?.plants ?? []);
 
   const scopedObligations = obligations.filter(
-    (o) => o.tenantId === user.tenantId && scopedPlants.some((p) => p.id === o.plantId),
+    (o) => o.tenantId === user.tenantId && visibleEnAlcance(o.plantId, scopedPlants),
   );
   const scopedNorms = norms.filter(
     (n) => (n.tenantId === null || n.tenantId === user.tenantId) && n.plantIds.some((id) => scopedPlants.some((p) => p.id === id)),
   );
-  const scopedAudits = audits.filter((a) => a.tenantId === user.tenantId && scopedPlants.some((p) => p.id === a.plantId));
+  const scopedAudits = audits.filter((a) => a.tenantId === user.tenantId && visibleEnAlcance(a.plantId, scopedPlants));
   const scopedNcs = nonConformities.filter(
-    (nc) => nc.tenantId === user.tenantId && scopedPlants.some((p) => p.id === nc.plantId),
+    (nc) => nc.tenantId === user.tenantId && visibleEnAlcance(nc.plantId, scopedPlants),
   );
 
   return (

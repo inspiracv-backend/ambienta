@@ -27,17 +27,24 @@ export function TenantNormsManager({ tenantId, plantIds }: TenantNormsManagerPro
   const [nombre, setNombre] = useState('');
   const [fuente, setFuente] = useState<'RCA' | 'ISO'>('RCA');
   const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
 
   const tenantNorms = norms.filter((n) => n.tenantId === tenantId && n.fuente !== 'BCN');
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!nombre.trim()) {
       setError('Ingresa un nombre para identificar el documento.');
       return;
     }
     const tipoDocumento: TipoDocumento = fuente === 'RCA' ? 'Resolucion' : 'NCh';
-    addNorm({ nombre: nombre.trim(), tipoDocumento, fuente, tenantId, plantIds });
+    setGuardando(true);
+    const ok = await addNorm({ nombre: nombre.trim(), tipoDocumento, fuente, tenantId, plantIds });
+    setGuardando(false);
+    // **El formulario sólo se cierra si se guardó.** Cerrarlo pase lo que pase
+    // es cómo se pierde lo que alguien acaba de escribir cuando el servidor
+    // responde mal — y además deja creyendo que la RCA quedó registrada.
+    if (!ok) return;
     setNombre('');
     setError(null);
     setIsFormOpen(false);
@@ -78,7 +85,9 @@ export function TenantNormsManager({ tenantId, plantIds }: TenantNormsManagerPro
             <Button type="button" variant="secondary" onClick={() => setIsFormOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit">Guardar</Button>
+            <Button type="submit" disabled={guardando}>
+              {guardando ? 'Guardando…' : 'Guardar'}
+            </Button>
           </div>
         </form>
       )}

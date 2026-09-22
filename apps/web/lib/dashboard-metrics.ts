@@ -52,7 +52,12 @@ export interface ApiDashboardMetrics {
   global: {
     /** 0 a 100, o `null` si no hay nada evaluado. Ojo: la UI trabaja en 0 a 1. */
     compliance_percentage: number | null;
+    /** 0 a 100: que parte de lo que aplica ya se evaluo. Opcional porque una
+        API anterior al 21-sep no lo manda. */
+    coverage_percentage?: number | null;
     articles_evaluated: number;
+    /** Requisitos que aplican y siguen sin evaluar. */
+    articles_pending?: number;
     articles_non_compliant: number;
     total_obligations: number;
     nc_open: number;
@@ -114,6 +119,10 @@ function aVencimiento(d: ApiCriticalDeadline | null): VencimientoResumen | null 
 export function fromApiMetrics(api: ApiDashboardMetrics) {
   return {
     cumplimientoGlobal: aFraccion(api.global.compliance_percentage),
+    // `undefined` -> `null`: una API que no lo manda no sabe la cobertura, y
+    // eso no es "cero evaluado".
+    cobertura: aFraccion(api.global.coverage_percentage ?? null),
+    porEvaluar: api.global.articles_pending ?? null,
     incumplimientos: api.global.articles_non_compliant,
     ncAbiertas: api.global.nc_open,
     porVencer: api.global.obligations_upcoming,

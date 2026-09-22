@@ -169,6 +169,24 @@ class LegalRelationRead(OrmBase):
     effective_date: date | None
 
 
+class RelacionDeNormaRead(BaseModel):
+    """Una relacion vista **desde esta norma**, con la otra punta resuelta.
+
+    `sentido` dice de que lado esta la norma consultada: `saliente` = esta norma
+    modifica, reglamenta, refunde o rectifica a la otra; `entrante` = la otra se
+    lo hace a esta. La concordancia es simetrica y se informa igual desde las
+    dos.
+    """
+
+    relation_type: str
+    sentido: str
+    norm_id: UUID
+    norm_type: str | None
+    norm_number: str | None
+    title: str
+    publication_date: date | None
+
+
 # ── Sector ────────────────────────────────────────────────────────────────
 
 class SectorRead(OrmBase):
@@ -223,6 +241,10 @@ class NormSyncRunRead(OrmBase):
     norms_updated: int
     versions_created: int
     error_detail: str | None
+    #: Lo que trajo la corrida: normas encontradas, las que cambiaron de version
+    #: vigente y los terminos que **no** encontraron su norma. Solo nombres de
+    #: terminos y codigos de normas publicas; ningun dato de una empresa.
+    response_metadata: dict = {}
 
 
 # ── FacilityNormAssignment ────────────────────────────────────────────────

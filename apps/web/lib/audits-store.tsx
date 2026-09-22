@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Audit, NonConformity, EtapasMejora, TipoRegistroMejora } from '@ambienta/shared';
+import type { Audit, NonConformity, TipoRegistroMejora } from '@ambienta/shared';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useUsers } from '@/lib/users-store';
 import { useSession } from '@/lib/session';
@@ -21,18 +21,25 @@ interface AuditsContextValue {
    * ve igual que "esta empresa no tiene ninguno".
    */
   errorDeCarga: string | null;
+  /** Rechaza si la base no lo creó; devuelve el registro con el id real. */
   addNonConformity: (input: {
     tenantId: string;
     plantId: string;
-    auditId?: string;
     hallazgo: string;
-    criticidad: NonConformity['criticidad'];
+    severidad: string;
     responsableId: string;
     tipoRegistro?: TipoRegistroMejora;
-  }) => NonConformity;
+    origen?: string;
+    auditItemId?: string;
+    productData?: Record<string, string>;
+    complaintData?: Record<string, string>;
+  }) => Promise<NonConformity>;
   updatePorques: (ncId: string, cincoPorques: string[]) => void;
-  updateEtapas: (ncId: string, etapas: EtapasMejora) => void;
   closeNonConformity: (ncId: string, responsableId: string) => void;
+  /** Suma a la lista la auditoría que la API acaba de crear, con su id real. */
+  agregarAuditoria: (raw: Record<string, unknown>) => Audit | null;
+  /** Refleja en la lista el estado que la API confirmó (`planned`, `active`, ...). */
+  actualizarEstadoAuditoria: (auditId: string, statusDeLaApi: string) => void;
 }
 
 const AuditsContext = createContext<AuditsContextValue | null>(null);
@@ -54,7 +61,8 @@ const ESTADO_POR_STATUS: Record<string, Audit['estado']> = {
   active: 'en_curso',
   reporting: 'en_curso',
   closed: 'cerrada',
-  cancelled: 'cerrada',
+  // Cancelada no es cerrada: una no entrego resultado y la otra si.
+  cancelled: 'cancelada',
 };
 
 /**
@@ -117,12 +125,10 @@ function mapApiNonConformity(raw: Record<string, unknown>): NonConformity | null
       cincoPorques: Array.isArray(raw.root_cause_answers)
         ? (raw.root_cause_answers as unknown[]).map(String).slice(0, 5)
         : [],
-      ...(raw.improvement_stages && typeof raw.improvement_stages === 'object'
-        && !Array.isArray(raw.improvement_stages)
-        && Object.keys(raw.improvement_stages).length > 0
-        ? { etapasMejora: raw.improvement_stages as EtapasMejora }
-        : {}),
+      // `improvement_stages` (JSONB) ya no se lee: las etapas se piden aparte a
+      // `/nonconformities/{id}/etapas`, que es lo que el cierre comprueba.
       ...(raw.record_type ? { tipoRegistro: String(raw.record_type) as TipoRegistroMejora } : {}),
+      ...(raw.audit_item_id ? { auditItemId: String(raw.audit_item_id) } : {}),
       // La API no expone el `audit_id` en el listado, solo `audit_item_id`. Se
       // deja sin origen antes que inventar el vinculo.
       ...(cerradaEl
@@ -141,12 +147,17 @@ function mapApiAudit(raw: Record<string, unknown>): Audit | null {
       tenantId: String(raw.tenant_id ?? ''),
       plantId: String(raw.facility_id ?? ''),
       tipo: TIPO_POR_AUDIT_TYPE[String(raw.audit_type ?? '')] ?? 'interna',
-      fecha: raw.planned_start ? String(raw.planned_start) : new Date().toISOString(),
+      // **Sin fecha planificada no se inventa la de hoy.** Antes una auditoría
+      // sin `planned_start` aparecía fechada el día en que se abría la pantalla,
+      // distinto cada día. Vacío se muestra como "Sin fecha".
+      fecha: raw.planned_start ? String(raw.planned_start) : '',
       estado: ESTADO_POR_STATUS[String(raw.status ?? '')] ?? 'planificada',
       // La API los tiene como `scope` (texto libre) y en tablas aparte; el
       // listado no los trae. Se pueblan al abrir el detalle.
       procesos: [],
       normativaIds: [],
+      ...(raw.code ? { codigo: String(raw.code) } : {}),
+      ...(raw.title ? { titulo: String(raw.title) } : {}),
     };
   } catch {
     return null;
@@ -157,6 +168,7 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
   const [audits, setAudits] = useState<Audit[]>([]);
   const [nonConformities, setNonConformities] = useState<NonConformity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [datosDe, setDatosDe] = useState<string | null>(null);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { users } = useUsers();
@@ -194,7 +206,7 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
         // preguntar' — que es la misma mentira de #208 en su otra forma.
         setErrorDeCarga(mensajeDeError(e));
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setDatosDe(user?.tenantId ?? null); } });
     return () => { cancelled = true; };
   }, [user?.tenantId]);
 
@@ -226,64 +238,64 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       });
   }
 
-  function addNonConformity(input: {
+  /**
+   * Registra un hallazgo **y espera a la base** antes de darlo por hecho.
+   *
+   * Hasta el 13-sep era optimista y no funcionaba en ningún caso real: el
+   * formulario pedía origen, datos del producto y del reclamo y **no se
+   * mandaba ninguno** —salida no conforme y reclamo respondían 422 siempre—,
+   * el responsable salía de `mockUsers` y la pantalla navegaba a
+   * `nc-<timestamp>`, un id que la base nunca tuvo. Ahora devuelve el
+   * registro que la API creó, con su id y sus etapas sembradas, o rechaza.
+   */
+  async function addNonConformity(input: {
     tenantId: string;
     plantId: string;
-    auditId?: string;
     hallazgo: string;
-    criticidad: NonConformity['criticidad'];
+    /** Código de la escala de la empresa (`minor`, `major`, `critical`). */
+    severidad: string;
     responsableId: string;
     tipoRegistro?: TipoRegistroMejora;
-  }): NonConformity {
-    const nc: NonConformity = {
-      id: `nc-${Date.now()}`,
+    origen?: string;
+    auditItemId?: string;
+    productData?: Record<string, string>;
+    complaintData?: Record<string, string>;
+  }): Promise<NonConformity> {
+    const borrador: NonConformity = {
+      id: 'nuevo',
       tenantId: input.tenantId,
       plantId: input.plantId,
-      auditId: input.auditId,
       hallazgo: input.hallazgo,
-      criticidad: input.criticidad,
+      criticidad: CRITICIDAD_POR_SEVERITY[input.severidad] ?? 'media',
       estado: 'abierta',
       fechaDeteccion: new Date().toISOString(),
       responsableId: input.responsableId,
       cincoPorques: [],
       tipoRegistro: input.tipoRegistro,
     };
-    setNonConformities((prev) => [...prev, nc]);
 
-    // `code` y `title` son NOT NULL y no se mandaban: la fila no entraba.
-    // El codigo lleva la marca de tiempo porque hay un UNIQUE (tenant, code) y
-    // dos hallazgos del mismo dia tienen que poder convivir.
-    api
-      .post<Record<string, unknown>>(
-        '/audits/nonconformities/',
-        {
-          code: `NC-${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}`,
-          title: etiqueta(nc),
-          description: input.hallazgo,
-          severity: SEVERITY_POR_CRITICIDAD[input.criticidad],
-          ...(input.plantId ? { facility_id: input.plantId } : {}),
-          ...(input.responsableId ? { owner_user_id: input.responsableId } : {}),
-          ...(input.tipoRegistro ? { record_type: input.tipoRegistro } : {}),
-        },
-        { tenantId: input.tenantId },
-      )
-      .then((creada) => {
-        // El id local era `nc-<timestamp>`, que la API no conoce: sin este
-        // reemplazo toda escritura posterior sobre este hallazgo apuntaria a
-        // una fila inexistente y volveria a fallar en silencio.
-        const real = mapApiNonConformity(creada);
-        if (real) setNonConformities((prev) => prev.map((x) => (x.id === nc.id ? real : x)));
-      })
-      .catch((error) => {
-        // Revertir: mostrar un hallazgo que la base no tiene es peor que no
-        // mostrarlo, porque nadie vuelve a registrarlo.
-        setNonConformities((prev) => prev.filter((x) => x.id !== nc.id));
-        mostrarToast({
-          tipo: 'error',
-          mensaje: 'No se pudo registrar el hallazgo',
-          descripcion: mensajeDeError(error),
-        });
-      });
+    const creada = await api.post<Record<string, unknown>>(
+      '/audits/nonconformities/',
+      {
+        // `code` lleva la marca de tiempo: hay un UNIQUE (tenant, code) y dos
+        // hallazgos del mismo día tienen que poder convivir.
+        code: `NC-${new Date().toISOString().slice(0, 10)}-${Date.now() % 100000}`,
+        title: etiqueta(borrador),
+        description: input.hallazgo,
+        severity: input.severidad,
+        ...(input.plantId ? { facility_id: input.plantId } : {}),
+        ...(input.responsableId ? { owner_user_id: input.responsableId } : {}),
+        ...(input.tipoRegistro ? { record_type: input.tipoRegistro } : {}),
+        ...(input.origen ? { detection_origin: input.origen } : {}),
+        ...(input.auditItemId ? { audit_item_id: input.auditItemId } : {}),
+        ...(input.productData ? { product_data: input.productData } : {}),
+        ...(input.complaintData ? { complaint_data: input.complaintData } : {}),
+      },
+      { tenantId: input.tenantId },
+    );
+    const nc = mapApiNonConformity(creada);
+    if (!nc) throw new Error('La API respondió sin un registro reconocible.');
+    setNonConformities((prev) => [...prev, nc]);
 
     registrar({
       entidadTipo: 'no_conformidad',
@@ -293,9 +305,8 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
       accion: 'creado',
       resumen: 'Registró el hallazgo',
       cambios: [
-        { campo: 'Criticidad', antes: null, despues: CRITICIDAD_LABEL[input.criticidad] },
+        { campo: 'Criticidad', antes: null, despues: CRITICIDAD_LABEL[nc.criticidad] },
         { campo: 'Estado', antes: null, despues: NC_ESTADO_LABEL.abierta },
-        ...(input.auditId ? [{ campo: 'Auditoría de origen', antes: null, despues: input.auditId }] : []),
       ],
       motivo: input.hallazgo,
     });
@@ -346,42 +357,10 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  function updateEtapas(ncId: string, etapas: EtapasMejora) {
-    const anterior = nonConformities.find((nc) => nc.id === ncId);
-    if (!anterior) return;
+  // `updateEtapas` se quitó el 13-sep: escribía el JSONB provisorio
+  // `improvement_stages`, que el cierre no mira. Las etapas viven en
+  // `improvement_stage_entries` y las lee y escribe `lib/etapas-mejora.ts`.
 
-    const nuevoEstado = anterior.estado === 'abierta' ? 'en_tratamiento' : anterior.estado;
-
-    setNonConformities((prev) =>
-      prev.map((nc) =>
-        nc.id !== ncId ? nc : { ...nc, etapasMejora: etapas, estado: nuevoEstado },
-      ),
-    );
-
-    guardar(
-      ncId,
-      {
-        improvement_stages: etapas,
-        ...(nuevoEstado !== anterior.estado ? { status: STATUS_EN_TRATAMIENTO } : {}),
-      },
-      anterior,
-      'No se pudieron guardar las etapas del tratamiento',
-    );
-
-    registrar({
-      entidadTipo: 'no_conformidad',
-      entidadId: ncId,
-      entidadLabel: etiqueta(anterior),
-      tenantId: anterior.tenantId,
-      accion: 'actualizado',
-      resumen: 'Actualizó las etapas del tratamiento',
-      cambios: [
-        ...(nuevoEstado !== anterior.estado
-          ? [{ campo: 'Estado', antes: NC_ESTADO_LABEL[anterior.estado], despues: NC_ESTADO_LABEL[nuevoEstado] }]
-          : []),
-      ],
-    });
-  }
 
   function closeNonConformity(ncId: string, responsableId: string) {
     const anterior = nonConformities.find((nc) => nc.id === ncId);
@@ -429,8 +408,39 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  // **Mientras no se haya preguntado POR ESTA empresa, se sigue cargando.**
+  // El efecto baja `loading` a `false` cuando todavia no hay sesion, y al
+  // llegar el tenant no lo vuelve a subir: quedaba una ventana con la lista
+  // vacia y `loading` en `false`, y las fichas afirmaban "No encontramos esto"
+  // sobre algo que si existe, durante todo el viaje de red.
+  const cargandoDeVerdad = loading || (!!user?.tenantId && datosDe !== user.tenantId);
+
+  function agregarAuditoria(raw: Record<string, unknown>): Audit | null {
+    const nueva = mapApiAudit(raw);
+    if (nueva) setAudits((prev) => [...prev.filter((a) => a.id !== nueva.id), nueva]);
+    return nueva;
+  }
+
+  function actualizarEstadoAuditoria(auditId: string, statusDeLaApi: string) {
+    const estado = ESTADO_POR_STATUS[statusDeLaApi];
+    if (!estado) return;
+    setAudits((prev) => prev.map((a) => (a.id === auditId ? { ...a, estado } : a)));
+  }
+
   return (
-    <AuditsContext.Provider value={{ audits, nonConformities, loading, errorDeCarga, addNonConformity, updatePorques, updateEtapas, closeNonConformity }}>
+    <AuditsContext.Provider
+      value={{
+        audits,
+        nonConformities,
+        loading: cargandoDeVerdad,
+        errorDeCarga,
+        addNonConformity,
+        updatePorques,
+        closeNonConformity,
+        agregarAuditoria,
+        actualizarEstadoAuditoria,
+      }}
+    >
       {children}
     </AuditsContext.Provider>
   );

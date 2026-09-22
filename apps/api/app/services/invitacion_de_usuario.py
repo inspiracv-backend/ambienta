@@ -36,10 +36,12 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models.organization import User
+from ..models.organization import Role, User
 from .clave_local import ClerkNoDisponible, ErrorDeClaveLocal, _clerk
+from .usuarios import fijar_roles
 
 logger = logging.getLogger(__name__)
 
@@ -124,4 +126,105 @@ def invitar_por_id(db: Session, user_id: UUID) -> tuple[User, dict[str, Any]]:
     usuario = db.get(User, user_id)
     if usuario is None or usuario.deleted_at is not None:
         raise NoCorrespondeInvitar("Esa persona no corresponde a esta empresa.")
+    return usuario, invitar(usuario)
+
+
+#: Los tipos de cuenta que se invitan desde una empresa. `platform_admin` y
+#: `manager` no son personas de la empresa, y `guest` tiene su propio camino.
+TIPOS_INVITABLES = frozenset({"internal", "tenant_admin"})
+
+
+class RolNoDisponible(ErrorDeInvitacion):
+    """El rol pedido no existe en esta empresa."""
+
+
+def registrar_e_invitar(
+    db: Session,
+    tenant_id: UUID,
+    *,
+    full_name: str,
+    email: str,
+    user_type: str,
+    department_id: UUID | None,
+    role_code: str,
+) -> tuple[User, dict[str, Any]]:
+    """Crea a la persona con su rol y le manda la invitacion, **como un acto**.
+
+    ## Por que no son dos llamadas
+
+    La pantalla hacia `POST /users/` y nunca llamaba a `/invitacion`: la fila
+    quedaba en `invited` y la persona **jamas recibia el correo**, mientras el
+    aviso decia "Invitacion creada". Y separarlas en dos peticiones tampoco
+    alcanza: si la segunda falla queda una fila que ocupa el correo —`email` es
+    unico— y que nadie puede usar.
+
+    ## El orden dentro de la transaccion (D4 de `credenciales-de-acceso`)
+
+    Todo lo nuestro se escribe y se valida con `flush` **antes** de hablar con
+    Clerk, y el `commit` lo hace quien llama **despues**. Si Clerk rechaza o no
+    responde, la excepcion sube, no hay commit y no queda nada: ni fila ni rol.
+    Si Clerk acepta y el commit fallara —ya validado todo, es lo improbable—
+    queda una invitacion huerfana, que es basura visible en su consola y se
+    repara sola por el webhook.
+
+    **Sin rol no se invita.** Una persona sin rol recibe 403 en todo con la
+    guarda conectada, y el sintoma no apunta a la causa.
+
+    No confirma la transaccion: eso es de quien llama.
+    """
+    if user_type not in TIPOS_INVITABLES:
+        raise NoCorrespondeInvitar(
+            f"El tipo de cuenta «{user_type}» no se invita desde una empresa."
+        )
+    return crear_cuenta_e_invitar(
+        db,
+        tenant_id,
+        full_name=full_name,
+        email=email,
+        user_type=user_type,
+        department_id=department_id,
+        role_code=role_code,
+    )
+
+
+def crear_cuenta_e_invitar(
+    db: Session,
+    tenant_id: UUID,
+    *,
+    full_name: str,
+    email: str,
+    user_type: str,
+    department_id: UUID | None,
+    role_code: str,
+) -> tuple[User, dict[str, Any]]:
+    """El acto en si, sin mirar si el tipo se invita desde una empresa.
+
+    Separado de `registrar_e_invitar` para el primer Admin Global
+    (`tareas/crear_admin_global.py`): es un `platform_admin`, que ninguna empresa
+    puede invitar por la API, pero se crea con exactamente el mismo orden —fila
+    y rol con `flush`, Clerk al final, commit de quien llama—.
+    """
+    rol = db.scalar(
+        select(Role).where(
+            Role.tenant_id == tenant_id,
+            Role.code == role_code,
+            Role.deleted_at.is_(None),
+        )
+    )
+    if rol is None:
+        raise RolNoDisponible(f"La empresa no tiene el rol «{role_code}».")
+
+    usuario = User(
+        tenant_id=tenant_id,
+        department_id=department_id,
+        email=email,
+        full_name=full_name,
+        user_type=user_type,
+        status="invited",
+    )
+    db.add(usuario)
+    db.flush()
+    fijar_roles(db, usuario, tenant_id, [rol.id])
+    db.flush()
+
     return usuario, invitar(usuario)

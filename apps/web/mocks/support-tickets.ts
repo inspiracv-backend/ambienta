@@ -19,7 +19,5 @@ export const mockSupportTickets: SupportTicket[] = [
     fecha: addDays(-4),
     contactoNombre: 'Camila Rojas',
     contactoEmail: 'camila.rojas@recicladorasur.cl',
-    visibleParaCliente: true,
-    correcciones: [],
   },
 ];

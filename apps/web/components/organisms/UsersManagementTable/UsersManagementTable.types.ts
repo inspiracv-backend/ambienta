@@ -3,7 +3,8 @@ import type { Departamento, Plant, User } from '@ambienta/shared';
 export interface UsersManagementTableProps {
   users: User[];
   plants: Plant[];
-  departamentos: Departamento[];
+  /** Departamentos **organizativos** (`/departments/`), no procesos. */
+  departamentos: { id: string; nombre: string }[];
   tenantId: string;
   esGestorTenant: boolean;
   currentUserId: string;

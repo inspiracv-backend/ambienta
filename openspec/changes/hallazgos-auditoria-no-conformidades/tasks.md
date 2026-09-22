@@ -43,43 +43,43 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 - [x] ~~Confirmar que el mapa de procesos expone procesos referenciables por id~~ — **resuelto**: `DepartamentoSchema` ya modela el departamento como proceso de §4.4 con `id`, `tipo`, `responsableId`, `entradas` y `salidas`. `procesoId` apunta ahí
 - [ ] Determinar qué entrega hoy el **Catálogo Normativo** a nivel de artículo, y si el checklist se puede desplegar desde ahí o hay que cargarlo a mano
-- [ ] Decidir dónde vive la **configuración por tenant** — hoy no hay un lugar para catálogos de empresa
+- [x] Decidir dónde vive la **configuración por tenant** — hoy no hay un lugar para catálogos de empresa
 
 ## Fase 1 — Modelo compartido
 
 - [ ] `packages/shared/src/schemas/auditoria.ts`: `Auditoria`, `SesionAuditoria`, `NotaAuditoria`, `InformeAuditoria`
 - [ ] `packages/shared/src/schemas/checklist.ts`: `ItemChecklist` con la escala de cumplimiento, agrupado por capítulo y acotado por proceso
 - [ ] `packages/shared/src/schemas/hallazgo.ts`: `Hallazgo` con clasificación y severidad
-- [ ] `packages/shared/src/schemas/registro-mejora.ts`: `RegistroMejora` y las cuatro etapas
-- [ ] `packages/shared/src/schemas/configuracion-mejoras.ts`: catálogos por tenant
+- [x] `packages/shared/src/schemas/registro-mejora.ts`: `RegistroMejora` y las cuatro etapas
+- [x] `packages/shared/src/schemas/configuracion-mejoras.ts`: catálogos por tenant **(quedo en `apps/web/lib/catalogos-mejora.ts` y en la API, no en `packages/shared`)**
 - [ ] Retirar `NonConformitySchema` de `audit.ts` y dejar el archivo solo como re-export de compatibilidad
 - [ ] Agregar `'hallazgo'` y `'registro_mejora'` a `EntidadAuditableSchema` (`'auditoria'` ya existe) y sus etiquetas en `ENTIDAD_LABEL`
 - [ ] Agregar `'registro_mejora'` a `OrigenPlanAccionSchema`, conservando `'no_conformidad'` por compatibilidad
 - [ ] Validaciones cruzadas con tests:
   - [ ] `severidad` no nula ⇒ `clasificacion === 'no_conformidad'`
-  - [ ] `tipo === 'salida_no_conforme'` ⇒ `producto` presente
-  - [ ] `tipo === 'reclamo'` ⇒ `reclamo` presente
-  - [ ] `origenDeteccion` de auditoría ⇒ `hallazgoId` presente
+  - [x] `tipo === 'salida_no_conforme'` ⇒ `producto` presente
+  - [x] `tipo === 'reclamo'` ⇒ `reclamo` presente
+  - [x] `origenDeteccion` de auditoría ⇒ `hallazgoId` presente
   - [ ] metodología `cinco_porques` ⇒ `cincoPorques` no vacío; `espina_pescado` ⇒ `espinaPescado` no vacío
-  - [ ] cierre ⇒ `seguimiento.eficaz === true` estricto, nunca truthy (los cinco campos de seguimiento son tri-estado)
+  - [x] cierre ⇒ `seguimiento.eficaz === true` estricto, nunca truthy (los cinco campos de seguimiento son tri-estado)
   - [ ] prefijo de `Hallazgo.codigo` coherente con la clasificación (NC / OBS / OM)
 
 ## Fase 2 — Datos y stores
 
 - [ ] Migrar los mocks actuales según la tabla §8 del design
 - [ ] Agregar mocks que hoy no existen: hallazgos **conformes**, un registro por cada uno de los cinco tipos, y uno con seguimiento no eficaz (bucle de reapertura)
-- [ ] Preset de `ConfiguracionMejoras` para el tenant demo
-- [ ] Separar el store actual en `auditorias-store` y `mejoras-store`
-- [ ] Máquina de estados con sus precondiciones + tests, incluido el flujo corto de riesgo/oportunidad
-- [ ] Instrumentar el audit log en cada transición de etapa y en el bucle de reapertura
+- [x] Preset de `ConfiguracionMejoras` para el tenant demo **(`db/25` siembra los catalogos en todas las empresas, y `POST /tenants/` en las nuevas)**
+- [x] Separar el store actual en `auditorias-store` y `mejoras-store` **(quedo como `lib/etapas-mejora.ts` y `lib/catalogos-mejora.ts`, separados de `audits-store`)**
+- [x] Máquina de estados con sus precondiciones + tests, incluido el flujo corto de riesgo/oportunidad
+- [x] Instrumentar el audit log en cada transición de etapa y en el bucle de reapertura **(lo escribe el observador del `flush` (`services/auditoria_automatica.py`), no cada transicion a mano)**
 
 ## Fase 3 — Auditoría: planificación
 
-- [ ] **Crear auditoría** (falta por completo): tipo, rango, normas, objetivos, sitios, procesos, metodología
+- [x] **Crear auditoría** (falta por completo): tipo, rango, normas, objetivos, sitios, procesos, metodología
 - [ ] Asignación de procesos por auditor dentro del equipo
 - [ ] Contraparte de la organización (responsable + cargo)
 - [ ] Agenda de sesiones: alta, edición y reordenamiento
-- [ ] Estados de la auditoría y registro de fechas reales vs planificadas
+- [x] Estados de la auditoría y registro de fechas reales vs planificadas
 - [ ] Campo de limitaciones del alcance
 
 ## Fase 4 — Auditoría: ejecución
@@ -88,39 +88,39 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 - [ ] Pantalla de checklist agrupada por capítulo de la norma, con encabezado de auditor / auditado / fecha
 - [ ] **Nota de auditoría por proceso** (PE2-R08): identificación, criterios y alcance de la muestra
 - [ ] Indicador de cobertura con `no_aplica` fuera del denominador
-- [ ] Crear hallazgo desde un ítem del checklist
+- [x] Crear hallazgo desde un ítem del checklist
 - [ ] Hallazgos transversales, sin ítem asociado
 - [ ] Enlazar hallazgos concordantes con su motivo
 
 ## Fase 5 — Auditoría: informe
 
-- [ ] Informe con resumen ejecutivo derivado de los hallazgos
-- [ ] **Matriz de resultados por proceso**, con las tres primeras columnas derivadas de nota y checklist
+- [x] Informe con resumen ejecutivo derivado de los hallazgos
+- [x] **Matriz de resultados por proceso**, con las tres primeras columnas derivadas de nota y checklist
 - [ ] Fichas de hallazgo con todos los campos del §2.5 del design
-- [ ] Tasa de cierre del ciclo anterior
-- [ ] Exportación a PDF (se apoya en el módulo de reportes existente)
-- [ ] Cierre de auditoría
+- [x] Tasa de cierre del ciclo anterior
+- [x] Exportación a PDF (se apoya en el módulo de reportes existente) **(20-sep: `InformeDeAuditoriaPdf`, con el mismo informe que muestra el panel)**
+- [x] Cierre de auditoría
 
 ## Fase 6 — Registro de Mejora
 
-- [ ] Formulario de alta: el **tipo** es la primera decisión y define los campos condicionales
+- [x] Formulario de alta: el **tipo** es la primera decisión y define los campos condicionales
 - [ ] Alta desde un hallazgo, con los datos heredados y no reescribibles
 - [ ] **Detalle como stepper**: etapas anteriores en solo lectura, actual editable
-- [ ] Etapa de corrección
-- [ ] Etapa de análisis de causa con selector de metodología
-  - [ ] Formulario de 5 Por Qué
-  - [ ] Editor de Diagrama de Pescado
+- [x] Etapa de corrección
+- [x] Etapa de análisis de causa con selector de metodología
+  - [x] Formulario de 5 Por Qué
+  - [x] Editor de Diagrama de Pescado **(el editor de pescado es una lista de causas, sin categorias)**
 - [ ] Etapa de acción correctiva, con enlace opcional a plan de acción
-- [ ] Etapa de seguimiento con las cuatro preguntas de verificación como selectores de tres estados, nunca casillas
-- [ ] Cierre con firma, bloqueado si el seguimiento no es eficaz
-- [ ] `HistorialTimeline` montado en el detalle
+- [x] Etapa de seguimiento con las cuatro preguntas de verificación como selectores de tres estados, nunca casillas
+- [x] Cierre con firma, bloqueado si el seguimiento no es eficaz
+- [x] `HistorialTimeline` montado en el detalle
 - [ ] Bandejas de pendientes por etapa
 
 ## Fase 7 — Notificaciones
 
-- [ ] Cálculo de fecha límite por etapa desde `plazosPorDefectoDias`
-- [ ] Correo al asignar responsables y al avanzar de etapa
-- [ ] Job periódico de plazos próximos y vencidos
+- [x] Cálculo de fecha límite por etapa desde `plazosPorDefectoDias`
+- [x] Correo al asignar responsables y al avanzar de etapa
+- [x] Job periódico de plazos próximos y vencidos
 - [ ] Aviso de sesión de auditoría a entrevistados
 - [ ] Escalamiento según RF-42
 

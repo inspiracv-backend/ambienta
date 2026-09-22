@@ -1,0 +1,1 @@
+export { InformeDeAuditoriaPanel } from './InformeDeAuditoriaPanel';

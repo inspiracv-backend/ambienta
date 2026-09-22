@@ -8,7 +8,8 @@ export interface UserFormModalProps {
   tenantId: string;
   esGestorTenant: boolean;
   plants: Plant[];
-  departamentos: Departamento[];
+  /** Departamentos **organizativos** (`/departments/`), no procesos. */
+  departamentos: { id: string; nombre: string }[];
 }
 
 export type AssignableRole = Extract<Role, 'admin_empresa' | 'usuario_interno' | 'gestor'>;

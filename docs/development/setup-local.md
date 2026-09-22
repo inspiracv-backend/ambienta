@@ -107,6 +107,29 @@ Tres cosas que cuestan una tarde si no se saben:
 
    En el VPS el webhook sí llega y esto no hace falta.
 
+4. **Dar de alta a alguien ya no es manual** (desde el 14-sep). `POST
+   /users/invitaciones` crea la fila **con su rol** y le manda la invitación de
+   Clerk en un solo acto: si la invitación no sale, no queda nada escrito. En la
+   pantalla es "Invitar usuario". Ojo al probarlo en local: con
+   `CLERK_SECRET_KEY` puesta **sale un correo de verdad** a la dirección que
+   escribas.
+
+   Lo que sigue siendo manual en local es el paso 3 —emparejar `clerk_id`—
+   mientras el webhook no llegue, y poner `tenant_id` en el `publicMetadata` de
+   quien **no** entró por una invitación nuestra: la invitación ya lo lleva.
+
+5. **En una base vacía no hay a quién invitar.** Dar de alta empresas exige ser
+   Admin Global, y el primero se crea una sola vez, al desplegar:
+
+   ```bash
+   docker compose exec api python -m app.tareas crear-admin-global \
+     --correo persona@ambienta.cl --nombre "Nombre Apellido" \
+     --razon-social "Ambienta SpA" --rut 76.123.456-7
+   ```
+
+   Deja la empresa de la plataforma, sus roles, la cuenta `platform_admin` y su
+   invitación. Se niega si ya existe un Admin Global.
+
 ## Consumir la API desde fuera (agente de IA, integraciones)
 
 Para quien no viene a tocar el frontend sino a **leer datos desde otro

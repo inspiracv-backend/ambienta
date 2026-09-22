@@ -1,16 +1,70 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { SupportTicket } from '@ambienta/shared';
+import type { CorreccionTicket, SupportTicket } from '@ambienta/shared';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useSession } from '@/lib/session';
 import { api, mensajeDeError } from '@/lib/api-client';
+import { categoriaDesdeTipo } from '@/lib/acceso-invitado';
 
 const ESTADO_LABEL: Record<SupportTicket['estado'], string> = {
   abierto: 'Abierto',
   en_progreso: 'En progreso',
   cerrado: 'Cerrado',
 };
+
+const ESTADO_API: Record<SupportTicket['estado'], string> = {
+  abierto: 'open',
+  en_progreso: 'in_progress',
+  cerrado: 'closed',
+};
+
+/**
+ * La base tiene seis estados y la pantalla tres. `assigned`, `waiting_user`,
+ * `in_progress` y `resolved` se muestran como "En progreso": ninguno es
+ * trabajo entrante ni cerrado.
+ */
+function estadoDesdeApi(status: unknown): SupportTicket['estado'] {
+  if (status === 'open') return 'abierto';
+  if (status === 'closed') return 'cerrado';
+  return 'en_progreso';
+}
+
+function ticketDesdeApi(raw: Record<string, unknown>): SupportTicket {
+  return {
+    id: String(raw.id),
+    // **Sin respaldo inventado.** Antes, si faltaba, se sorteaba un `TCK-####`
+    // en el navegador: un número que no existe en la base y que el cliente
+    // anotaría para hacer seguimiento.
+    numero: String(raw.ticket_number ?? ''),
+    tenantId: raw.tenant_id ? String(raw.tenant_id) : null,
+    tipoSolicitud: String(raw.category ?? 'other'),
+    asunto: String(raw.subject ?? ''),
+    descripcion: String(raw.description ?? ''),
+    estado: estadoDesdeApi(raw.status),
+    fecha: String(raw.created_at ?? ''),
+    contactoNombre: raw.guest_name ? String(raw.guest_name) : undefined,
+    contactoEmail: raw.guest_email ? String(raw.guest_email) : undefined,
+  };
+}
+
+function correccionDesdeApi(raw: Record<string, unknown>): CorreccionTicket {
+  return {
+    id: String(raw.id),
+    fecha: String(raw.created_at ?? ''),
+    autorId: raw.author_user_id ? String(raw.author_user_id) : null,
+    nota: String(raw.body ?? ''),
+  };
+}
+
+interface NuevoTicket {
+  tenantId: string | null;
+  tipoSolicitud: string;
+  asunto: string;
+  descripcion: string;
+  contactoNombre?: string;
+  contactoEmail?: string;
+}
 
 interface SupportTicketsContextValue {
   tickets: SupportTicket[];
@@ -23,17 +77,14 @@ interface SupportTicketsContextValue {
    * ve igual que "esta empresa no tiene ninguno".
    */
   errorDeCarga: string | null;
-  createTicket: (input: {
-    tenantId: string | null;
-    tipoSolicitud: string;
-    asunto: string;
-    descripcion: string;
-    contactoNombre?: string;
-    contactoEmail?: string;
-  }) => SupportTicket;
-  updateEstado: (ticketId: string, estado: SupportTicket['estado']) => void;
-  addCorreccion: (ticketId: string, autorId: string, nota: string) => void;
-  setVisibilidad: (ticketId: string, visibleParaCliente: boolean) => void;
+  /** Rechaza si la base no lo guardó. El número que devuelve es el de la base. */
+  createTicket: (input: NuevoTicket) => Promise<SupportTicket>;
+  /** Rechaza si la base no lo guardó; en ese caso la pantalla no cambia. */
+  updateEstado: (ticketId: string, estado: SupportTicket['estado']) => Promise<void>;
+  /** RF-83. Rechaza si la base no la guardó. */
+  addCorreccion: (ticketId: string, nota: string) => Promise<CorreccionTicket>;
+  /** Las correcciones guardadas de un ticket, en orden. */
+  cargarCorrecciones: (ticketId: string) => Promise<CorreccionTicket[]>;
 }
 
 const SupportTicketsContext = createContext<SupportTicketsContextValue | null>(null);
@@ -52,28 +103,9 @@ export function SupportTicketsProvider({ children }: { children: ReactNode }) {
       .get<Record<string, unknown>[]>('/support/tickets', { tenantId: user.tenantId })
       .then((data) => {
         if (cancelled) return;
-        const mapped: SupportTicket[] = data.map((raw) => ({
-          id: String(raw.id),
-          numero: String(raw.ticket_number ?? `TCK-${Math.floor(1000 + Math.random() * 9000)}`),
-          tenantId: raw.tenant_id ? String(raw.tenant_id) : null,
-          tipoSolicitud: String(raw.category ?? 'general'),
-          asunto: String(raw.subject ?? ''),
-          descripcion: String(raw.description ?? ''),
-          estado: (raw.status === 'open' ? 'abierto' : raw.status === 'closed' ? 'cerrado' : 'en_progreso') as SupportTicket['estado'],
-          fecha: String(raw.created_at ?? new Date().toISOString()),
-          visibleParaCliente: true,
-          correcciones: [],
-        }));
-        // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
-        // de antes no distinguia dos cosas muy distintas: que la API fallara
-        // —donde quedarse con lo que hay es un respaldo razonable— y que
-        // respondiera **cero filas**, donde quedarse con los datos de ejemplo
-        // es mostrar algo que no existe.
-        //
-        // El `catch` sigue conservando lo ultimo conocido, asi que trabajar sin
-        // backend levantado sigue funcionando: ahi la peticion falla, no
-        // devuelve vacio.
-        setTickets(mapped);
+        // **Se escribe siempre, incluso vacio** (#208): cero filas no es lo
+        // mismo que "no se pudo preguntar", que va por el `catch`.
+        setTickets(data.map(ticketDesdeApi));
       })
       .catch((e: unknown) => {
         // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
@@ -89,37 +121,32 @@ export function SupportTicketsProvider({ children }: { children: ReactNode }) {
     return `${t.numero} — ${t.asunto}`;
   }
 
-  function createTicket(input: {
-    tenantId: string | null;
-    tipoSolicitud: string;
-    asunto: string;
-    descripcion: string;
-    contactoNombre?: string;
-    contactoEmail?: string;
-  }): SupportTicket {
-    const nuevo: SupportTicket = {
-      id: `ticket-${Date.now()}`,
-      numero: `TCK-${Math.floor(1000 + Math.random() * 9000)}`,
-      tenantId: input.tenantId,
-      tipoSolicitud: input.tipoSolicitud,
-      asunto: input.asunto,
-      descripcion: input.descripcion,
-      estado: 'abierto',
-      fecha: new Date().toISOString(),
-      contactoNombre: input.contactoNombre,
-      contactoEmail: input.contactoEmail,
-      visibleParaCliente: true,
-      correcciones: [],
-    };
-    setTickets((prev) => [...prev, nuevo]);
-
-    if (input.tenantId) {
-      api.post('/support/tickets', {
+  /**
+   * **Hasta el 13-sep este ticket nunca llegaba a la base.** Mandaba
+   * `category: 'declaracion'` —la base acepta seis categorías en inglés— y sin
+   * correo de contacto, así que la API lo rechazaba; el `.catch(() => {})` se
+   * tragaba el error y la pantalla mostraba "Solicitud enviada" con un número
+   * sorteado en el navegador.
+   */
+  async function createTicket(input: NuevoTicket): Promise<SupportTicket> {
+    if (!input.tenantId) {
+      throw new Error('La sesión no tiene empresa: no hay dónde registrar el ticket.');
+    }
+    const raw = await api.post<Record<string, unknown>>(
+      '/support/tickets',
+      {
         subject: input.asunto,
         description: input.descripcion,
-        category: input.tipoSolicitud,
-      }, { tenantId: input.tenantId }).catch(() => {});
-    }
+        category: categoriaDesdeTipo(input.tipoSolicitud),
+        guest_name: input.contactoNombre || null,
+        // La API usa el autor de la sesión si lo identifica; el correo es lo
+        // que permite responder cuando no (fallback de desarrollo).
+        guest_email: input.contactoEmail || null,
+      },
+      { tenantId: input.tenantId },
+    );
+    const nuevo = ticketDesdeApi(raw);
+    setTickets((prev) => [...prev, nuevo]);
 
     registrar({
       entidadTipo: 'ticket_soporte',
@@ -137,17 +164,15 @@ export function SupportTicketsProvider({ children }: { children: ReactNode }) {
     return nuevo;
   }
 
-  function updateEstado(ticketId: string, estado: SupportTicket['estado']) {
+  async function updateEstado(ticketId: string, estado: SupportTicket['estado']): Promise<void> {
     const anterior = tickets.find((t) => t.id === ticketId);
     if (!anterior || anterior.estado === estado) return;
+    if (!user?.tenantId) throw new Error('La sesión no tiene empresa.');
 
+    // Primero la base y después la pantalla: con el orden al revés, un rechazo
+    // dejaba el estado nuevo a la vista y el viejo guardado.
+    await api.patch(`/support/tickets/${ticketId}`, { status: ESTADO_API[estado] }, { tenantId: user.tenantId });
     setTickets((prev) => prev.map((t) => (t.id === ticketId ? { ...t, estado } : t)));
-
-    if (user?.tenantId) {
-      api.patch(`/support/tickets/${ticketId}`, {
-        status: estado === 'abierto' ? 'open' : estado === 'cerrado' ? 'closed' : 'in_progress',
-      }, { tenantId: user.tenantId }).catch(() => {});
-    }
 
     registrar({
       entidadTipo: 'ticket_soporte',
@@ -163,14 +188,21 @@ export function SupportTicketsProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  function addCorreccion(ticketId: string, autorId: string, nota: string) {
+  /**
+   * RF-83. **Antes solo existía en la pestaña**: se agregaba a una lista local
+   * y la pantalla decía "Quedó en el historial del ticket con tu nombre". Ahora
+   * es un mensaje `internal_note` —interno, el cliente no lo ve— cuyo autor
+   * pone la API desde la sesión, y que no se puede reescribir (409).
+   */
+  async function addCorreccion(ticketId: string, nota: string): Promise<CorreccionTicket> {
     const ticket = tickets.find((t) => t.id === ticketId);
-    if (!ticket) return;
+    if (!ticket) throw new Error('El ticket ya no está en la lista.');
+    if (!user?.tenantId) throw new Error('La sesión no tiene empresa.');
 
-    setTickets((prev) =>
-      prev.map((t) =>
-        t.id === ticketId ? { ...t, correcciones: [...t.correcciones, { fecha: new Date().toISOString(), autorId, nota }] } : t,
-      ),
+    const raw = await api.post<Record<string, unknown>>(
+      `/support/tickets/${ticketId}/messages`,
+      { ticket_id: ticketId, body: nota, message_type: 'internal_note', is_internal: true },
+      { tenantId: user.tenantId },
     );
 
     registrar({
@@ -182,40 +214,23 @@ export function SupportTicketsProvider({ children }: { children: ReactNode }) {
       resumen: 'Registró una corrección',
       motivo: nota,
     });
+
+    return correccionDesdeApi(raw);
   }
 
-  /**
-   * **No llega a la base:** `SupportTicketUpdate` acepta `status`, `priority` y
-   * `assigned_to`. No hay campo de visibilidad para el cliente.
-   *
-   * Ojo con confundirlo con `is_internal` de los mensajes: ese existe, pero es
-   * por mensaje, no por ticket, y significa otra cosa.
-   */
-  function setVisibilidad(ticketId: string, visibleParaCliente: boolean) {
-    const ticket = tickets.find((t) => t.id === ticketId);
-    if (!ticket || ticket.visibleParaCliente === visibleParaCliente) return;
-
-    setTickets((prev) => prev.map((t) => (t.id === ticketId ? { ...t, visibleParaCliente } : t)));
-
-    registrar({
-      entidadTipo: 'ticket_soporte',
-      entidadId: ticketId,
-      entidadLabel: etiqueta(ticket),
-      tenantId: ticket.tenantId,
-      accion: 'actualizado',
-      resumen: visibleParaCliente ? 'Hizo el ticket visible para el cliente' : 'Ocultó el ticket al cliente',
-      cambios: [
-        {
-          campo: 'Visible para el cliente',
-          antes: ticket.visibleParaCliente ? 'Sí' : 'No',
-          despues: visibleParaCliente ? 'Sí' : 'No',
-        },
-      ],
-    });
+  async function cargarCorrecciones(ticketId: string): Promise<CorreccionTicket[]> {
+    if (!user?.tenantId) return [];
+    const data = await api.get<Record<string, unknown>[]>(
+      `/support/tickets/${ticketId}/messages`,
+      { tenantId: user.tenantId },
+    );
+    return data.filter((m) => m.message_type === 'internal_note').map(correccionDesdeApi);
   }
 
   return (
-    <SupportTicketsContext.Provider value={{ tickets, loading, errorDeCarga, createTicket, updateEstado, addCorreccion, setVisibilidad }}>
+    <SupportTicketsContext.Provider
+      value={{ tickets, loading, errorDeCarga, createTicket, updateEstado, addCorreccion, cargarCorrecciones }}
+    >
       {children}
     </SupportTicketsContext.Provider>
   );

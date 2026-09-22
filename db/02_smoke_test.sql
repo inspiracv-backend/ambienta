@@ -33,8 +33,9 @@ FROM (VALUES
 
 -- Un departamento por empresa, ANTES de las personas.
 --
--- `ck_users_interno_con_departamento` (migracion 13, RF-11) exige que todo
--- usuario `internal` o `tenant_admin` pertenezca a un departamento. Sin esto el
+-- `ck_users_interno_con_departamento` (migracion 13, RF-11) exigia que todo
+-- usuario `internal` o `tenant_admin` perteneciera a un departamento; desde la
+-- 32 solo `internal`. Sin esto el
 -- smoke test entero revienta en su tercer INSERT — que es exactamente lo que
 -- pasaba: la migracion entro y **nadie volvio a correr este archivo**, asi que
 -- el rollback silencioso duro hasta que #55 lo puso en CI.

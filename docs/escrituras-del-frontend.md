@@ -16,10 +16,19 @@ un hecho.
 
 ## El número
 
+> **Actualizado el 10-sep-2026.** El conteo de abajo era **30, no 29**, y hoy
+> son **33**. La tabla «Las 10 que no llegan a la base» tenía tres filas cuya
+> causa ya no existía: dos se desbloquearon cuando cerraron otros bloques y
+> nadie volvió a mirar, y una **ya estaba conectada** desde que se hizo la
+> pantalla de permisos. Ver §«Las que dejaron de estar bloqueadas».
+>
+> El conteo no salió de correr el script otra vez: salió de **revisar las diez
+> una por una** contra el código, que es más fuerte que un total.
+
 | | Acciones |
 |---|---|
-| Llegan a la base | **29** |
-| Solo estado local | 10 |
+| Llegan a la base | **33** |
+| Solo estado local | 6 |
 | **Total** | **39** |
 
 **74 % conectado.**
@@ -76,12 +85,12 @@ pantalla corresponda a lo que quedó en la base.
 | `tenants` | **9 / 9** |
 | `audits` | **4 / 4** |
 | `obligations` | **3 / 3** |
-| `users` | 5 / 8 |
+| `users` | **6 / 6** — alcance conectado, cargo quitado (13-sep) |
 | `legal-matrix` | 3 / 4 |
-| `support-tickets` | 2 / 4 |
+| `support-tickets` | **3 / 3** — ver nota del 13-sep |
 | `departamentos` | 1 / 2 |
-| `notifications` | 1 / 2 |
-| `plan-accion` | 1 / 2 |
+| `notifications` | **1 / 1** — preferencias quitadas (13-sep) |
+| `plan-accion` | **1 / 1** — tareas quitadas (13-sep) |
 | `gestores` | 0 / 1 |
 
 ---
@@ -120,7 +129,54 @@ apuntaría a identificadores inventados.
 
 ---
 
-## Las 10 que no llegan a la base
+## Las que dejaron de estar bloqueadas
+
+Revisadas una por una el 10-sep. **Ninguna de las cuatro necesitó una decisión
+nueva**: tres se destrabaron cuando cerraron otros bloques y una nunca estuvo
+bloqueada de verdad. La causa escrita en el código seguía ahí, y era la causa
+que nadie volvió a leer.
+
+| Acción | La causa que figuraba | Por qué ya no aplica |
+|---|---|---|
+| `users.updatePermisos` | «falta el endpoint que administre las excepciones por usuario, y la pantalla que lo consuma» | **Las dos cosas existen.** `GET/PUT/DELETE /users/{id}/permissions[/{codigo}]`, y `PermisosUsuarioModal` las llama desde `/usuarios`. Esta fila estaba mal **antes** de hoy: el conteo era 30, no 29 |
+| `legal-matrix.addNorm` | «hay que decidir dónde vive la normativa propia de una empresa» | Decidido y construido el 8-sep: `db/29` y `/compliance/normativa-propia` |
+| `gestores.addContrato` | «la sub-tenancy no existe, no hay ningún id que mandar» | El bloque C la cerró: `GET /gestor/clientes` da la cartera y `POST /contracts/` acepta el alta |
+| `departamentos.updateTipo` | «`ProcessUpdate` no expone `process_type`» | Era cierto y era **sólo eso**: la columna existe, `ProcessRead` ya la devolvía, faltaba declararla del lado de la escritura |
+
+La última merece un renglón aparte, porque el diagnóstico original decía *"un
+200 que no guarda nada es peor que no llamar"* y tenía razón: el campo se podía
+**leer y no escribir**. Reclasificar un proceso se veía funcionar y se perdía al
+recargar.
+
+**La lección no es sobre estas cuatro.** Es que una tabla de bloqueos envejece
+igual que cualquier otro dato afirmado: hay que releerla cuando cierra un
+bloque, o se convierte en la razón por la que algo sigue sin hacerse mucho
+después de que dejó de estar impedido.
+
+---
+
+## Las 6 que no llegan a la base
+
+> **13-sep-2026, por la tarde: quedan 0.** Ninguna pantalla ofrece ya una
+> escritura que no llega a la base. Dos se conectaron y el resto se quitó:
+>
+> | Acción | Qué pasó |
+> |---|---|
+> | `users.updatePlants` | **Conectada** como `fijarAlcance` contra `PUT /users/{id}/alcance` (nuevo). Una planta o todas; se escribe en los roles vigentes, y un rol nuevo hereda la planta |
+> | `users.updateDescriptorCargo` | **Quitada del modal.** `UserUpdate` no tiene dónde guardarlo |
+> | `notifications.updatePreferences` | **Quitada.** La pantalla ahora muestra las reglas de la empresa, que son las que el generador aplica — y corrige los días: decía 30/15/7 y se manda 15/7/3/1 |
+> | `plan-accion.toggleTarea` | **Quitada**, con la sección de tareas: el modelo no existe (#169) |
+>
+> **13-sep-2026, por la mañana: quedaban 4, y el medidor contaba mal una "conectada".**
+> `support.addCorreccion` ahora guarda un `internal_note` en el ticket (la API
+> pone el autor desde la sesión y responde 409 si se intenta reescribir).
+> `support.setVisibilidad` **se quitó**: la base no tiene ese campo y la
+> pantalla lo mostraba siempre en `true`. Y `support.createTicket`, que figuraba
+> como conectada porque la petición salía, **nunca guardaba nada** con cuenta:
+> mandaba `category: 'declaracion'` —la base acepta seis valores en inglés— y
+> un `.catch(() => {})` se tragaba el rechazo mientras la pantalla mostraba un
+> número de ticket sorteado. Es exactamente el caso que advierte la sección
+> de arriba: que la petición salga no es que se guarde.
 
 Ninguna es "falta de tiempo". Cada una tiene una causa concreta, y está escrita
 también en el docstring de su función, que es donde la va a leer quien intente
@@ -131,20 +187,16 @@ arreglarla.
 | Acción | Causa |
 |---|---|
 | `users.updatePlants` | **Desacuerdo de modelo.** El único vínculo es `user_roles.facility_id`, y su PK `(user_id, role_id)` admite **una** planta por rol. La pantalla modela `plantIds` en plural |
-| `users.updatePermisos` | `user_permissions` existe como tabla. **El RBAC ya funciona en la API** —permiso efectivo, guarda derivada de la ruta, rol `servicio_lectura`— pero falta el endpoint que administre las excepciones por usuario, y la pantalla que lo consuma |
 | `users.updateDescriptorCargo` | `UserUpdate` no acepta ese campo |
-| `support.setVisibilidad` | `SupportTicketUpdate` acepta `status`, `priority` y `assigned_to`. No hay visibilidad por ticket |
+| ~~`support.setVisibilidad`~~ | **Quitada de la pantalla el 13-sep.** No hay visibilidad por ticket; la distinción de RF-84 es por mensaje (`is_internal`) |
 | `notifications.updatePreferences` | No hay tabla ni endpoint de preferencias por usuario. `rules` y `templates` son configuración de empresa |
 | `plan-accion.toggleTarea` | Las tareas de un plan **no existen en el modelo** |
-| `departamentos.updateTipo` | `ProcessUpdate` no expone `process_type`, que es justo lo que reclasifica esa pantalla |
 
 ### Falta un dato aguas arriba
 
 | Acción | Causa |
 |---|---|
-| `legal-matrix.addNorm` | **Decisión de diseño, no falta de endpoint.** `legal_norms` es catálogo global **sin `tenant_id`, a propósito**. Una RCA es de una empresa: escribirla ahí la publicaría a todos los tenants. Hay que decidir dónde vive la normativa propia |
-| `support.addCorreccion` | Ya no está bloqueada por las no conformidades: ahora depende de que el ticket modele la corrección |
-| `gestores.addContrato` | `client_tenant_id` sale de datos de ejemplo: la sub-tenancy no existe |
+| ~~`support.addCorreccion`~~ | **Conectada el 13-sep** como mensaje `internal_note` |
 
 ### Resueltas, que estaban listadas como pendientes
 

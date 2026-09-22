@@ -5,7 +5,7 @@ import { FileSpreadsheet, FileText, Printer } from 'lucide-react';
 import { Button } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { ReporteImprimible } from '@/components/organisms/ReporteImprimible';
-import { useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useAnotarEmision } from '@/lib/emisiones';
 import {
   FORMATO_POR_DEFECTO,
   buildCumplimientoReport,
@@ -68,7 +68,7 @@ export function ReportGenerator({
   usuario,
 }: ReportGeneratorProps) {
   const formId = useId();
-  const registrar = useRegistrarAuditoria();
+  const anotarEmision = useAnotarEmision();
   const [tipo, setTipo] = useState<TipoReporte>('cumplimiento');
   const [formato, setFormato] = useState<FormatoReporte>(FORMATO_POR_DEFECTO);
   const [desde, setDesde] = useState('');
@@ -109,6 +109,8 @@ export function ReportGenerator({
     if (formato === 'csv') {
       const fecha = new Date().toISOString().slice(0, 10);
       downloadTextFile(`reporte-${tipo}-${fecha}.csv`, reporte.csv, 'text/csv;charset=utf-8');
+      // La planilla tambien sale del sistema: queda anotada igual que el PDF.
+      anotarEmision({ documento: 'reporte', titulo: reporte.titulo, formato: 'csv', filas: reporte.rows.length, filtros: periodo() });
       setSuccess('Planilla exportada.');
       return;
     }
@@ -120,19 +122,22 @@ export function ReportGenerator({
     setSuccess('Documento listo. Revisalo y usa "Imprimir / Guardar PDF".');
   }
 
+  /** El periodo pedido, en palabras, para que quede con la emision. */
+  function periodo(): string[] {
+    return usaRangoFechas && (desde || hasta) ? [`Periodo ${desde || 'inicio'} — ${hasta || 'hoy'}`] : [];
+  }
+
   function handleImprimir() {
     if (!tenant || !paraImprimir) return;
-    // Queda registrado: RNF-26 pide trazabilidad de lo que sale del sistema
-    // para auditorias externas, y un documento entregado a un tercero es
-    // exactamente eso.
-    registrar({
-      entidadTipo: 'tenant',
-      entidadId: tenant.id,
-      entidadLabel: tenant.nombre,
-      tenantId: tenant.id,
-      accion: 'exportado',
-      resumen: `Emitio "${paraImprimir.titulo}" en PDF`,
-      cambios: [{ campo: 'Filas', antes: null, despues: String(paraImprimir.rows.length) }],
+    // Queda en el registro del servidor: RNF-26 pide trazabilidad de lo que
+    // sale del sistema para auditorias externas. Hasta el 21-sep se anotaba en
+    // el historial de la sesion y se perdia al recargar.
+    anotarEmision({
+      documento: 'reporte',
+      titulo: paraImprimir.titulo,
+      formato: 'pdf',
+      filas: paraImprimir.rows.length,
+      filtros: periodo(),
     });
     window.print();
   }

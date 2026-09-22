@@ -57,6 +57,10 @@ class AuditLogRead(OrmBase):
     reason: str | None
     before_data: dict | None
     after_data: dict | None
+    #: Quien actuo, por nombre. `None` sin actor —un proceso, o el modo de
+    #: desarrollo— o si la persona es de otra empresa (un gestor): RLS no la deja
+    #: ver, y eso no se disfraza.
+    actor_nombre: str | None = None
 
 
 class IntegrationAccountUpdate(BaseModel):

@@ -9,14 +9,52 @@ from ..models.audit import ActionPlan, Audit, AuditItem, Nonconformity
 from ..models.compliance import ArticleCompliance
 
 
+#: El ciclo de vida de una auditoria, con **el vocabulario de la base**.
+#:
+#: Hasta el 4-sep esta tabla decia `in_progress`, `fieldwork` y `review`, tres
+#: estados que el CHECK de `audits.status` no admite: son
+#: `planned|active|reporting|closed|cancelled`. La consecuencia era que
+#: `POST /audits/{id}/advance` **fallaba en todos los avances**:
+#:
+#: | intento | resultado |
+#: |---|---|
+#: | planned -> in_progress | 422, `audits_status_check` |
+#: | planned -> active | 400, "no permitida" |
+#: | planned -> cancelled | 200 |
+#:
+#: O sea que lo unico que se podia hacer con una auditoria era cancelarla, y
+#: los dos errores se leen distinto —uno como dato invalido, otro como una
+#: transicion prohibida— asi que ninguno apunta a la causa. Misma familia que
+#: `fulfill` escribiendo un estado fuera del CHECK.
+#:
+#: La base manda: es lo que dicen `db/01_schema.sql`, el dump y el mapa
+#: `ESTADO_POR_STATUS` del frontend. Cambiar el CHECK en vez de esto habria
+#: dejado a la pantalla traduciendo estados que ya no existen.
 AUDIT_STATUS_TRANSITIONS = {
-    "planned": ["in_progress", "cancelled"],
-    "in_progress": ["fieldwork", "cancelled"],
-    "fieldwork": ["review", "cancelled"],
-    "review": ["closed"],
+    "planned": ["active", "cancelled"],
+    "active": ["reporting", "cancelled"],
+    "reporting": ["closed", "cancelled"],
     "closed": [],
     "cancelled": [],
 }
+
+
+#: Estados en que el checklist **ya no se toca**. Cerrar una auditoria es
+#: entregar su resultado: si despues se pudiera cambiar una respuesta, el
+#: informe entregado y el sistema dirian cosas distintas, y `assessed_at`
+#: fecharia una respuesta posterior al cierre como si fuera parte de ella.
+ESTADOS_FINALES = frozenset({"closed", "cancelled"})
+
+
+class ChecklistCerrado(ValueError):
+    """La auditoria esta cerrada o cancelada: su checklist no se modifica."""
+
+
+def exigir_checklist_abierto(audit: Audit) -> None:
+    if audit.status in ESTADOS_FINALES:
+        raise ChecklistCerrado(
+            "La auditoria esta cerrada o cancelada: su checklist ya no se modifica."
+        )
 
 
 def advance_audit_status(
@@ -33,7 +71,7 @@ def advance_audit_status(
             f"Allowed: {allowed}"
         )
 
-    if new_status == "in_progress" and not audit.actual_start:
+    if new_status == "active" and not audit.actual_start:
         audit.actual_start = datetime.now(timezone.utc)
     if new_status == "closed":
         audit.actual_end = datetime.now(timezone.utc)
@@ -44,32 +82,69 @@ def advance_audit_status(
     return audit
 
 
+#: El estado que significa "alguien verifico que la accion funciono".
+#:
+#: Es el unico que habilita el cierre, y por eso vive en una constante: la
+#: condicion de §10.2.1 d) no puede quedar como una cadena suelta dentro de un
+#: filtro.
+ESTADO_VERIFICADO = "verified"
+
+#: Estados que **no** cuentan como trabajo pendiente al cerrar.
+#:
+#: `cancelled` esta aca porque cancelar es decidir que ese trabajo no se hace, y
+#: eso no es algo que quede por hacer. Antes bloqueaba el cierre para siempre, y
+#: sin salida: el unico estado que dejaba pasar era `verified`, y un plan
+#: cancelado no se puede verificar.
+#:
+#: **Todos tienen que existir en el CHECK de `action_plans.status`.** La version
+#: anterior nombraba `closed`, que la base no admite — un filtro sobre un valor
+#: imposible no falla, simplemente no coincide nunca. Hay una prueba que lo
+#: contrasta contra la restriccion real.
+ESTADOS_QUE_NO_BLOQUEAN = (ESTADO_VERIFICADO, "cancelled")
+
+
+class SinVerificarLaEficacia(ValueError):
+    """Cerrar exige una verificacion de eficacia afirmativa (§10.2.1 d)."""
+
+
 def close_nonconformity(
     db: Session,
     nc_id: UUID,
     closure_notes: str,
     user_id: UUID | None = None,
 ) -> Nonconformity:
+    """Cierra un registro de mejora, **si se verifico que la accion funciono**.
+
+    ## Por que no basta con que no queden planes pendientes
+
+    Es lo que hacia antes, y dejaba pasar el caso peor: un registro **sin un
+    solo plan de accion** cerraba sin que nadie hubiera verificado nada. Para el
+    sistema quedaba idéntico a uno tratado y verificado, y esa es justamente la
+    diferencia que un auditor viene a revisar.
+
+    El spec lo pide sin ambiguedad —"una verificacion de eficacia **afirmativa**
+    antes de permitir el cierre"— y agrega la distincion que importa: *sin
+    responder no es lo mismo que responder que no*. Cero verificaciones no es una
+    verificacion negativa; es que nadie miro.
+
+    ## Las dos condiciones
+
+    1. **Nada pendiente.** Ningun plan en un estado que signifique trabajo por
+       hacer. Cancelado no cuenta: ver `ESTADOS_QUE_NO_BLOQUEAN`.
+    2. **Al menos una verificacion afirmativa.** Un plan `verified`.
+
+    Completar la accion y verificar que sirvio son cosas distintas, y §10.2.1
+    pide las dos. Un plan `completed` cumple la primera y no la segunda.
+    """
     nc = db.get(Nonconformity, nc_id)
     if not nc:
         raise ValueError("Nonconformity not found")
     if nc.status == "closed":
         raise ValueError("Nonconformity already closed")
 
-    open_plans = db.scalars(
-        select(ActionPlan).where(
-            and_(
-                ActionPlan.nonconformity_id == nc_id,
-                ActionPlan.status.notin_(["closed", "verified"]),
-                ActionPlan.deleted_at.is_(None),
-            )
-        )
-    ).all()
-
-    if open_plans:
-        raise ValueError(
-            f"Cannot close: {len(open_plans)} action plan(s) still open"
-        )
+    motivo = impedimento_por_planes(db, nc)
+    if motivo:
+        raise SinVerificarLaEficacia(motivo)
 
     nc.status = "closed"
     nc.closed_at = datetime.now(timezone.utc)
@@ -77,6 +152,53 @@ def close_nonconformity(
     db.flush()
     db.refresh(nc)
     return nc
+
+
+def impedimento_por_planes(db: Session, nc: Nonconformity) -> str | None:
+    """Lo que los planes de accion le impiden al cierre, o `None`.
+
+    **Un plan pendiente bloquea siempre.** Es trabajo comprometido sin hacer.
+
+    **El plan verificado solo se exige a registros SIN ciclo de etapas.** Con
+    ciclo, la verificacion de §10.2.1 d) es la etapa de seguimiento
+    (`eficaz is True`, ver `etapas_de_mejora.puede_cerrarse`). Hasta el 13-sep
+    se exigian las dos: `puede-cerrarse` respondia que si y `/close` respondia
+    409 "nadie verifico", porque un registro con su seguimiento verificado y
+    sin planes de accion —que es lo normal cuando la accion correctiva se
+    registra en la propia etapa— no tenia ningun plan `verified`.
+
+    Es la misma funcion para `/close` y para `/puede-cerrarse`: dos copias de la
+    regla serian dos respuestas distintas a la misma pregunta.
+    """
+    from .etapas_de_mejora import etapas_de
+
+    planes = db.scalars(
+        select(ActionPlan).where(
+            and_(
+                ActionPlan.nonconformity_id == nc.id,
+                ActionPlan.deleted_at.is_(None),
+            )
+        )
+    ).all()
+
+    pendientes = [p for p in planes if p.status not in ESTADOS_QUE_NO_BLOQUEAN]
+    if pendientes:
+        return (
+            f"No se puede cerrar: {len(pendientes)} plan(es) de accion siguen "
+            "abiertos. Hay que terminarlos y verificar que la accion funciono."
+        )
+
+    if etapas_de(db, nc.id):
+        return None
+
+    if not any(p.status == ESTADO_VERIFICADO for p in planes):
+        return (
+            "No se puede cerrar: nadie verifico que la accion funciono. "
+            "Cerrar exige una verificacion de eficacia afirmativa (ISO 14001 "
+            "10.2.1 d). Sin planes verificados no hay nada que respalde el "
+            "cierre ante una auditoria."
+        )
+    return None
 
 
 def get_audit_summary(db: Session, audit_id: UUID) -> dict:
@@ -130,11 +252,21 @@ def verify_action_plan(
         raise ValueError("Action plan not found")
 
     if success:
-        plan.status = "verified"
+        plan.status = ESTADO_VERIFICADO
         plan.verified_at = datetime.now(timezone.utc)
         plan.verified_by = verified_by
     else:
+        # **Se limpia la firma anterior.** Un plan que ya se habia verificado y
+        # cuya verificacion posterior concluye que no funciono volveria a
+        # `in_progress` **conservando `verified_at` y `verified_by`**: una firma
+        # que dice que alguien verifico que esto sirve, sobre un trabajo que se
+        # reabrio justamente porque no sirvio.
+        #
+        # No lo aprovecha el cierre —mira `status`, no la fecha— pero es lo que
+        # se muestra en la ficha y lo que se exporta a un auditor.
         plan.status = "in_progress"
+        plan.verified_at = None
+        plan.verified_by = None
 
     db.flush()
     db.refresh(plan)

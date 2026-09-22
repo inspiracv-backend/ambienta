@@ -1,20 +1,36 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..crud.audit import (
     crud_action_plan,
     crud_audit,
     crud_audit_item,
+    crud_metodologia,
     crud_nonconformity,
+    crud_severidad,
+    crud_veredicto_de_proceso,
 )
-from ..deps import get_tenant_db, get_tenant_id
+from ..auth import CurrentUser
+from ..deps import get_current_user, get_tenant_db, get_tenant_id
 from ..services import audits as svc_audits
+from ..services import etapas_de_mejora as svc_etapas
+from ..services import catalogos_de_mejora as svc_catalogos
+from ..services import informe_de_auditoria as svc_informe
 from ..crud.compliance import crud_article_compliance
-from ..crud.organization import crud_user
-from ..models.audit import AuditItem, AuditParticipant
+from ..crud.obligations import crud_task
+from ..schemas.obligations import TaskCreate, TaskRead, TaskUpdate
+from ..crud.organization import crud_department, crud_process, crud_user
+from ..models.audit import (
+    AuditItem,
+    AuditParticipant,
+    AuditProcessResult,
+    ImprovementStageEntry,
+)
+from ..models.organization import User
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import (
     CRUDAsociacion,
@@ -26,6 +42,20 @@ from ._comun import (
 )
 from ..schemas.audit import (
     AuditItemUpdate,
+    EtapaRead,
+    EtapaUpdate,
+    PuedeCerrarse,
+    InformeDeAuditoria,
+    VeredictoDeProcesoCreate,
+    VeredictoDeProcesoCreateAnidado,
+    VeredictoDeProcesoRead,
+    VeredictoDeProcesoUpdate,
+    MetodologiaCreate,
+    MetodologiaRead,
+    MetodologiaUpdate,
+    SeveridadCreate,
+    SeveridadRead,
+    SeveridadUpdate,
     CoberturaDeAuditoria,
     AuditItemRead,
     AuditItemCreate,
@@ -73,9 +103,29 @@ def create_audit(
 
 @router.patch("/{audit_id}", response_model=AuditRead)
 def update_audit(audit_id: UUID, data: AuditUpdate, db: Session = Depends(get_tenant_db)):
+    """Editar la auditoria. **El estado pasa por las mismas transiciones que `/advance`.**
+
+    Hasta el 19-sep este `PATCH` escribia `status` directo: `/advance` rechazaba
+    `planned -> closed` y aca pasaba, sin fecha de cierre. Es la puerta trasera
+    que ya aparecio en las etapas del CRM — una guarda que solo mira un camino
+    no protege, hace creer que si.
+    """
     obj = crud_audit.get(db, audit_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audit not found")
+
+    # Cerrada o cancelada **no se edita**: el informe ya se entrego. Un `null`
+    # sobre una columna NOT NULL ya responde 422 por el traductor de errores de
+    # integridad (`campo_obligatorio`), asi que no se comprueba dos veces.
+    if data.model_dump(exclude_unset=True):
+        _checklist_abierto_o_409(obj)
+
+    if data.status is not None and data.status != obj.status:
+        try:
+            svc_audits.advance_audit_status(db, audit_id, data.status)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    # Ya validado y aplicado: escribirlo de nuevo con el resto deja el mismo valor.
     obj = crud_audit.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj
@@ -94,7 +144,46 @@ def create_nonconformity(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    """Registra un hallazgo, con la severidad y el plazo de **esta** empresa.
+
+    Dos cosas que no hacia antes:
+
+    - La severidad se comprueba contra el catalogo de la empresa (RF-100). El
+      CHECK de la columna sigue siendo la barrera de la base; esta es mas
+      estrecha, y es la que hace que configurar el catalogo signifique algo.
+    - `due_date` **se calcula** desde el plazo del nivel, si la empresa lo
+      declaro. Esa columna existia y nadie la llenaba: el compromiso de cierre
+      vivia en la cabeza de alguien. Lo que venga en el cuerpo manda —una
+      autoridad puede fijar otra fecha— y el calculo solo cubre el vacio.
+    """
+    try:
+        nivel = svc_catalogos.comprobar_severidad(db, tenant_id, data.severity)
+    except svc_catalogos.SinNivelesDeSeveridad as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from None
+    except svc_catalogos.SeveridadNoDisponible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from None
+
+    validar_visible(
+        crud_metodologia,
+        db,
+        data.root_cause_methodology_id,
+        campo="root_cause_methodology_id",
+    )
+
     obj = crud_nonconformity.create(db, obj_in=data, tenant_id=tenant_id)
+    if obj.due_date is None:
+        obj.due_date = svc_catalogos.fecha_limite(nivel, date.today())
+
+    # **El ciclo nace con el registro** (RF-97). Una etapa que todavia no existe
+    # no se puede asignar ni avisar, y el recordatorio por etapa es lo que hace
+    # que el tratamiento no se detenga: si la fila apareciera recien cuando
+    # alguien llega a ella, el aviso llegaria tarde por definicion.
+    svc_etapas.sembrar_ciclo(db, obj, tenant_id=tenant_id)
+
     db.commit()
     return obj
 
@@ -125,6 +214,145 @@ def create_action_plan(
     obj = crud_action_plan.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return obj
+
+
+# ── Tareas del plan de accion (#169) ────────────────────────────────────
+#
+# **Van antes que `/action-plans/{plan_id}`**: FastAPI prueba las rutas en orden,
+# y con `{plan_id}` primero `/action-plans/tasks/` se leeria como un plan de id
+# "tasks" y responderia 422 — el error de orden de lineas que ya se pago con
+# `/equipment/sin-operador`.
+
+
+def _tarea_de_plan_o_404(db: Session, task_id: UUID):
+    """La tarea, **si es de un plan**. Una tarea de obligacion no se toca desde
+    aca: tiene sus propias rutas, y mezclarlas haria que un permiso de plan de
+    accion editara declaraciones."""
+    tarea = obtener_o_404(crud_task, db, task_id, recurso="Task")
+    if tarea.action_plan_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return tarea
+
+
+@router.get(
+    "/action-plans/tasks/",
+    response_model=list[TaskRead],
+    tags=["action-plans"],
+    summary="Lo que le toca a una persona, entre todos los planes",
+    description=(
+        "Las tareas de planes de accion asignadas a `assignee_user_id`, sin indicar "
+        "de que plan cuelgan. Es la consulta que una lista embebida en el plan no "
+        "permite: sin esto habria que abrir plan por plan."
+    ),
+)
+def listar_tareas_de_persona(assignee_user_id: UUID, db: Session = Depends(get_tenant_db)):
+    from ..models.obligations import Task
+
+    return list(
+        db.scalars(
+            select(Task)
+            .where(
+                Task.action_plan_id.is_not(None),
+                Task.assignee_user_id == assignee_user_id,
+                Task.deleted_at.is_(None),
+            )
+            .order_by(Task.due_at.asc().nulls_last(), Task.created_at, Task.id)
+        ).all()
+    )
+
+
+@router.get("/action-plans/tasks/{task_id}", response_model=TaskRead, tags=["action-plans"])
+def get_tarea_de_plan(task_id: UUID, db: Session = Depends(get_tenant_db)):
+    return _tarea_de_plan_o_404(db, task_id)
+
+
+@router.patch("/action-plans/tasks/{task_id}", response_model=TaskRead, tags=["action-plans"])
+def update_tarea_de_plan(task_id: UUID, data: TaskUpdate, db: Session = Depends(get_tenant_db)):
+    """Estado, responsable, titulo o fecha. **Completarla fija `completed_at`**, y
+    reabrirla lo limpia: la fecha de cierre la pone el servidor."""
+    tarea = _tarea_de_plan_o_404(db, task_id)
+    validar_visible(crud_user, db, data.assignee_user_id, campo="assignee_user_id")
+    tarea = crud_task.update(db, db_obj=tarea, obj_in=data)
+    if tarea.status == "done" and tarea.completed_at is None:
+        tarea.completed_at = datetime.now(timezone.utc)
+    elif tarea.status != "done":
+        tarea.completed_at = None
+    # `refresh` antes del `commit`: despues, la transaccion ya no tiene la empresa
+    # declarada y RLS no deja ver la fila (CLAUDE.md, "no consultar despues de
+    # db.commit()").
+    db.flush()
+    db.refresh(tarea)
+    db.commit()
+    return tarea
+
+
+@router.delete("/action-plans/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["action-plans"])
+def delete_tarea_de_plan(task_id: UUID, db: Session = Depends(get_tenant_db)):
+    _tarea_de_plan_o_404(db, task_id)
+    borrar_o_404(crud_task, db, task_id, recurso="Task")
+
+
+@router.get("/action-plans/{plan_id}/tasks", response_model=list[TaskRead], tags=["action-plans"])
+def listar_tareas_del_plan(plan_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Las tareas vivas del plan, en el orden en que se crearon.
+
+    **Comprueba el plan**: sin eso, uno inexistente responderia `[]`, que se lee
+    como "este plan no tiene tareas".
+    """
+    from ..models.obligations import Task
+
+    obtener_o_404(crud_action_plan, db, plan_id, recurso="ActionPlan")
+    return list(
+        db.scalars(
+            select(Task)
+            .where(Task.action_plan_id == plan_id, Task.deleted_at.is_(None))
+            .order_by(Task.created_at, Task.id)
+        ).all()
+    )
+
+
+@router.post(
+    "/action-plans/{plan_id}/tasks",
+    response_model=TaskRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["action-plans"],
+)
+def crear_tarea_del_plan(
+    plan_id: UUID,
+    data: TaskCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    """Crea una tarea en el plan. El plan sale de la URL: si RLS no lo ve, el 404
+    llega antes de escribir, y un plan inventado y uno ajeno responden igual."""
+    from ..models.obligations import Task
+
+    obtener_o_404(crud_action_plan, db, plan_id, recurso="ActionPlan")
+    datos = data.model_dump(exclude_unset=True)
+    if datos.get("obligation_id") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Una tarea cuelga de una obligacion o de un plan de accion, no de los dos.",
+        )
+    datos["action_plan_id"] = plan_id
+    # Las claves foraneas del cuerpo no pasan por RLS.
+    validar_visible(crud_user, db, datos.get("assignee_user_id"), campo="assignee_user_id")
+    validar_visible(crud_department, db, datos.get("department_id"), campo="department_id")
+    padre_id = datos.get("parent_task_id")
+    validar_visible(crud_task, db, padre_id, campo="parent_task_id")
+    if padre_id is not None:
+        padre = crud_task.get(db, padre_id)
+        if padre is not None and padre.action_plan_id != plan_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="parent_task_id pertenece a otro plan: una subtarea no cruza planes.",
+            )
+    tarea = Task(**datos, tenant_id=tenant_id)
+    db.add(tarea)
+    db.flush()
+    db.refresh(tarea)
+    db.commit()
+    return tarea
 
 
 @router.patch("/action-plans/{plan_id}", response_model=ActionPlanRead, tags=["action-plans"])
@@ -159,27 +387,96 @@ def audit_summary(audit_id: UUID, db: Session = Depends(get_tenant_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.post("/nonconformities/{nc_id}/close", response_model=NonconformityRead, tags=["business-logic"])
+@router.post(
+    "/nonconformities/{nc_id}/close",
+    response_model=NonconformityRead,
+    tags=["business-logic"],
+    summary="Cerrar un registro de mejora",
+    description=(
+        "**Exige una verificacion de eficacia afirmativa** (ISO 14001 10.2.1 d): "
+        "al menos un plan de accion `verified`, y ninguno pendiente.\n\n"
+        "Responde **409** cuando falta, y no 422: el cuerpo esta bien y la "
+        "peticion es legitima; lo que no corresponde es el **estado** del "
+        "registro, y eso no se arregla corrigiendo lo que se mando.\n\n"
+        "Un plan `cancelled` no bloquea —cancelar es decidir que ese trabajo no "
+        "se hace— pero tampoco alcanza para cerrar: cancelar todo no es haber "
+        "verificado nada."
+    ),
+)
 def close_nc(nc_id: UUID, closure_notes: str = "", db: Session = Depends(get_tenant_db)):
-    from ..services.audits import close_nonconformity
+    from ..services.audits import SinVerificarLaEficacia, close_nonconformity
+
+    # **Las dos reglas, no una.** La de planes de accion ya existia; esta es la
+    # del ciclo de etapas (RF-98), y se comprueba antes porque su mensaje dice
+    # cual de los tres estados falta — sin verificar, verificado que no, o una
+    # etapa sin ejecutar. Un registro sin ciclo sembrado la pasa sin ruido: ver
+    # `etapas_de_mejora.puede_cerrarse`.
+    svc_etapas.exigir_cierre(db, _registro_o_404(db, nc_id))
+
     try:
         obj = close_nonconformity(db, nc_id, closure_notes)
         db.commit()
         return obj
+    except SinVerificarLaEficacia as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/action-plans/{plan_id}/verify", response_model=ActionPlanRead, tags=["business-logic"])
+@router.post(
+    "/action-plans/{plan_id}/verify",
+    response_model=ActionPlanRead,
+    tags=["business-logic"],
+    summary="Verificar la eficacia de un plan de accion",
+    description=(
+        "Deja escrito **quien** verifico que la accion funciono y cuando. Es lo "
+        "que habilita cerrar el registro.\n\n"
+        "Con `success=false` el plan vuelve a `in_progress`: la verificacion "
+        "concluyo que no funciono, y el trabajo sigue.\n\n"
+        "Responde **409** si la sesion no esta asociada a un usuario de la "
+        "empresa. No se toma a otra persona en su lugar: ante una auditoria la "
+        "pregunta no es si se verifico, es quien."
+    ),
+)
 def verify_plan(
     plan_id: UUID,
     success: bool = True,
-    tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
+    usuario: CurrentUser = Depends(get_current_user),
 ):
+    """Verifica la eficacia de un plan de accion.
+
+    **Este endpoint respondia 500 en el 100 % de los casos.** Le pasaba el
+    `tenant_id` al servicio donde este espera el id de quien verifica, y
+    `action_plans.verified_by` tiene clave foranea contra `users`: el `UPDATE`
+    violaba la restriccion. Medido el 4-sep contra la base real.
+
+    Nadie se entero porque `audits.py` no tenia una sola prueba que llamara a
+    sus endpoints —30 operaciones—, y porque verificar la eficacia es el paso
+    que solo se ejecuta al final de un ciclo largo.
+    """
     from ..services.audits import verify_action_plan
+
+    verificador = (
+        db.scalar(select(User).where(User.clerk_id == usuario.user_id))
+        if usuario.user_id
+        else None
+    )
+    if verificador is None:
+        # Mismo criterio que aprobar un documento: no se inventa quien firma.
+        # Tomar al primer administrador dejaria escrito que esa persona
+        # verifico algo que no verifico, y es lo que un auditor lee.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se puede registrar quien verifica: la sesion no esta "
+                "asociada a un usuario de esta empresa. Verificar la eficacia "
+                "exige una sesion identificada."
+            ),
+        )
+
     try:
-        obj = verify_action_plan(db, plan_id, tenant_id, success)
+        obj = verify_action_plan(db, plan_id, verificador.id, success)
         db.commit()
         return obj
     except ValueError as e:
@@ -307,6 +604,14 @@ def cobertura_de_auditoria(audit_id: UUID, db: Session = Depends(get_tenant_db))
 
 # ── Hallazgos de una auditoria ─────────────────────────────────────────────
 
+def _checklist_abierto_o_409(auditoria) -> None:
+    """409 y no 403: no le falta un permiso a nadie, la auditoria ya se entrego."""
+    try:
+        svc_audits.exigir_checklist_abierto(auditoria)
+    except svc_audits.ChecklistCerrado as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+
+
 @router.get("/{audit_id}/items", response_model=list[AuditItemRead], tags=["audits"])
 def list_audit_items(audit_id: UUID, db: Session = Depends(get_tenant_db)):
     obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
@@ -320,7 +625,8 @@ def create_audit_item(
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
-    obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    auditoria = obtener_o_404(crud_audit, db, audit_id, recurso="Audit")
+    _checklist_abierto_o_409(auditoria)
     # Claves foraneas del cuerpo: **no pasan por RLS**. Sin esto, una empresa
     # podria colgar su pregunta de la evaluacion de otra — la misma fuga que ya
     # se midio en `POST /obligations/`.
@@ -331,6 +637,7 @@ def create_audit_item(
         campo="article_compliance_id",
     )
     validar_visible(crud_user, db, data.auditor_user_id, campo="auditor_user_id")
+    validar_visible(crud_process, db, data.process_id, campo="process_id")
 
     datos = data.model_dump()
     datos["audit_id"] = audit_id
@@ -357,6 +664,7 @@ def get_audit_item(audit_id: UUID, item_id: UUID, db: Session = Depends(get_tena
 def update_audit_item(audit_id: UUID, item_id: UUID, data: AuditItemUpdate, db: Session = Depends(get_tenant_db)):
     obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
     verificar_padre(obj, audit_id, campo="audit_id")
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Audit"))
     validar_visible(
         crud_article_compliance,
         db,
@@ -364,6 +672,7 @@ def update_audit_item(audit_id: UUID, item_id: UUID, data: AuditItemUpdate, db: 
         campo="article_compliance_id",
     )
     validar_visible(crud_user, db, data.auditor_user_id, campo="auditor_user_id")
+    validar_visible(crud_process, db, data.process_id, campo="process_id")
 
     obj = crud_audit_item.update(db, db_obj=obj, obj_in=data)
     # **Al responder se anota cuando.** Sin esa marca no se puede decir si la
@@ -387,4 +696,544 @@ def delete_audit_item(audit_id: UUID, item_id: UUID, db: Session = Depends(get_t
     originado no se tocan: viven mas alla del hallazgo."""
     obj = obtener_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
     verificar_padre(obj, audit_id, campo="audit_id")
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Audit"))
     borrar_o_404(crud_audit_item, db, item_id, recurso="AuditItem")
+
+
+# -- Catalogos configurables por empresa (RF-100, #41) --------------------
+#
+# Van bajo `/audits/` y no en un router propio porque son la configuracion del
+# registro de mejora: separarlos daria un modulo de una tabla y media cuyo
+# unico lector vive aca.
+
+
+@router.get(
+    "/catalogos/severidades",
+    response_model=list[SeveridadRead],
+    tags=["catalogos-de-mejora"],
+    summary="Escala de severidad de la empresa",
+    description=(
+        "Los niveles con que esta empresa clasifica sus hallazgos, de mas leve "
+        "a mas grave. `days_to_close` en `null` significa que **no declaro "
+        "plazo**: la fecha limite se sigue pidiendo a mano."
+    ),
+)
+def list_severidades(
+    solo_activas: bool = True,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    if solo_activas:
+        return svc_catalogos.niveles_activos(db, tenant_id)
+    return crud_severidad.get_multi(db, skip=0, limit=200)
+
+
+@router.post(
+    "/catalogos/severidades",
+    response_model=SeveridadRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["catalogos-de-mejora"],
+    summary="Agregar un nivel de severidad",
+    description=(
+        "El `code` es el valor que se guarda en el hallazgo, asi que tiene que "
+        "ser uno de los que admite el CHECK de la columna mientras ese CHECK "
+        "siga vigente. Lo que la empresa configura libremente es la etiqueta, "
+        "el orden y el plazo."
+    ),
+)
+def create_severidad(
+    data: SeveridadCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    obj = crud_severidad.create(db, obj_in=data, tenant_id=tenant_id)
+    db.commit()
+    return obj
+
+
+@router.patch(
+    "/catalogos/severidades/{severidad_id}",
+    response_model=SeveridadRead,
+    tags=["catalogos-de-mejora"],
+    summary="Renombrar, reordenar o fijarle plazo a un nivel",
+    description=(
+        "Cambiar el plazo **no mueve las fechas limite ya calculadas**: la de "
+        "un hallazgo se fijo con el compromiso vigente el dia que se registro, "
+        "y recalcularla hacia atras reescribiria un plazo que alguien acordo."
+    ),
+)
+def update_severidad(
+    severidad_id: UUID,
+    data: SeveridadUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    obj = obtener_o_404(
+        crud_severidad, db, severidad_id, recurso="Nivel de severidad"
+    )
+    obj = crud_severidad.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete(
+    "/catalogos/severidades/{severidad_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["catalogos-de-mejora"],
+    summary="Retirar un nivel de severidad",
+    description=(
+        "Los hallazgos ya registrados con ese nivel **no se tocan**: su "
+        "severidad es parte de lo que se decidio en su momento. Lo que cambia "
+        "es que no se pueden registrar nuevos."
+    ),
+)
+def delete_severidad(severidad_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_severidad, db, severidad_id, recurso="Nivel de severidad")
+
+
+@router.get(
+    "/catalogos/metodologias",
+    response_model=list[MetodologiaRead],
+    tags=["catalogos-de-mejora"],
+    summary="Metodologias de analisis de causa de la empresa",
+    description=(
+        "`shape` dice que datos exige cada una: `cinco_porques` las respuestas "
+        "encadenadas, `espina_pescado` las categorias, `texto_libre` ninguna en "
+        "particular. El nombre lo elige la empresa; la forma no."
+    ),
+)
+def list_metodologias(
+    respuesta: Response,
+    pagina: Pagina = Depends(paginacion),
+    db: Session = Depends(get_tenant_db),
+):
+    return recortar(
+        respuesta,
+        crud_metodologia.get_multi(db, skip=pagina.skip, limit=pagina.pedir),
+        pagina,
+    )
+
+
+@router.post(
+    "/catalogos/metodologias",
+    response_model=MetodologiaRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["catalogos-de-mejora"],
+    summary="Agregar una metodologia",
+    description=(
+        "`shape` tiene que ser una de las tres formas que el sistema sabe "
+        "pedir. El nombre es libre: una empresa llama a su metodologia como "
+        "quiera, pero no puede inventar una forma para la que no hay ni "
+        "formulario ni manera de leer las respuestas."
+    ),
+)
+def create_metodologia(
+    data: MetodologiaCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    obj = crud_metodologia.create(db, obj_in=data, tenant_id=tenant_id)
+    db.commit()
+    return obj
+
+
+@router.patch(
+    "/catalogos/metodologias/{metodologia_id}",
+    response_model=MetodologiaRead,
+    tags=["catalogos-de-mejora"],
+    summary="Editar una metodologia",
+    description=(
+        "Los hallazgos ya analizados con ella conservan su vinculo: cambiarle "
+        "el nombre no reescribe con que se analizaron."
+    ),
+)
+def update_metodologia(
+    metodologia_id: UUID,
+    data: MetodologiaUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    obj = obtener_o_404(
+        crud_metodologia, db, metodologia_id, recurso="Metodologia"
+    )
+    obj = crud_metodologia.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete(
+    "/catalogos/metodologias/{metodologia_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["catalogos-de-mejora"],
+    summary="Retirar una metodologia",
+    description=(
+        "Deja de ofrecerse para analisis nuevos. Los hallazgos que ya la usan "
+        "siguen apuntandola: es parte de como se llego a su causa raiz."
+    ),
+)
+def delete_metodologia(metodologia_id: UUID, db: Session = Depends(get_tenant_db)):
+    borrar_o_404(crud_metodologia, db, metodologia_id, recurso="Metodologia")
+
+
+@router.get(
+    "/catalogos/severidades/{severidad_id}",
+    response_model=SeveridadRead,
+    tags=["catalogos-de-mejora"],
+    summary="Ver un nivel de severidad",
+    description=(
+        "Incluye los inactivos: un hallazgo antiguo puede apuntar a un nivel "
+        "que la empresa ya no usa, y su ficha tiene que poder mostrarlo."
+    ),
+)
+def get_severidad(severidad_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(
+        crud_severidad, db, severidad_id, recurso="Nivel de severidad"
+    )
+
+
+@router.get(
+    "/catalogos/metodologias/{metodologia_id}",
+    response_model=MetodologiaRead,
+    tags=["catalogos-de-mejora"],
+    summary="Ver una metodologia",
+    description=(
+        "Incluye las inactivas, por el mismo motivo: el analisis de un hallazgo "
+        "viejo nombra la metodologia con que se hizo."
+    ),
+)
+def get_metodologia(metodologia_id: UUID, db: Session = Depends(get_tenant_db)):
+    return obtener_o_404(
+        crud_metodologia, db, metodologia_id, recurso="Metodologia"
+    )
+
+
+# -- El informe de auditoria (RF-101, #42) --------------------------------
+
+
+@router.get(
+    "/{audit_id}/informe",
+    response_model=InformeDeAuditoria,
+    tags=["business-logic"],
+    summary="Informe de auditoria con matriz por proceso",
+    description=(
+        "El informe completo (RF-101): resumen ejecutivo, **una fila por "
+        "proceso auditado** y la tasa de cierre del ciclo anterior.\n\n"
+        "**Todos los conteos se derivan al pedirlo**, no se guardan: un "
+        "hallazgo que se cierra despues de emitir el informe cambia el numero "
+        "la proxima vez que se abra. Lo unico persistido es lo que escribe el "
+        "auditor — la clasificacion de cada proceso, su conclusion y la "
+        "evidencia que tuvo a la vista.\n\n"
+        "**Ojo con los `null`, que no son ceros.** `conformidad` viene vacia "
+        "cuando no se evaluo ni una pregunta, y `tasa_de_cierre_del_ciclo_"
+        "anterior` cuando no hay auditoria anterior, cuando la anterior no dejo "
+        "hallazgos o cuando no esta cerrada. Un 0 % ahi se leeria como «no "
+        "cerraron nada», que es una acusacion; `motivo_sin_tasa` dice cual de "
+        "los tres casos es."
+    ),
+)
+def informe_de_auditoria(audit_id: UUID, db: Session = Depends(get_tenant_db)):
+    try:
+        return svc_informe.construir(db, audit_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from None
+
+
+@router.get(
+    "/{audit_id}/procesos",
+    response_model=list[VeredictoDeProcesoRead],
+    tags=["business-logic"],
+    summary="Veredictos del auditor por proceso",
+    description=(
+        "Solo la parte **escrita** de la matriz. Los conteos y los hallazgos de "
+        "cada proceso salen del informe, que los deriva."
+    ),
+)
+def list_veredictos(audit_id: UUID, db: Session = Depends(get_tenant_db)):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    return listar_por_padre(
+        AuditProcessResult, db, audit_id, campo="audit_id"
+    )
+
+
+@router.post(
+    "/{audit_id}/procesos",
+    response_model=VeredictoDeProcesoRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["business-logic"],
+    summary="Dejar el veredicto de un proceso",
+    description=(
+        "Un proceso tiene **un veredicto por auditoria y no mas**: dos seria una "
+        "matriz que se contradice a si misma y el informe elegiria uno de los "
+        "dos sin decirlo. Repetirlo responde 409.\n\n"
+        "`no_auditado` es un veredicto valido y conviene usarlo: decirle al "
+        "dueno de un proceso que no se lo miro es informacion, y una fila "
+        "ausente se lee como un descuido del informe."
+    ),
+)
+def create_veredicto(
+    audit_id: UUID,
+    data: VeredictoDeProcesoCreateAnidado,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria"))
+    # La clave foranea a `processes` no pasa por RLS: solo exige que la fila
+    # exista, no que sea de esta empresa.
+    validar_visible(crud_process, db, data.process_id, campo="process_id")
+
+    ya_esta = db.scalar(
+        select(AuditProcessResult).where(
+            AuditProcessResult.audit_id == audit_id,
+            AuditProcessResult.process_id == data.process_id,
+            AuditProcessResult.deleted_at.is_(None),
+        )
+    )
+    if ya_esta is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Ese proceso ya tiene veredicto en esta auditoria. Editalo en "
+                "vez de agregar otro: dos veredictos sobre el mismo proceso "
+                "dejarian la matriz contradiciendose."
+            ),
+        )
+
+    # `audit_id` sale de la URL, no del cuerpo: mandarlo en el cuerpo dejaria
+    # crear un veredicto bajo una auditoria y guardarlo en otra. Va antes del
+    # create porque `CRUDBase.create` hace `flush` por dentro y la columna es
+    # NOT NULL: ponerlo despues llega tarde y da 422 "falta un campo".
+    obj = crud_veredicto_de_proceso.create(
+        db,
+        obj_in=VeredictoDeProcesoCreate(**data.model_dump(), audit_id=audit_id),
+        tenant_id=tenant_id,
+    )
+    db.commit()
+    return obj
+
+
+@router.patch(
+    "/{audit_id}/procesos/{veredicto_id}",
+    response_model=VeredictoDeProcesoRead,
+    tags=["business-logic"],
+    summary="Corregir el veredicto de un proceso",
+    description=(
+        "El proceso no se cambia: mover un veredicto de un proceso a otro "
+        "reescribiria lo que se dijo del primero. Se retira y se agrega."
+    ),
+)
+def update_veredicto(
+    audit_id: UUID,
+    veredicto_id: UUID,
+    data: VeredictoDeProcesoUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria"))
+    obj = obtener_o_404(
+        crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
+    )
+    verificar_padre(obj, audit_id, campo="audit_id")
+    obj = crud_veredicto_de_proceso.update(db, db_obj=obj, obj_in=data)
+    db.commit()
+    return obj
+
+
+@router.delete(
+    "/{audit_id}/procesos/{veredicto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["business-logic"],
+    summary="Retirar el veredicto de un proceso",
+    description=(
+        "El proceso vuelve a aparecer en la matriz como `no_auditado` si tiene "
+        "preguntas, y desaparece de ella si no tiene ninguna."
+    ),
+)
+def delete_veredicto(
+    audit_id: UUID, veredicto_id: UUID, db: Session = Depends(get_tenant_db)
+):
+    _checklist_abierto_o_409(obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria"))
+    verificar_padre(
+        obtener_o_404(
+            crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
+        ),
+        audit_id,
+        campo="audit_id",
+    )
+    borrar_o_404(
+        crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
+    )
+
+
+@router.get(
+    "/{audit_id}/procesos/{veredicto_id}",
+    response_model=VeredictoDeProcesoRead,
+    tags=["business-logic"],
+    summary="Ver el veredicto de un proceso",
+    description="La fila escrita por el auditor, sin los conteos derivados.",
+)
+def get_veredicto(
+    audit_id: UUID, veredicto_id: UUID, db: Session = Depends(get_tenant_db)
+):
+    obtener_o_404(crud_audit, db, audit_id, recurso="Auditoria")
+    return verificar_padre(
+        obtener_o_404(
+            crud_veredicto_de_proceso, db, veredicto_id, recurso="Veredicto de proceso"
+        ),
+        audit_id,
+        campo="audit_id",
+    )
+
+
+# ── Las cinco etapas del registro de mejora (RF-97, #38) ──────────────────
+#
+# `nonconformities.improvement_stages` era JSONB provisorio y la decision #57
+# —tomada el 10-sep— fue tabla tipada. Ver `db/30` y
+# `services/etapas_de_mejora.py` para por que.
+
+
+def _registro_o_404(db: Session, nc_id: UUID):
+    return obtener_o_404(crud_nonconformity, db, nc_id, recurso="Nonconformity")
+
+
+def _armar_etapas(db: Session, filas: list) -> list[EtapaRead]:
+    """Resuelve el nombre del responsable en una consulta, no en N."""
+    ids = {f.responsable_user_id for f in filas if f.responsable_user_id}
+    nombres = {}
+    if ids:
+        nombres = {
+            u.id: u.full_name
+            for u in db.scalars(select(User).where(User.id.in_(ids))).all()
+        }
+    salida = []
+    for f in filas:
+        datos = EtapaRead.model_validate(f, from_attributes=True)
+        datos.responsable_nombre = nombres.get(f.responsable_user_id)
+        salida.append(datos)
+    return salida
+
+
+@router.get(
+    "/nonconformities/{nc_id}/etapas",
+    response_model=list[EtapaRead],
+    tags=["nonconformities"],
+    summary="Las etapas del ciclo de tratamiento",
+    description=(
+        "En el **orden del ciclo**, no por fecha de creacion: ordenarlas por "
+        "`created_at` mostraria el orden en que alguien completo los "
+        "formularios, que no es el orden del proceso.\n\n"
+        "Un registro de tipo `riesgo` u `oportunidad` recorre **tres** etapas y "
+        "no cinco — no hay correccion inmediata de una oportunidad, y hacerla "
+        "pasar por las cinco con los campos vacios seria peor dato."
+    ),
+)
+def listar_etapas(nc_id: UUID, db: Session = Depends(get_tenant_db)):
+    _registro_o_404(db, nc_id)
+    return _armar_etapas(db, svc_etapas.etapas_de(db, nc_id))
+
+
+@router.post(
+    "/nonconformities/{nc_id}/etapas",
+    response_model=list[EtapaRead],
+    status_code=status.HTTP_201_CREATED,
+    tags=["nonconformities"],
+    summary="Crear el ciclo de etapas del registro",
+    description=(
+        "Crea las etapas que le corresponden al registro, vacias y con su fecha "
+        "limite derivada del catalogo de severidades de la empresa.\n\n"
+        "**Se crean todas de una vez y no a medida que se avanza.** Una etapa "
+        "que todavia no existe no se puede asignar ni avisar, y el recordatorio "
+        "por etapa es justamente lo que hace que el ciclo no se detenga.\n\n"
+        "Idempotente: llamarlo dos veces no duplica nada."
+    ),
+)
+def sembrar_etapas(
+    nc_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    registro = _registro_o_404(db, nc_id)
+    svc_etapas.sembrar_ciclo(db, registro, tenant_id=tenant_id)
+    salida = _armar_etapas(db, svc_etapas.etapas_de(db, nc_id))
+    db.commit()
+    return salida
+
+
+@router.patch(
+    "/nonconformities/{nc_id}/etapas/{etapa_id}",
+    response_model=EtapaRead,
+    tags=["nonconformities"],
+    summary="Completar o corregir una etapa",
+    description=(
+        "**`completada_en` la pone el servidor**, no el cuerpo: se marca sola "
+        "cuando llega `fecha_ejecucion`. Dejarla al cliente permitiria una "
+        "etapa dada por completa sin fecha, y el informe de auditoria ordena "
+        "por esa fecha.\n\n"
+        "Los cinco campos del seguimiento son **tri-estado**: `null` es «sin "
+        "verificar», que no es «No». La base impide que una etapa que no sea "
+        "`seguimiento` los use."
+    ),
+)
+def actualizar_etapa(
+    nc_id: UUID,
+    etapa_id: UUID,
+    data: EtapaUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    _registro_o_404(db, nc_id)
+    fila = db.scalar(
+        select(ImprovementStageEntry).where(
+            ImprovementStageEntry.id == etapa_id,
+            ImprovementStageEntry.deleted_at.is_(None),
+        )
+    )
+    if fila is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    verificar_padre(fila, nc_id, campo="nonconformity_id")
+
+    validar_visible(crud_user, db, data.responsable_user_id, campo="responsable_user_id")
+    validar_visible(
+        crud_metodologia, db, data.metodologia_id, campo="metodologia_id"
+    )
+
+    for campo, valor in data.model_dump(exclude_unset=True).items():
+        setattr(fila, campo, valor)
+
+    # La marca de completada se deriva de la fecha, no se recibe.
+    if fila.fecha_ejecucion is not None and fila.completada_en is None:
+        fila.completada_en = datetime.now(timezone.utc)
+    elif fila.fecha_ejecucion is None:
+        fila.completada_en = None
+
+    db.flush()
+    db.refresh(fila)
+    salida = _armar_etapas(db, [fila])[0]
+    db.commit()
+    return salida
+
+
+@router.get(
+    "/nonconformities/{nc_id}/puede-cerrarse",
+    response_model=PuedeCerrarse,
+    tags=["nonconformities"],
+    summary="Si el ciclo permite cerrar el registro, y si no, por que",
+    description=(
+        "**Devuelve el motivo y no solo un booleano.** «No se puede cerrar» sin "
+        "decir por que manda a adivinar, y las tres causas tienen arreglos "
+        "distintos: falta ejecutar una etapa, falta verificar la eficacia, o se "
+        "verifico y la accion **no** funciono — esta ultima devuelve el registro "
+        "a tratamiento en vez de cerrarlo.\n\n"
+        "Sin verificar **no es** «no fue eficaz»: el seguimiento es tri-estado."
+    ),
+)
+def puede_cerrarse(nc_id: UUID, db: Session = Depends(get_tenant_db)):
+    from ..services.audits import impedimento_por_planes
+
+    registro = _registro_o_404(db, nc_id)
+    if registro.status == "closed":
+        return PuedeCerrarse(puede=False, motivo="El registro ya esta cerrado.")
+    ok, motivo = svc_etapas.puede_cerrarse(db, registro)
+    if ok:
+        # Las dos reglas, igual que `/close`: sin esto la pantalla habilitaba un
+        # cierre que el endpoint despues rechazaba por los planes de accion.
+        motivo = impedimento_por_planes(db, registro)
+        ok = motivo is None
+    return PuedeCerrarse(puede=ok, motivo=motivo)

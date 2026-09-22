@@ -42,7 +42,7 @@ from sqlalchemy.orm import Session
 from app.models.crm import CrmStage
 from app.models.organization import Tenant
 from app.routers.tenants import create_tenant
-from app.schemas.organization import TenantCreate
+from app.schemas.organization import AltaDeEmpresa
 from app.services import crm as svc
 
 URL = os.getenv(
@@ -247,7 +247,7 @@ class TestElAltaDeEmpresaLoHace:
         s = _sesion(conexion)
 
         creada = create_tenant(
-            data=TenantCreate(
+            data=AltaDeEmpresa(
                 country_id=1,
                 rut_tax_id=f"98{uuid.uuid4().int % 1_000_000:06d}-1",
                 legal_name="Constructora del Sur SpA",
@@ -269,7 +269,7 @@ class TestElAltaDeEmpresaLoHace:
         s = _sesion(conexion)
 
         creada = create_tenant(
-            data=TenantCreate(
+            data=AltaDeEmpresa(
                 country_id=1,
                 rut_tax_id=f"97{uuid.uuid4().int % 1_000_000:06d}-2",
                 legal_name="Minera del Norte SpA",

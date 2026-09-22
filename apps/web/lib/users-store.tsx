@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { DescriptorCargo, Role, User, UserEstado } from '@ambienta/shared';
+import type { Role, User, UserEstado } from '@ambienta/shared';
 import { mockUsers } from '@/mocks/users';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
@@ -10,23 +10,49 @@ import { CLERK_HABILITADO } from '@/lib/clerk-config';
 interface UsersContextValue {
   users: User[];
   loading: boolean;
-  inviteUser: (input: {
-    tenantId: string | null;
-    nombre: string;
-    email: string;
-    role: Role;
-    plantIds: string[];
-    departamentoId: string | null;
-  }) => User;
+  /**
+   * Registra a la persona **con su rol** y le manda la invitación de Clerk, en
+   * un solo acto (`POST /users/invitaciones`). Rechaza si no salió: en ese
+   * caso la API no dejó nada escrito.
+   */
+  inviteUser: (input: NuevaInvitacion) => Promise<User>;
   updateRole: (userId: string, role: Role) => void;
-  updatePlants: (userId: string, plantIds: string[]) => void;
+  /** Las plantas a las que está acotada. Vacía = todas. Rechaza si falla. */
+  leerAlcance: (userId: string, tenantId: string) => Promise<string[]>;
+  /** Una planta, o `null` para todas. Rechaza si la base no lo guardó. */
+  fijarAlcance: (userId: string, tenantId: string, facilityId: string | null) => Promise<string[]>;
   updateDepartamento: (userId: string, departamentoId: string | null) => void;
   updateNombre: (userId: string, nombre: string) => void;
-  updateDescriptorCargo: (userId: string, descriptor: DescriptorCargo) => void;
   setEstado: (
     userId: string,
     estado: UserEstado,
   ) => Promise<{ ok: boolean; error?: string }>;
+}
+
+export interface NuevaInvitacion {
+  tenantId: string;
+  nombre: string;
+  email: string;
+  role: Role;
+  departamentoId: string | null;
+}
+
+/**
+ * El cuerpo de `POST /users/invitaciones`, literal.
+ *
+ * **El rol va explícito**: sin rol la persona entra y recibe 403 en todo. El
+ * criterio es el de `db/09` —administrador → `admin_empresa`, el resto →
+ * `encargado_ambiental`— y se ajusta después en la pantalla de permisos.
+ */
+export function cuerpoDeInvitacion(input: NuevaInvitacion) {
+  const esAdmin = input.role === 'admin_empresa';
+  return {
+    full_name: input.nombre,
+    email: input.email,
+    user_type: esAdmin ? 'tenant_admin' : 'internal',
+    department_id: input.departamentoId ?? null,
+    role_code: esAdmin ? 'admin_empresa' : 'encargado_ambiental',
+  };
 }
 
 const UsersContext = createContext<UsersContextValue | null>(null);
@@ -165,53 +191,20 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
-  function inviteUser(input: {
-    tenantId: string | null;
-    nombre: string;
-    email: string;
-    role: Role;
-    plantIds: string[];
-    departamentoId: string | null;
-  }): User {
-    const nuevo: User = {
-      id: `user-${Date.now()}`,
-      tenantId: input.tenantId,
-      nombre: input.nombre,
-      email: input.email,
-      role: input.role,
-      plantIds: input.plantIds,
-      departamentoId: input.departamentoId,
-      estado: 'invitado',
-      ultimaActividad: null,
-    };
-    setUsers((prev) => [...prev, nuevo]);
-
-    if (input.tenantId) {
-      // `full_name`, no `display_name`. **La API exige `full_name` y no lo
-      // tenia**, asi que esta llamada devolvia 422 y el `.catch` vacio se lo
-      // tragaba: la invitacion se veia hecha en pantalla y no creaba a nadie.
-      api
-        .post(
-          '/users/',
-          {
-            full_name: input.nombre,
-            email: input.email,
-            user_type: input.role === 'admin_empresa' ? 'tenant_admin' : 'internal',
-            department_id: input.departamentoId ?? null,
-          },
-          { tenantId: input.tenantId },
-        )
-        .catch((error) => {
-          setUsers((prev) => prev.filter((u) => u.id !== nuevo.id));
-          mostrarToast({
-            tipo: 'error',
-            mensaje: 'No se pudo invitar a la persona',
-            descripcion: mensajeDeError(error),
-          });
-        });
-    }
-
-    return nuevo;
+  async function inviteUser(input: NuevaInvitacion): Promise<User> {
+    // **Sin fila optimista.** Antes se agregaba a la lista con un id inventado
+    // y se hacía solo `POST /users/`: la persona quedaba "Invitada" en pantalla
+    // y **nunca recibía el correo**, porque nadie le pedía la invitación a
+    // Clerk. Ahora la lista muestra lo que la API confirmó.
+    const respuesta = await api.post<{ user: Record<string, unknown> }>(
+      '/users/invitaciones',
+      cuerpoDeInvitacion(input),
+      { tenantId: input.tenantId },
+    );
+    const creado = mapApiUser(respuesta.user);
+    if (!creado) throw new Error('La API respondió sin la persona invitada.');
+    setUsers((prev) => [...prev, creado]);
+    return creado;
   }
 
   /**
@@ -254,26 +247,29 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * **Todavía no llega a la base, pero ya no por un desacuerdo de modelo.**
+   * El alcance por planta (#25), contra `GET/PUT /users/{id}/alcance`.
    *
-   * La versión anterior de este comentario decía que los dos modelos no se
-   * podían conciliar. Medido el 1-sep-2026, era falso: con clave primaria
-   * `(user_id, role_id)` una persona con **varios roles** puede tener varias
-   * plantas, y `alcance_del_usuario` ya las junta en un conjunto. Lo único
-   * que la PK no admite es el **mismo** rol en dos plantas, y se decidió que
-   * no hace falta.
+   * Hasta el 13-sep esto era `updatePlants`: tocaba solo el estado local y se
+   * perdía al recargar, mientras la API **sí** acotaba por planta — así que
+   * nadie podía asignar lo que el sistema aplicaba, salvo con SQL.
    *
-   * La **lectura** ya está conectada: el alcance de la sesión sale de
-   * `GET /me`.`instalaciones` (ver `lib/alcance.ts`), y con eso las siete
-   * pantallas que acotan por planta empezaron a acotar de verdad.
-   *
-   * La **escritura** es asignar `user_roles.facility_id`, o sea parte de
-   * asignar roles (#140) — que vive en otra rama. Meterla acá serían dos
-   * caminos para escribir la misma fila. Hasta entonces esto solo toca el
-   * estado local y se pierde al recargar.
+   * **Una planta o todas**, no varias: el alcance se guarda en las filas de
+   * rol, y la clave `(user_id, role_id)` no admite el mismo rol en dos plantas.
    */
-  function updatePlants(userId: string, plantIds: string[]) {
+  async function leerAlcance(userId: string, tenantId: string): Promise<string[]> {
+    const r = await api.get<{ facility_ids: string[] }>(`/users/${userId}/alcance`, { tenantId });
+    return r.facility_ids.map(String);
+  }
+
+  async function fijarAlcance(userId: string, tenantId: string, facilityId: string | null): Promise<string[]> {
+    const r = await api.put<{ facility_ids: string[] }>(
+      `/users/${userId}/alcance`,
+      { facility_id: facilityId },
+      { tenantId },
+    );
+    const plantIds = r.facility_ids.map(String);
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, plantIds } : u)));
+    return plantIds;
   }
 
   function updateDepartamento(userId: string, departamentoId: string | null) {
@@ -318,13 +314,7 @@ export function UsersProvider({ children }: { children: ReactNode }) {
       });
   }
 
-  /**
-   * **No llega a la base:** `UserUpdate` acepta `full_name`, `department_id`,
-   * `status` y `preferences`. El descriptor de cargo no esta entre ellos.
-   */
-  function updateDescriptorCargo(userId: string, descriptorCargo: DescriptorCargo) {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, descriptorCargo } : u)));
-  }
+
 
   /**
    * **No llega a la base.** Los permisos individuales tienen tabla
@@ -388,10 +378,10 @@ export function UsersProvider({ children }: { children: ReactNode }) {
         loading,
         inviteUser,
         updateRole,
-        updatePlants,
+        leerAlcance,
+        fijarAlcance,
         updateDepartamento,
         updateNombre,
-        updateDescriptorCargo,
         setEstado,
       }}
     >
@@ -404,4 +394,13 @@ export function useUsers() {
   const ctx = useContext(UsersContext);
   if (!ctx) throw new Error('useUsers debe usarse dentro de <UsersProvider>');
   return ctx;
+}
+
+/**
+ * Como `useUsers`, pero devuelve `null` fuera del provider en vez de lanzar.
+ * Lo usa `useNombreDeUsuario`, que tiene que funcionar también en componentes
+ * que se prueban sin montar el store de usuarios.
+ */
+export function useUsersOpcional() {
+  return useContext(UsersContext);
 }

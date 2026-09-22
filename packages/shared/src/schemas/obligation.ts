@@ -63,6 +63,31 @@ export const ObligationSchema = z.object({
   /** Por qué se devolvió la declaración a quien la preparó (RF-31). */
   motivoRechazo: z.string().optional(),
   /**
+   * El estado del flujo RF-31, **crudo, tal como lo guarda la base**.
+   *
+   * `estado` es el semáforo —vigente, por vencer, vencida, sin evidencia— y se
+   * *deriva* de este. Son dos preguntas distintas: uno dice en qué punto del
+   * trámite va la declaración, el otro de qué color se ve.
+   *
+   * Se conserva porque el mapeo **pierde información** y hay pantallas que la
+   * necesitan: un historial de presentaciones vacío significa "todavía no se
+   * presentó" en una declaración en borrador, y "se presentó antes de que
+   * existiera este registro" en una ya aceptada. Sin el estado crudo las dos se
+   * ven iguales, y una de las dos afirmaciones sería falsa.
+   */
+  estadoDeclaracion: z
+    .enum([
+      'draft',
+      'open',
+      'in_progress',
+      'submitted',
+      'accepted',
+      'rejected',
+      'overdue',
+      'closed',
+    ])
+    .optional(),
+  /**
    * La dirección del portal ante el que se declara.
    *
    * Sale del catálogo `retc_systems` y no de una copia en la obligación: los

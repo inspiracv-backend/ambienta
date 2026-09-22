@@ -161,6 +161,27 @@ class TestLaCabeceraNoMiente:
         assert r.headers["X-Page-Limit"] == str(POR_DEFECTO)
 
 
+class TestElNavegadorPuedeLeerla:
+    """Una cabecera que el navegador no puede leer es una cabecera que no existe.
+
+    `fetch` esconde las cabeceras propias de una respuesta de otro origen salvo
+    que CORS las exponga. Sin `expose_headers`, la API mandaba `X-Has-More:
+    true` y la web leia `false` siempre: los avisos de lista cortada no
+    aparecian nunca con la web y la API en origenes distintos. Medido en el
+    navegador el 21-sep; `TestClient` no lo ve si no se le pide un `Origin`.
+    """
+
+    def test_la_paginacion_esta_expuesta_por_cors(self, cliente) -> None:
+        from app.config import get_settings
+
+        origen = get_settings().cors_origins_list[0]
+        r = cliente.get(f"{RUTA}?limit=1", headers={**_como_a(), "Origin": origen})
+
+        expuestas = {h.strip().lower() for h in r.headers.get("access-control-expose-headers", "").split(",")}
+        assert "x-has-more" in expuestas, r.headers
+        assert "x-page-limit" in expuestas
+
+
 class TestRecortar:
     """La funcion suelta, sin HTTP: los bordes son mas faciles de fijar aca."""
 

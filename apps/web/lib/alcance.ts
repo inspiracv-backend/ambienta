@@ -53,3 +53,22 @@ export async function cargarAlcance(tenantId: string): Promise<AlcanceDeLaSesion
     departamentos: me.departamentos ?? [],
   };
 }
+
+/**
+ * Si una fila con **una** planta se ve dentro del alcance de la pantalla.
+ *
+ * **Una fila sin planta se ve siempre.** `facility_id` nulo es «de toda la
+ * empresa», no «de otra planta» — es la regla 2 de `app/alcance.py`, y la API ya
+ * la aplica. Las pantallas la invertían: filtraban con
+ * `plantas.some((p) => p.id === fila.plantId)`, y como una fila sin planta llega
+ * con `plantId: ''`, no coincidía con ninguna y **desaparecía**. Medido el
+ * 13-sep: la empresa A tenía 56 obligaciones vivas y **51 sin planta**, o sea
+ * que obligaciones, calendario, dashboard y reportes mostraban 5.
+ */
+export function visibleEnAlcance(
+  plantId: string | null | undefined,
+  plantas: readonly { id: string }[],
+): boolean {
+  if (!plantId) return true;
+  return plantas.some((p) => p.id === plantId);
+}

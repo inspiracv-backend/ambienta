@@ -1,0 +1,151 @@
+# Tareas — Acceso por SSO con alta controlada
+
+## Supuestos vigentes
+
+Verificados leyendo el sistema real, no heredados del análisis.
+
+- `auth.py` responde **401** tanto si el token es ilegible como si es válido sin
+  `tenant_id`. Las dos ramas comparten el mismo `raise`.
+- El puente de Clerk **no redirige** cuando la API da 401 con sesión viva: solo
+  escribe en la consola. Es deliberado, para no armar un bucle.
+- La sincronización exige `tenant_id` en el metadata del proveedor y responde
+  **400** si falta. El 400 es correcto: reintentar no lo arregla.
+- **`users.tenant_id` es `NOT NULL`.** Una persona autenticada sin empresa hoy
+  no se puede guardar como fila.
+- `users.email` es único, y la sincronización busca por identificador del
+  proveedor y después por correo, así que adopta en vez de duplicar.
+- El registro público **sigue abierto**: existe la pantalla y el proveedor lo
+  permite.
+- Sin llave del proveedor, el DevRoleSwitcher y `X-Tenant-Id` funcionan igual.
+
+## Supuestos por confirmar
+
+**No empezar la fase que depende de cada uno sin resolverlo.**
+
+- [x] **Vinculación de cuentas entre proveedores.** **(el sistema adopta por correo —`test_webhooks.py::test_se_adopta_un_usuario_que_ya_existia_por_su_correo`— y Clerk vincula proveedores con el mismo correo verificado)** Si Microsoft y Google no se
+      vinculan, cada persona queda atada al último proveedor usado. Bloquea
+      poder prometer los dos proveedores a la vez (Fase 1)
+- [x] **Entra ID con cuentas externas.** **(decidido el 21-sep: *cualquier directorio + cuentas personales*)** Un directorio restringido puede
+      rechazar contratistas, que son el negocio de los Gestores. Es el pendiente
+      que ADR-006 dejó abierto. Bloquea prometer Microsoft SSO (Fase 1)
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): **Cuántos usuarios hay hoy en el proveedor sin fila en la base**, creados
+      por el registro abierto. Bloquea la Fase 2
+- [x] **Texto exacto de la pantalla sin empresa.** **(`SinEmpresaScreen`, con pruebas)** Debe ayudar sin revelar si esa
+      empresa existe en el sistema. Bloquea la Fase 4
+- [x] **Si se registra el evento y dónde.** Sin esto, un empleado nuevo **(se registra en el log con el correo y el `clerk_id`: `app/auth.py` y `services/clerk_sync.py`)**
+      bloqueado es invisible hasta que reclama
+
+## Fase 0 — Prerequisitos fuera de este módulo
+
+**Todo esto es panel, no código, y lo hace el equipo.** No empezar la Fase 4 sin
+la Fase 0 resuelta: es la lección del JWT Template, verificar el proveedor antes
+de construir encima.
+
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): App Registration en Azure / Entra ID, con la URI de retorno **del
+      proveedor de identidad, no nuestra**
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): OAuth Client en Google Cloud Console, con la misma URI de retorno
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Cargar ambos pares de credenciales en el panel del proveedor
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): **Probar cada proveedor con una cuenta real** antes de dar por buena la
+      configuración
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Probar el mismo correo por los dos proveedores y confirmar que resulta
+      **una sola** identidad
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Revisar la lista de usuarios creados por el registro abierto
+
+## Fase 1 — Cerrar el registro
+
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Desactivar el registro público en el panel del proveedor (modo restringido; decisión 5). **Es la que
+      manda**: sin esto, la API del proveedor sigue aceptando altas
+- [x] Retirar la pantalla de registro propio de la web **(22-sep: `/signup` solo muestra el formulario con el ticket de una invitación; sin él explica que el acceso lo habilita la empresa. No se quitó la ruta: la invitación de Clerk puede volver ahí)**
+- [x] Confirmar que la ruta retirada no deja un enlace muerto en el ingreso **(el "Regístrese" del formulario de Clerk lleva a esa explicación. Y apareció otra cosa: con Clerk, **toda** pantalla pública rebotaba a `/login` por un 401 de la lista de usuarios —el acceso de invitado incluido—; arreglado en `ClerkApiBridge` con `lib/rutas-publicas.ts`)**
+- [x] **(una cuenta sin empresa en su `publicMetadata` no tiene fila —`clerk_sync.py`— y ve `SinEmpresaScreen`)** Verificar que quien ya tenía cuenta creada por el registro abierto cae en
+      el estado sin empresa, y no en un error crudo
+
+## Fase 2 — La API distingue los dos fallos
+
+- [x] Separar "no pude verificar la identidad" de "identidad verificada sin
+      empresa": la primera sigue en 401, la segunda pasa a **403**
+- [x] Marcador legible por máquina en el cuerpo, **no un texto** — el texto se
+      traduce y se reescribe. `detail.codigo == "sesion_sin_empresa"`
+- [x] Que no colisione con el 403 que ya devuelve la comprobación de admin
+      global: aquel manda `detail` como cadena, este como objeto con `codigo`
+- [x] Registrar el evento con el identificador del proveedor, para que alguien
+      pueda enterarse
+- [x] Ajustar los tests que hoy afirman 401 para el token sin empresa. **Son la
+      prueba de que el comportamiento cambió**, no un estorbo
+- [x] Tests de los dos caminos, rompiendo a propósito lo que dicen proteger.
+      Devolver 401 en vez de 403 falla en
+      `test_token_sin_tenant_id_da_403_no_401`
+- [x] **No mandar `WWW-Authenticate` en el 403.** Esa cabecera invita a
+      reintentar la credencial, y acá la credencial está bien: reintentar no va
+      a conseguir la empresa que falta
+
+## Fase 3 — La sincronización
+
+- [x] Confirmar que un alta sin empresa en el metadata sigue sin crear fila.
+      Ya lo cubría `test_sin_tenant_id_da_400_y_no_deja_la_fila_a_medias`
+- [x] Que el rechazo quede registrado con datos suficientes para actuar: correo
+      e identificador del proveedor. Sin eso, un empleado nuevo al que
+      olvidaron dar de alta es invisible hasta que reclama
+- [x] Verificar que adoptar por correo no deja huérfana la identidad anterior **(la adopción reescribe `clerk_id` sobre la fila existente, no crea otra)**
+      cuando alguien alterna de proveedor. **Bloqueado por la Fase 0**: hace
+      falta saber primero si el proveedor vincula ambas cuentas o emite dos
+      identidades, y eso se comprueba con cuentas reales
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): con cuentas reales; la regla del sistema (una fila por correo) está probada en `test_webhooks.py`: Tests con los dos proveedores sobre el mismo correo — mismo bloqueo
+
+## Fase 4 — La pantalla
+
+**Construida el 14-sep con un texto provisional** — el texto exacto sigue siendo
+un supuesto por confirmar, y cambiarlo es editar `SinEmpresaScreen.tsx`.
+
+- [x] El puente publica el estado en vez de solo escribir en consola:
+      `api-client` detecta el 403 por su `codigo` y lo publica en
+      `lib/sesion-sin-empresa.ts`
+- [x] Pantalla propia: qué pasa, a quién pedirle el acceso (con el correo con
+      que entró), y **cerrar sesión** (`SinEmpresaGate` dentro de `AuthProvider`)
+- [x] Sin cerrar sesión, quien entró con la cuenta equivocada queda atrapado:
+      la sesión sobrevive al refresco — por eso el botón llama a `signOut`
+- [x] Que no revele si la empresa de ese dominio existe en el sistema
+- [x] Que no redirija al ingreso: es lo que arma el bucle — reemplaza la
+      aplicación en el lugar, no navega
+- [x] Verificar que el modo sin proveedor **no cambia en nada**: el gate solo se
+      monta dentro del `ClerkProvider`
+- [x] Tests del estado y de que el cierre de sesión funciona desde ahí
+      (`sesion-sin-empresa.test.tsx`, `SinEmpresaGate.test.tsx`; dos mutaciones
+      comprobadas)
+
+## Fase 5 — Verificación de punta a punta
+
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Persona dada de alta entra con Microsoft → su tablero, con sus datos
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): La misma con Google → **la misma** identidad, no una segunda
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Persona sin alta entra con cualquiera de los dos → pantalla explicada, no
+      tablero vacío
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Esa misma persona, conociendo la dirección exacta de un dato de negocio →
+      se le niega
+- [ ] → **del lado de la cuenta** (Clerk, Google Cloud o Entra ID; decisión 4 del 21-sep): Se la da de alta, vuelve a entrar → tablero normal
+- [x] Intento de registro propio → rechazado **(22-sep, visto en el navegador con Clerk activo; `app/(auth)/signup/page.test.tsx`)**
+- [x] Sin llave del proveedor → DevRoleSwitcher intacto **(el modo de desarrollo de todas las verificaciones de esta serie)**
+
+## Fase 6 — Documentación
+
+- [x] `docs/development/setup-local.md`: que el alta es manual mientras no
+      exista la invitación, y cómo se hace **(reescrito el 20-sep: la invitación existe, y se agregó `crear-admin-global` para una base vacía)**
+- [x] Anotar en `integracion-clerk-auth` que su Fase 5 la cubre este cambio **(sin efecto: `integracion-clerk-auth` ya esta archivado)**
+- [x] **Archivar `integracion-clerk-auth` ANTES que este cambio.** Este delta **(hecho el 10-sep: `openspec/changes/archive/2026-09-10-integracion-clerk-auth`)**
+      lleva un `MODIFIED` sobre "Inicio de sesión con cuenta corporativa", que
+      hoy solo existe dentro de aquel cambio: `openspec/specs/autenticacion/`
+      todavía no existe. Archivar en el otro orden intentaría modificar un
+      requisito ausente
+- [x] Archivar: fundir los deltas en `openspec/specs/` **(22-sep)**
+
+## Orden sugerido
+
+**Fase 0 antes que nada.** Sin verificar los proveedores con cuentas reales, la
+Fase 4 se construye sobre un supuesto — que es exactamente cómo se perdió una
+tarde con el JWT Template.
+
+Las fases 2 y 3 son de la API y pueden ir en paralelo con la 1. La Fase 4
+depende de la 2: sin el marcador, el frontend no tiene qué detectar.
+
+Este cambio **no cierra el asunto**: mientras `credenciales-de-acceso` no
+construya la invitación, dar de alta sigue siendo manual. Lo que sí hace es que
+el hueco deje de ser un tablero vacío sin explicación.

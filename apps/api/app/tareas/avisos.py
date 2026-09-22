@@ -3,7 +3,9 @@
 Dos pasos que se corren juntos y son independientes a proposito:
 
 1. **Generar** — mira que obligaciones vencen dentro de las ventanas de cada
-   empresa (15/7/3/1 por defecto) y escribe los avisos que falten. Es
+   empresa (15/7/3/1 por defecto) y escribe los avisos que falten. Tambien las
+   etapas del registro de mejora: asignacion, por vencer (7/3/1) y vencida
+   (`services/avisos_de_etapas.py`, RF-99). Es
    idempotente: correrlo dos veces no duplica, lo garantiza un indice unico
    (`db/17`), no un `if`.
 2. **Despachar** — toma lo encolado y lo entrega. Reintenta lo que falla y se
@@ -51,8 +53,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
-from ..deps import declarar, olvidar
+from ..deps import ESTADOS_SOLO_LECTURA, declarar, olvidar
 from ..services import despacho
+from ..services import avisos_de_etapas
 from ..services.avisos_de_vencimiento import generar
 
 logger = logging.getLogger("ambienta.tareas.avisos")
@@ -61,6 +64,10 @@ logger = logging.getLogger("ambienta.tareas.avisos")
 @dataclass
 class Informe:
     empresas: int = 0
+    #: Empresas suspendidas o cerradas: no se les genera ni despacha nada. **Se
+    #: cuentan** porque una pausa que no se informa se ve igual que "no vence
+    #: nada".
+    en_pausa: int = 0
     creados: int = 0
     repetidos: int = 0
     escalados: int = 0
@@ -78,6 +85,7 @@ class Informe:
     def resumen(self) -> str:
         lineas = [
             f"empresas atendidas: {self.empresas}",
+            f"empresas en pausa (suspendidas o cerradas): {self.en_pausa}",
             "",
             "generacion",
             f"  avisos nuevos: {self.creados}",
@@ -112,15 +120,17 @@ class Informe:
         return bool(self.sin_destinatario) or self.rendidos > 0 or self.atrasados > 0
 
 
-def _empresas(db: Session) -> list[UUID]:
-    """Todas las empresas vivas. `tenants` no lleva `tenant_id`, se lee sin contexto."""
-    return list(
-        db.execute(
-            text("SELECT id FROM tenants WHERE deleted_at IS NULL ORDER BY created_at")
-        )
-        .scalars()
-        .all()
-    )
+def _empresas(db: Session) -> tuple[list[UUID], int]:
+    """Las empresas a atender, y cuantas quedaron en pausa.
+
+    `tenants` no lleva `tenant_id`, se lee sin contexto. Las suspendidas o
+    cerradas **no se atienden**: sus avisos se pausan (spec de RBAC, 21-sep).
+    """
+    filas = db.execute(
+        text("SELECT id, status FROM tenants WHERE deleted_at IS NULL ORDER BY created_at")
+    ).all()
+    atender = [tid for tid, estado in filas if estado not in ESTADOS_SOLO_LECTURA]
+    return atender, len(filas) - len(atender)
 
 
 def correr(*, transporte: despacho.Transporte | None = None) -> Informe:
@@ -128,7 +138,7 @@ def correr(*, transporte: despacho.Transporte | None = None) -> Informe:
     informe = Informe()
 
     with SessionLocal() as db:
-        empresas = _empresas(db)
+        empresas, informe.en_pausa = _empresas(db)
 
     for tenant_id in empresas:
         # Una sesion por empresa. El contexto de RLS se fija con `SET LOCAL`, o
@@ -139,6 +149,10 @@ def correr(*, transporte: despacho.Transporte | None = None) -> Informe:
             declarar(db, tenant_id)
             try:
                 r = generar(db, tenant_id)
+                # Las etapas del registro de mejora (RF-99) van en la misma
+                # transaccion: si una de las dos falla, no queda media corrida
+                # escrita que la siguiente tome por completa.
+                e = avisos_de_etapas.generar(db, tenant_id)
                 db.commit()
             except Exception:
                 db.rollback()
@@ -146,10 +160,11 @@ def correr(*, transporte: despacho.Transporte | None = None) -> Informe:
                 continue
 
             informe.empresas += 1
-            informe.creados += r.creados
-            informe.repetidos += r.omitidos_por_repetidos
-            informe.escalados += r.escalados
+            informe.creados += r.creados + e.creados
+            informe.repetidos += r.omitidos_por_repetidos + e.omitidos_por_repetidos
+            informe.escalados += r.escalados + e.escalados
             informe.sin_destinatario.extend(r.sin_destinatario)
+            informe.sin_destinatario.extend(e.sin_destinatario)
 
         with SessionLocal() as db:
             # **Por toda la sesion, no por transaccion.** El despachador

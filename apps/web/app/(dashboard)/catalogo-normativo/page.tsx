@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Settings2 } from 'lucide-react';
 import { Spinner } from '@/components/atoms';
-import { CatalogNormsTable } from '@/components/organisms';
+import { CatalogNormsTable, UltimaSincronizacionBcn } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
 import { useTenants } from '@/lib/tenants-store';
@@ -46,6 +46,7 @@ export default function CatalogoNormativoPage() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Catálogo Normativo</h1>
           <p className="text-sm text-slate-500">{tenant?.nombre}</p>
+          <UltimaSincronizacionBcn />
         </div>
         {user.role === 'admin_empresa' && (
           <Link

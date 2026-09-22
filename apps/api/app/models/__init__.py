@@ -37,6 +37,7 @@ from .obligations import (
     ObligationTemplate,
     Task,
 )
+from .comentarios import Comment, CommentMention
 from .documents import (
     Document,
     DocumentVersion,
@@ -48,6 +49,7 @@ from .audit import (
     AuditItem,
     AuditParticipant,
     EntityStatusHistory,
+    ImprovementStageEntry,
     Nonconformity,
 )
 from .notifications import (
@@ -92,6 +94,7 @@ __all__ = [
     # Audit
     "Audit", "AuditItem", "AuditParticipant",
     "Nonconformity", "ActionPlan", "EntityStatusHistory",
+    "ImprovementStageEntry",
     # Notifications
     "NotificationTemplate", "NotificationRule", "Notification",
     # Support
@@ -99,6 +102,8 @@ __all__ = [
     "ChatbotConversation", "ChatbotMessage",
     # System
     "IntegrationAccount", "AuditLog",
+    # Colaboracion (RF-111, RF-112)
+    "Comment", "CommentMention",
     # ISO 14001
     "EnvironmentalAspect", "RiskOpportunity",
     "RegulatedEquipment", "EquipmentOperator",

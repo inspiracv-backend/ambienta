@@ -5,6 +5,7 @@ import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { registrarProveedorDeToken, registrarSesionExpirada } from '@/lib/api-client';
 import { CLERK_JWT_TEMPLATE } from '@/lib/clerk-config';
+import { esRutaPublica } from '@/lib/rutas-publicas';
 
 /**
  * Conecta la sesion de Clerk con el cliente HTTP.
@@ -48,6 +49,11 @@ export function ClerkApiBridge() {
         );
         return;
       }
+      // **Una pantalla publica no manda al ingreso.** Sin sesion, cualquier
+      // peticion a la API da 401 —la lista de usuarios se pide al montar la
+      // aplicacion— y esto mandaba a /login desde el acceso de invitado y desde
+      // el registro con invitacion (22-sep). Ahi no tener sesion es lo normal.
+      if (esRutaPublica(window.location.pathname)) return;
       router.replace('/login');
     });
 

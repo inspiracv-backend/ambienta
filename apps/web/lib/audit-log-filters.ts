@@ -1,3 +1,4 @@
+import { enRangoDeDias } from '@/lib/fechas';
 import type { AuditLogEntry, EntidadAuditable } from '@ambienta/shared';
 
 export interface FiltrosAuditoria {
@@ -24,16 +25,11 @@ export const FILTROS_INICIALES: FiltrosAuditoria = {
   tenantId: 'plataforma',
 };
 
-function enRango(iso: string, desde: string, hasta: string): boolean {
-  if (!desde && !hasta) return true;
-  const t = new Date(iso).getTime();
-  if (desde && t < new Date(desde).getTime()) return false;
-  // El día "hasta" cuenta completo: quien filtra "hasta el 30" espera que
-  // incluya lo que pasó ese día, no hasta su medianoche. Mismo criterio que
-  // `lib/reports.ts`.
-  if (hasta && t > new Date(hasta).getTime() + 86_400_000 - 1) return false;
-  return true;
-}
+// **Días de calendario de quien mira, no instantes UTC** (`lib/fechas.ts`). El
+// día "hasta" cuenta completo. Hasta el 21-sep esto comparaba contra
+// `new Date(desde)`, que es la medianoche UTC: en Chile dejaba fuera la noche
+// del día pedido, y con el registro del servidor la pantalla mostraba 0 de 500.
+const enRango = enRangoDeDias;
 
 /**
  * Filtra el historial para la vista consolidada (RNF-26: los logs deben poder

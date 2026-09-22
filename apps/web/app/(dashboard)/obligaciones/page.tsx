@@ -1,5 +1,6 @@
 'use client';
 
+import { visibleEnAlcance } from '@/lib/alcance';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/atoms';
@@ -42,7 +43,7 @@ export default function ObligacionesPage() {
       : tenant?.plants ?? [];
 
   const visibleObligations = obligations.filter(
-    (o) => o.tenantId === user.tenantId && scopedPlants.some((p) => p.id === o.plantId),
+    (o) => o.tenantId === user.tenantId && visibleEnAlcance(o.plantId, scopedPlants),
   );
 
   return (
