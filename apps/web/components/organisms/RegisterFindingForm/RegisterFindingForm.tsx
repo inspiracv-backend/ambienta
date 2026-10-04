@@ -46,6 +46,7 @@ export function RegisterFindingForm({
 
   const [plantId, setPlantId] = useState(defaultPlantId ?? plants[0]?.id ?? '');
   const [hallazgo, setHallazgo] = useState('');
+  const [evidencia, setEvidencia] = useState('');
   // La escala sale del catalogo de la empresa, no de "Alta/Media/Baja" escrito
   // aca: esas etiquetas no eran las de nadie.
   const [severidades, setSeveridades] = useState<Severidad[] | null>(null);
@@ -106,6 +107,9 @@ export function RegisterFindingForm({
     if (!tipo) return 'Selecciona el tipo de registro: define qué cláusula aplica.';
     if (!origen) return 'Selecciona cómo se detectó.';
     if (esDeAuditoria && !auditItemId) return 'Indica de qué pregunta de la auditoría salió el hallazgo.';
+    // ISO 19011: la evidencia sostiene el hallazgo si el auditado lo apela, y
+    // va aparte de la descripción. La API también la exige.
+    if (esDeAuditoria && !evidencia.trim()) return 'Escribe la evidencia objetiva: qué se vio, dónde y cuándo.';
     if (esSalidaNoConforme && (!sku.trim() || !lote.trim() || !producto.trim() || !cantidad.trim())) {
       return 'Una salida no conforme exige identificar SKU, lote, producto y cantidad (§8.7).';
     }
@@ -133,7 +137,7 @@ export function RegisterFindingForm({
         responsableId,
         ...(conMejora && tipo ? { tipoRegistro: tipo } : {}),
         ...(conMejora && origen ? { origen } : {}),
-        ...(conMejora && esDeAuditoria ? { auditItemId } : {}),
+        ...(conMejora && esDeAuditoria ? { auditItemId, evidenciaObjetiva: evidencia.trim() } : {}),
         // Las claves son las que exige la base (`db/24`), no las del formulario.
         ...(conMejora && esSalidaNoConforme
           ? { productData: { sku: sku.trim(), lote: lote.trim(), nombre: producto.trim(), cantidad: cantidad.trim(), unidad } }
@@ -321,6 +325,23 @@ export function RegisterFindingForm({
             onChange={(e) => setHallazgo(e.target.value)}
           />
         </FormField>
+
+        {conMejora && esDeAuditoria && (
+          <FormField
+            label="Evidencia objetiva"
+            htmlFor={`${formId}-evidencia`}
+            required
+            hint="Qué se vio, dónde y cuándo. Va aparte del hallazgo: es lo que lo sostiene si el auditado lo apela (ISO 19011)."
+          >
+            <textarea
+              id={`${formId}-evidencia`}
+              rows={3}
+              className="w-full rounded-lg border border-slate-300 p-3 text-sm"
+              value={evidencia}
+              onChange={(e) => setEvidencia(e.target.value)}
+            />
+          </FormField>
+        )}
 
         <FormField label="Severidad" htmlFor={`${formId}-severidad`} required>
           {severidades === null ? (

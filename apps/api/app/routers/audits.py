@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,9 @@ from ..models.audit import (
     AuditItem,
     AuditParticipant,
     AuditProcessResult,
+    ImprovementCommitment,
     ImprovementStageEntry,
+    Nonconformity,
 )
 from ..models.organization import User
 from ._paginacion import Pagina, paginacion, recortar
@@ -42,6 +44,9 @@ from ._comun import (
 )
 from ..schemas.audit import (
     AuditItemUpdate,
+    CompromisoCreate,
+    CompromisoRead,
+    CompromisoUpdate,
     EtapaRead,
     EtapaUpdate,
     PuedeCerrarse,
@@ -80,6 +85,47 @@ router = APIRouter(prefix="/audits", tags=["audits"])
 @router.get("/", response_model=list[AuditRead])
 def list_audits(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
     return recortar(respuesta, crud_audit.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
+
+
+# **Antes de `/{audit_id}`**, o esa ruta se la come: leeria "compromisos"
+# como UUID y responderia 422. Ya paso con `/aspects/significant-untreated`
+# y con `/matrix-norms/revisiones`.
+@router.get(
+    "/compromisos",
+    response_model=list[CompromisoRead],
+    tags=["nonconformities"],
+    summary="Las salidas comprometidas de la empresa",
+    description=(
+        "Lo que el sistema de gestion todavia debe. Por defecto solo las "
+        "**pendientes**: son las que un auditor pregunta y las que antes "
+        "desaparecian al cerrar el registro.\n\n"
+        "De la mas antigua a la mas nueva por plazo, y las sin plazo al final: "
+        "una salida sin fecha no es la menos urgente, es la que nadie agendo."
+    ),
+)
+def compromisos_de_la_empresa(
+    respuesta: Response,
+    estado: str = Query(
+        "pendiente",
+        description="`pendiente`, `ejecutada`, `descartada` o `todos`.",
+    ),
+    pagina: Pagina = Depends(paginacion),
+    db: Session = Depends(get_tenant_db),
+):
+    consulta = select(ImprovementCommitment).where(ImprovementCommitment.deleted_at.is_(None))
+    if estado != "todos":
+        consulta = consulta.where(ImprovementCommitment.status == estado)
+    filas = list(
+        db.scalars(
+            consulta.order_by(
+                ImprovementCommitment.due_date.asc().nullslast(),
+                ImprovementCommitment.created_at,
+            )
+            .offset(pagina.skip)
+            .limit(pagina.pedir)
+        ).all()
+    )
+    return recortar(respuesta, _armar_compromisos(db, filas), pagina)
 
 
 @router.get("/{audit_id}", response_model=AuditRead)
@@ -1178,7 +1224,7 @@ def actualizar_etapa(
     data: EtapaUpdate,
     db: Session = Depends(get_tenant_db),
 ):
-    _registro_o_404(db, nc_id)
+    registro = _registro_o_404(db, nc_id)
     fila = db.scalar(
         select(ImprovementStageEntry).where(
             ImprovementStageEntry.id == etapa_id,
@@ -1188,6 +1234,7 @@ def actualizar_etapa(
     if fila is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     verificar_padre(fila, nc_id, campo="nonconformity_id")
+    eficaz_antes = fila.eficaz
 
     validar_visible(crud_user, db, data.responsable_user_id, campo="responsable_user_id")
     validar_visible(
@@ -1203,9 +1250,168 @@ def actualizar_etapa(
     elif fila.fecha_ejecucion is None:
         fila.completada_en = None
 
+    # **En la transicion, no en cada guardado**: la pantalla reenvia el
+    # formulario entero, y un `eficaz: false` repetido no es una segunda
+    # verificacion. Ver `devolver_a_accion_correctiva`.
+    if fila.kind == "seguimiento":
+        # Las salidas reglamentarias que la verificacion deja abiertas (ISO 9001
+        # 10.2.1 e y f) quedan comprometidas. Antes eran casillas sin
+        # consecuencia.
+        svc_etapas.comprometer_salidas(db, registro, fila)
+
+    if fila.kind == "seguimiento" and fila.eficaz is False and eficaz_antes is not False:
+        svc_etapas.devolver_a_accion_correctiva(db, registro)
+
     db.flush()
     db.refresh(fila)
     salida = _armar_etapas(db, [fila])[0]
+    db.commit()
+    return salida
+
+
+def _armar_compromisos(db: Session, filas: list) -> list[CompromisoRead]:
+    """Resuelve el responsable y el registro en una consulta, no en N."""
+    ids = {f.responsable_user_id for f in filas if f.responsable_user_id}
+    nombres = (
+        {u.id: u.full_name for u in db.scalars(select(User).where(User.id.in_(ids))).all()}
+        if ids
+        else {}
+    )
+    registros = {
+        n.id: n
+        for n in db.scalars(
+            select(Nonconformity).where(Nonconformity.id.in_({f.nonconformity_id for f in filas}))
+        ).all()
+    } if filas else {}
+    salida = []
+    for f in filas:
+        registro = registros.get(f.nonconformity_id)
+        salida.append(
+            CompromisoRead.model_validate(f).model_copy(
+                update={
+                    "responsable_nombre": nombres.get(f.responsable_user_id),
+                    "nonconformity_code": registro.code if registro else None,
+                    "nonconformity_title": registro.title if registro else None,
+                }
+            )
+        )
+    return salida
+
+
+@router.get(
+    "/nonconformities/{nc_id}/compromisos",
+    response_model=list[CompromisoRead],
+    tags=["nonconformities"],
+    summary="Las salidas que la verificacion dejo comprometidas",
+    description=(
+        "ISO 9001 10.2.1 e y f: actualizar los riesgos y oportunidades, y hacer "
+        "los cambios al sistema de gestion. Se crean solas cuando el seguimiento "
+        "las marca, y **sobreviven al cierre del registro**: la salida tiene su "
+        "propio plazo."
+    ),
+)
+def compromisos_del_registro(nc_id: UUID, db: Session = Depends(get_tenant_db)):
+    _registro_o_404(db, nc_id)
+    filas = list(
+        db.scalars(
+            select(ImprovementCommitment)
+            .where(
+                ImprovementCommitment.nonconformity_id == nc_id,
+                ImprovementCommitment.deleted_at.is_(None),
+            )
+            .order_by(ImprovementCommitment.kind)
+        ).all()
+    )
+    return _armar_compromisos(db, filas)
+
+
+@router.post(
+    "/nonconformities/{nc_id}/compromisos",
+    response_model=CompromisoRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["nonconformities"],
+    summary="Comprometer una salida a mano",
+    description=(
+        "Para la que no sale de una casilla del seguimiento: la **matriz FODA** "
+        "la agrega quien verifica, mirando si el hallazgo cambia una fortaleza o "
+        "una amenaza.\n\n"
+        "Una sola por salida y por registro: si ya existe, responde **409** en "
+        "vez de acumular dos promesas de lo mismo."
+    ),
+)
+def comprometer_salida(
+    nc_id: UUID,
+    data: CompromisoCreate,
+    tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_tenant_db),
+):
+    registro = _registro_o_404(db, nc_id)
+    validar_visible(crud_user, db, data.responsable_user_id, campo="responsable_user_id")
+    ya_esta = db.scalar(
+        select(ImprovementCommitment).where(
+            ImprovementCommitment.nonconformity_id == nc_id,
+            ImprovementCommitment.kind == data.kind,
+            ImprovementCommitment.deleted_at.is_(None),
+        )
+    )
+    if ya_esta is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esa salida ya esta comprometida en este registro.",
+        )
+    fila = ImprovementCommitment(
+        tenant_id=registro.tenant_id,
+        nonconformity_id=registro.id,
+        status="pendiente",
+        **data.model_dump(),
+    )
+    db.add(fila)
+    db.flush()
+    db.refresh(fila)
+    salida = _armar_compromisos(db, [fila])[0]
+    db.commit()
+    return salida
+
+
+@router.patch(
+    "/compromisos/{compromiso_id}",
+    response_model=CompromisoRead,
+    tags=["nonconformities"],
+    summary="Poner responsable y plazo, o cerrar la salida",
+    description=(
+        "**Descartar exige justificacion** —la pide el esquema y la exige la "
+        "base—: una salida reglamentaria que se descarta sin decir por que es "
+        "justo lo que revisa un auditor.\n\n"
+        "`completada_en` la pone el servidor al cerrarla, en el estado que sea."
+    ),
+)
+def actualizar_compromiso(
+    compromiso_id: UUID,
+    data: CompromisoUpdate,
+    db: Session = Depends(get_tenant_db),
+):
+    fila = db.scalar(
+        select(ImprovementCommitment).where(
+            ImprovementCommitment.id == compromiso_id,
+            ImprovementCommitment.deleted_at.is_(None),
+        )
+    )
+    if fila is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    validar_visible(crud_user, db, data.responsable_user_id, campo="responsable_user_id")
+
+    for campo, valor in data.model_dump(exclude_unset=True).items():
+        setattr(fila, campo, valor)
+
+    # La marca de cierre se deriva del estado, no se recibe.
+    if fila.status == "pendiente":
+        fila.completada_en = None
+    elif fila.completada_en is None:
+        fila.completada_en = datetime.now(timezone.utc)
+
+    db.flush()
+    db.refresh(fila)
+    salida = _armar_compromisos(db, [fila])[0]
     db.commit()
     return salida
 

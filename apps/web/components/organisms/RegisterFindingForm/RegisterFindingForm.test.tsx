@@ -131,10 +131,28 @@ describe('origen de auditoría', () => {
     await userEvent.selectOptions(screen.getByLabelText(/Tipo de registro/), 'no_conformidad');
     await userEvent.selectOptions(await screen.findByLabelText(/Pregunta de la auditoría/), 'item-1');
     await userEvent.type(screen.getByLabelText(/Descripción/), 'Sin contención');
+    await userEvent.type(screen.getByLabelText(/Evidencia objetiva/), 'Registro F-012 sin firma');
     await userEvent.selectOptions(screen.getByLabelText(/Responsable/), PERSONA.id);
     await userEvent.click(screen.getByRole('button', { name: 'Registrar mejora' }));
 
     await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(post.mock.calls[0][1]).toMatchObject({ detection_origin: 'auditoria_interna', audit_item_id: 'item-1' });
+    expect(post.mock.calls[0][1]).toMatchObject({
+      detection_origin: 'auditoria_interna',
+      audit_item_id: 'item-1',
+      objective_evidence: 'Registro F-012 sin firma',
+    });
+  });
+
+  it('sin evidencia objetiva no se manda: un hallazgo sin ella no se sostiene', async () => {
+    // Lo dice la pantalla antes de salir, y la API lo rechazaría igual (ISO 19011).
+    await montar({ defaultAuditId: 'aud-1' });
+    await userEvent.selectOptions(screen.getByLabelText(/Tipo de registro/), 'no_conformidad');
+    await userEvent.selectOptions(await screen.findByLabelText(/Pregunta de la auditoría/), 'item-1');
+    await userEvent.type(screen.getByLabelText(/Descripción/), 'Sin contención');
+    await userEvent.selectOptions(screen.getByLabelText(/Responsable/), PERSONA.id);
+    await userEvent.click(screen.getByRole('button', { name: 'Registrar mejora' }));
+
+    expect(await screen.findByText(/Escribe la evidencia objetiva/)).toBeTruthy();
+    expect(post).not.toHaveBeenCalled();
   });
 });

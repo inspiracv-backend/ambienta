@@ -37,10 +37,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.audit import (
+    ImprovementCommitment,
     ImprovementSeverity,
     ImprovementStageEntry,
     Nonconformity,
 )
+from ..schemas.audit import COMPROMISO_POR_CAMPO
 from .husos import hoy_de
 
 #: El orden por defecto, alineado a ISO 9001 §10.2.1: primero reaccionar,
@@ -197,7 +199,142 @@ def puede_cerrarse(db: Session, registro: Nonconformity) -> tuple[bool, str | No
             "El seguimiento dice que la accion NO fue eficaz: el registro "
             "vuelve a tratamiento en vez de cerrarse."
         )
+
+    # **Las salidas comprometidas no bloquean el cierre, pero sin responsable ni
+    # fecha no se le avisan a nadie** — que es el defecto que esto vino a
+    # arreglar, con otro nombre. El registro se cierra; la salida sigue viva.
+    sin_dueno = [
+        c.kind
+        for c in compromisos_pendientes(db, registro.id)
+        if c.responsable_user_id is None or c.due_date is None
+    ]
+    if sin_dueno:
+        return False, (
+            "Hay salidas comprometidas sin responsable o sin fecha: "
+            + ", ".join(sorted(sin_dueno))
+            + ". El registro se puede cerrar, pero la salida tiene que quedar a cargo de alguien."
+        )
     return True, None
+
+
+#: Los campos del seguimiento que describen **una** verificacion. Al volver a
+#: la accion correctiva se guardan y se vacian: la siguiente es otra.
+_DE_LA_VERIFICACION = (
+    "fecha_ejecucion",
+    "eficaz",
+    "causa_se_repitio",
+    "cumplio_proposito",
+    "requiere_actualizar_riesgos",
+    "requiere_cambios_sgc",
+    "observaciones",
+)
+
+
+def comprometer_salidas(db: Session, registro: Nonconformity, seguimiento: ImprovementStageEntry) -> int:
+    """Crea los compromisos de las salidas que la verificacion dejo abiertas.
+
+    ISO 9001 10.2.1 e y f. Las dos preguntas del seguimiento eran casillas sin
+    consecuencia hasta el 4-oct: se marcaba "Si", se cerraba el registro, y el
+    sistema no volvia a mencionarlo. Ahora cada "Si" deja un compromiso
+    **pendiente**, que sobrevive al cierre del registro y se ve en la lista de
+    salidas pendientes.
+
+    Responsable y fecha nacen vacios —al marcar la casilla todavia no se saben,
+    e inventarlos es lo que este repositorio evita con los plazos—, pero el
+    cierre del registro los exige: ver `puede_cerrarse`.
+
+    Un "No" o un "sin responder" **no retira** un compromiso que ya existe: lo
+    prometido se cumple o se descarta con justificacion, no se borra cambiando
+    una casilla. Idempotente: una fila por salida y por registro.
+    """
+    nuevos = 0
+    for campo, kind in COMPROMISO_POR_CAMPO.items():
+        if getattr(seguimiento, campo) is not True:
+            continue
+        ya_esta = db.scalar(
+            select(ImprovementCommitment).where(
+                ImprovementCommitment.nonconformity_id == registro.id,
+                ImprovementCommitment.kind == kind,
+                ImprovementCommitment.deleted_at.is_(None),
+            )
+        )
+        if ya_esta is not None:
+            continue
+        db.add(
+            ImprovementCommitment(
+                tenant_id=registro.tenant_id,
+                nonconformity_id=registro.id,
+                stage_entry_id=seguimiento.id,
+                kind=kind,
+                status="pendiente",
+            )
+        )
+        nuevos += 1
+    if nuevos:
+        db.flush()
+    return nuevos
+
+
+def compromisos_pendientes(db: Session, registro_id: UUID) -> list[ImprovementCommitment]:
+    """Las salidas de este registro que todavia nadie ejecuto ni descarto."""
+    return list(
+        db.scalars(
+            select(ImprovementCommitment).where(
+                ImprovementCommitment.nonconformity_id == registro_id,
+                ImprovementCommitment.status == "pendiente",
+                ImprovementCommitment.deleted_at.is_(None),
+            )
+        ).all()
+    )
+
+
+def devolver_a_accion_correctiva(db: Session, registro: Nonconformity) -> bool:
+    """Si el seguimiento concluyo que la accion **no** fue eficaz, el registro
+    vuelve a la accion correctiva (ISO 9001 10.2, RF-98).
+
+    Hasta el 4-oct "no eficaz" solo impedia cerrar: el registro quedaba con
+    todas sus etapas completas y un seguimiento negativo, y nada decia que habia
+    que volver a actuar. El spec pedia que volviera, y que se viera.
+
+    - La **accion correctiva** queda por hacer otra vez (sin fecha ni marca).
+    - El **seguimiento** queda sin verificar: la verificacion que fallo se
+      guarda en `datos.verificaciones_no_eficaces` y sus campos se vacian,
+      porque la proxima verificacion es sobre otra accion. Si quedaran, la
+      pantalla —que reenvia el formulario entero— volveria a disparar esto en
+      cada guardado.
+    - El registro pasa a `action_plan`. Ese cambio de estado es lo que queda en
+      **su** historia: el registro de actividades lo anota solo.
+
+    Devuelve `False` si el registro no tiene etapa de accion correctiva.
+    """
+    etapas = {e.kind: e for e in etapas_de(db, registro.id)}
+    accion = etapas.get("accion_correctiva")
+    seguimiento = etapas.get("seguimiento")
+    if accion is None:
+        return False
+
+    if seguimiento is not None:
+        fallida = {
+            campo: (
+                getattr(seguimiento, campo).isoformat()
+                if hasattr(getattr(seguimiento, campo), "isoformat")
+                else getattr(seguimiento, campo)
+            )
+            for campo in _DE_LA_VERIFICACION
+        }
+        fallida["registrada_en"] = datetime.now(timezone.utc).isoformat()
+        datos = dict(seguimiento.datos or {})
+        datos["verificaciones_no_eficaces"] = [*datos.get("verificaciones_no_eficaces", []), fallida]
+        seguimiento.datos = datos
+        for campo in _DE_LA_VERIFICACION:
+            setattr(seguimiento, campo, None)
+        seguimiento.completada_en = None
+
+    accion.fecha_ejecucion = None
+    accion.completada_en = None
+    registro.status = "action_plan"
+    db.flush()
+    return True
 
 
 def exigir_cierre(db: Session, registro: Nonconformity) -> None:

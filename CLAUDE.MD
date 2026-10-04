@@ -1002,6 +1002,40 @@ que se tapaban entre si:
 los cuerpos literales de `cuerpoDe` y termina en un registro cerrado: si cambia
 uno de los dos lados, falla.
 
+**El ciclo de mejora ya no se corta en silencio** (4-oct). Tres huecos que el
+spec pedia desde su primera version y el sistema no cumplia:
+
+1. **"No fue eficaz" solo impedia cerrar.** El registro quedaba con todas sus
+   etapas completas y un seguimiento negativo, y nada decia que habia que volver
+   a actuar. Ahora la accion correctiva vuelve a quedar por hacer, el seguimiento
+   vuelve a "sin verificar" —con la verificacion fallida guardada en sus datos— y
+   el registro pasa a `action_plan`, que es lo que queda en **su** historia.
+   **El retorno se dispara en la transicion, no en cada guardado**: la pantalla
+   reenvia el formulario entero, y un `eficaz: false` repetido no es una segunda
+   verificacion.
+2. **Las salidas de la verificacion eran dos casillas sin consecuencia.** ISO
+   9001 10.2.1 e y f: actualizar los riesgos y oportunidades, y cambiar el
+   sistema de gestion. Alguien marcaba "Si", cerraba el registro y el sistema no
+   volvia a mencionarlo. Ahora cada "Si" deja un **compromiso** en
+   `improvement_commitments` (`db/34`), con responsable y plazo, que **sobrevive
+   al cierre** y se lista en `/no-conformidades`. Descartarlo exige justificacion
+   —la pide el esquema y la exige la base— y el cierre del registro exige que
+   cada compromiso pendiente tenga a quien avisarle. La pantalla las guardaba en
+   el JSON de la etapa: el responsable era texto sin clave foranea y no habia
+   forma de preguntar que le debe el sistema de gestion a la empresa.
+3. **Un hallazgo no tenia evidencia.** `description` decia que esta mal;
+   faltaba **que se vio, donde y cuando** (ISO 19011), que es lo que sostiene el
+   hallazgo cuando el auditado lo apela. `objective_evidence` se exige a los
+   registros con origen en una auditoria (`db/35`, `NOT VALID`: rige desde que se
+   creo y no revisa lo ya escrito).
+
+Y **la cobertura de auditoria contaba los requisitos marcados "no aplica"** en su
+denominador —43 de 264 en el seed—, asi que salia mas baja por una razon que no
+existe. Lo que **no** se hizo: que la severidad solo aplique a las no
+conformidades. Hoy se pide en todo registro y cambiarlo toca el modelo, las filas
+escritas y el plazo de las etapas, que se deriva de ella: queda como decision en
+`docs/plan-de-cierre-v1.md`.
+
 **Y cada etapa avisa a su responsable desde el 13-sep** (RF-99, #40):
 `services/avisos_de_etapas.py`, llamado por el mismo cron de avisos y en la
 misma transaccion. Tres avisos —asignacion, por vencer (7/3/1 o las reglas

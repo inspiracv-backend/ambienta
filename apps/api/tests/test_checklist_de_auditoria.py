@@ -42,6 +42,8 @@ os.environ.setdefault(
     "postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta",
 )
 
+from app.db import SessionLocal  # noqa: E402
+from app.deps import declarar  # noqa: E402
 from app.main import app  # noqa: E402
 
 EMPRESA_A = "a0000000-0000-0000-0000-000000000001"
@@ -317,6 +319,43 @@ class TestLaCobertura:
         ).json()["cubiertos"]
 
         assert despues - antes <= 1
+
+    def test_lo_marcado_NO_APLICA_sale_del_denominador(
+        self, cliente, auditoria, clausula, limpiar
+    ) -> None:
+        """Un requisito que no le corresponde a la empresa no es algo que la
+        auditoria dejo sin mirar: contarlo baja la cobertura por una razon que
+        no existe (spec de `gestion-mejoras`, 4-oct)."""
+        from sqlalchemy import text as sql
+
+        antes = cliente.get(
+            f"/api/v1/audits/{auditoria}/coverage", headers=_como(EMPRESA_A)
+        ).json()["aplicables"]
+
+        with SessionLocal() as db:
+            declarar(db, uuid.UUID(EMPRESA_A))
+            estado = db.execute(
+                sql("SELECT compliance_status FROM article_compliance WHERE id = :c"), {"c": clausula}
+            ).scalar_one()
+            db.execute(
+                sql("UPDATE article_compliance SET compliance_status = 'not_applicable' WHERE id = :c"),
+                {"c": clausula},
+            )
+            db.commit()
+        try:
+            despues = cliente.get(
+                f"/api/v1/audits/{auditoria}/coverage", headers=_como(EMPRESA_A)
+            ).json()["aplicables"]
+        finally:
+            with SessionLocal() as db:
+                declarar(db, uuid.UUID(EMPRESA_A))
+                db.execute(
+                    sql("UPDATE article_compliance SET compliance_status = :e WHERE id = :c"),
+                    {"c": clausula, "e": estado},
+                )
+                db.commit()
+
+        assert despues == antes - 1
 
     def test_las_preguntas_SIN_clausula_van_aparte(
         self, cliente, auditoria, limpiar

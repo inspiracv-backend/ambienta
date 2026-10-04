@@ -104,6 +104,10 @@ def registro(cliente):
     _borrar(nc)
 
 
+def _etapa(cliente, nc: str, kind: str) -> dict:
+    return next(e for e in cliente.get(f"{BASE}/{nc}/etapas").json() if e["kind"] == kind)
+
+
 def _completar_todas(cliente, nc: str) -> None:
     for etapa in cliente.get(f"{BASE}/{nc}/etapas").json():
         cliente.patch(
@@ -286,21 +290,78 @@ class TestElCierreExigeEficaciaAfirmativa:
             f"el motivo confunde sin verificar con no eficaz: {r['motivo']}"
         )
 
-    def test_eficaz_false_devuelve_a_tratamiento(self, cliente, registro) -> None:
+    def test_eficaz_false_devuelve_a_la_accion_correctiva(self, cliente, registro) -> None:
+        """El spec: "el registro vuelve a la etapa de accion correctiva, y ese
+        retorno queda en el historial". Hasta el 4-oct solo impedia cerrar."""
         cliente.post(f"{BASE}/{registro}/etapas")
         _completar_todas(cliente, registro)
-        seguimiento = next(
-            e
-            for e in cliente.get(f"{BASE}/{registro}/etapas").json()
-            if e["kind"] == "seguimiento"
-        )
+        seguimiento = _etapa(cliente, registro, "seguimiento")
         cliente.patch(
-            f"{BASE}/{registro}/etapas/{seguimiento['id']}", json={"eficaz": False}
+            f"{BASE}/{registro}/etapas/{seguimiento['id']}",
+            json={"eficaz": False, "observaciones": "La causa volvio a aparecer"},
         )
+
+        accion = _etapa(cliente, registro, "accion_correctiva")
+        seguimiento = _etapa(cliente, registro, "seguimiento")
+        assert accion["completada_en"] is None and accion["fecha_ejecucion"] is None
+        # La verificacion que fallo no se pierde: queda en sus datos, y el
+        # seguimiento vuelve a "sin verificar" para la proxima accion.
+        assert seguimiento["eficaz"] is None
+        assert seguimiento["datos"]["verificaciones_no_eficaces"][0]["observaciones"] == "La causa volvio a aparecer"
+        assert cliente.get(f"{BASE}/{registro}").json()["status"] == "action_plan"
 
         r = cliente.get(f"{BASE}/{registro}/puede-cerrarse").json()
         assert r["puede"] is False
-        assert "NO fue eficaz" in r["motivo"]
+        assert "accion_correctiva" in r["motivo"]
+
+    def test_el_retorno_queda_en_la_historia_del_registro(self, cliente, registro) -> None:
+        cliente.post(f"{BASE}/{registro}/etapas")
+        _completar_todas(cliente, registro)
+        seguimiento = _etapa(cliente, registro, "seguimiento")
+        cliente.patch(f"{BASE}/{registro}/etapas/{seguimiento['id']}", json={"eficaz": False})
+
+        historia = cliente.get(
+            "/api/v1/historial/",
+            params={"entity_type": "nonconformity", "entity_id": registro},
+        )
+        assert historia.status_code == 200, historia.text
+        # La historia dice **que campos** se tocaron, no sus valores.
+        assert any(
+            "status" in (ev["detalle"].get("campos") or [])
+            for ev in historia.json()["eventos"]
+            if ev["tipo"] == "actividad"
+        ), historia.json()
+
+    def test_repetir_eficaz_false_al_guardar_no_la_vuelve_a_abrir(self, cliente, registro) -> None:
+        """La pantalla reenvia el formulario entero: un `eficaz: false` repetido
+        no es una segunda verificacion."""
+        cliente.post(f"{BASE}/{registro}/etapas")
+        _completar_todas(cliente, registro)
+        seguimiento = _etapa(cliente, registro, "seguimiento")
+        cliente.patch(f"{BASE}/{registro}/etapas/{seguimiento['id']}", json={"eficaz": False})
+        # Se vuelve a actuar...
+        accion = _etapa(cliente, registro, "accion_correctiva")
+        cliente.patch(f"{BASE}/{registro}/etapas/{accion['id']}", json={"fecha_ejecucion": "2026-09-20"})
+        # ...y se guarda el seguimiento sin verificar todavia.
+        cliente.patch(f"{BASE}/{registro}/etapas/{seguimiento['id']}", json={"eficaz": None, "observaciones": "Pendiente"})
+
+        assert _etapa(cliente, registro, "accion_correctiva")["fecha_ejecucion"] == "2026-09-20"
+
+    def test_despues_de_volver_a_actuar_y_verificar_si_se_cierra(self, cliente, registro) -> None:
+        cliente.post(f"{BASE}/{registro}/etapas")
+        _completar_todas(cliente, registro)
+        seguimiento = _etapa(cliente, registro, "seguimiento")
+        cliente.patch(f"{BASE}/{registro}/etapas/{seguimiento['id']}", json={"eficaz": False})
+
+        accion = _etapa(cliente, registro, "accion_correctiva")
+        cliente.patch(f"{BASE}/{registro}/etapas/{accion['id']}", json={"fecha_ejecucion": "2026-09-20"})
+        cliente.patch(
+            f"{BASE}/{registro}/etapas/{seguimiento['id']}",
+            json={"fecha_ejecucion": "2026-09-21", "eficaz": True},
+        )
+
+        r = cliente.get(f"{BASE}/{registro}/puede-cerrarse").json()
+        assert r["puede"] is True, r["motivo"]
 
     def test_eficaz_true_cierra(self, cliente, registro) -> None:
         cliente.post(f"{BASE}/{registro}/etapas")

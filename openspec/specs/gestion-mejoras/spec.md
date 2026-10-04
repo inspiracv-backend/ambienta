@@ -1,4 +1,19 @@
-## ADDED Requirements
+# Gestión de mejoras
+
+## Purpose
+
+El ciclo de tratamiento de lo que sale mal o puede mejorar (ISO 9001 §10.2):
+el registro de mejora es la raíz —nazca de una auditoría, de un hallazgo propio
+o de la revisión anual— y recorre sus etapas hasta un cierre que exige haber
+verificado que la acción funcionó.
+
+Lo que esta capacidad persigue es que el ciclo no se corte sin que se note: una
+verificación que dice "no funcionó" devuelve el registro a la acción correctiva,
+las salidas que esa verificación deja abiertas quedan comprometidas con
+responsable y plazo, y los números del informe se derivan de los hallazgos en
+vez de escribirse a mano.
+
+## Requirements
 
 ### Requirement: El registro de mejora es la raíz, no el hallazgo
 El sistema SHALL tratar el registro de mejora como la entidad principal del ciclo de tratamiento, y SHALL admitir que nazca de una auditoría, de un hallazgo propio o de la revisión anual.
@@ -52,7 +67,13 @@ Sin esto alguien marca que sí corresponde, cierra el registro, y el sistema no 
 
 #### Scenario: La verificación abre una salida
 - **WHEN** la verificación indica que hay que actualizar la matriz de riesgos
-- **THEN** el sistema crea un compromiso pendiente con responsable y fecha
+- **THEN** el sistema deja un compromiso pendiente sobre ese registro
+- **AND** no permite cerrar el registro mientras ese compromiso no tenga responsable y fecha
+
+El responsable y la fecha no se inventan al marcar la casilla —nadie los sabe en
+ese momento— pero sin ellos no se le avisa a nadie, que es el mismo agujero con
+otro nombre. El compromiso **no** bloquea por existir: tiene su propio plazo y
+sobrevive al cierre del registro.
 
 #### Scenario: Una salida se descarta
 - **WHEN** alguien descarta una salida comprometida
@@ -60,7 +81,8 @@ Sin esto alguien marca que sí corresponde, cierra el registro, y el sistema no 
 
 #### Scenario: Las salidas pendientes son visibles
 - **WHEN** se consulta el estado del sistema de gestión
-- **THEN** las salidas comprometidas y no ejecutadas aparecen como pendientes
+- **THEN** las salidas comprometidas y no ejecutadas aparecen como pendientes, con su registro de origen, su responsable y su plazo
+- **AND** siguen apareciendo aunque el registro que las originó esté cerrado
 
 ### Requirement: Cobertura de auditoría medida sobre lo aplicable
 El sistema SHALL informar qué proporción de los requisitos en alcance fue efectivamente evaluada, excluyendo los no aplicables.
@@ -73,17 +95,26 @@ Una auditoría con 20 % de cobertura y cero no conformidades no es una buena not
 - **THEN** los no aplicables quedan fuera del cálculo y los no evaluados la bajan
 
 ### Requirement: Un hallazgo se sostiene en evidencia
-El sistema SHALL exigir evidencia objetiva en todo hallazgo, separada de su descripción.
+El sistema SHALL exigir evidencia objetiva, separada de su descripción, en todo registro que nazca de una auditoría.
 
-Un hallazgo sin evidencia no es defendible ante una apelación del auditado.
+Un hallazgo sin evidencia no es defendible ante una apelación del auditado: la
+descripción dice qué está mal, la evidencia dice qué se vio, dónde y cuándo
+(ISO 19011). Se exige a los registros con origen en una auditoría; un reclamo de
+cliente o un riesgo de la revisión anual nacen de otra cosa.
 
-#### Scenario: Hallazgo sin evidencia
-- **WHEN** se registra un hallazgo sin evidencia objetiva
+**Que la severidad solo aplique a las no conformidades quedó fuera de este
+cambio** (4-oct): hoy se pide en todo registro —la escala por empresa la decidió
+#57— y hacerla opcional toca el modelo, las filas existentes y el plazo de las
+etapas, que se deriva de ella. Está anotado como decisión abierta en
+`docs/plan-de-cierre-v1.md`.
+
+#### Scenario: Hallazgo de auditoría sin evidencia
+- **WHEN** se registra un hallazgo con origen en una auditoría y sin evidencia objetiva
 - **THEN** el sistema lo rechaza
 
-#### Scenario: La severidad solo aplica a las no conformidades
-- **WHEN** se intenta asignar severidad a un hallazgo que no es no conformidad
-- **THEN** el sistema lo rechaza
+#### Scenario: Un registro que no sale de una auditoría
+- **WHEN** se registra un reclamo o un riesgo detectado en la revisión anual
+- **THEN** el sistema no le exige evidencia objetiva
 
 ### Requirement: Los conteos del informe se derivan
 El sistema SHALL calcular los totales del informe de auditoría a partir de sus hallazgos, y no permitir capturarlos a mano.
@@ -95,9 +126,16 @@ Guardarlos escritos a mano es la forma más rápida de que el informe y el siste
 - **THEN** los totales del informe reflejan el cambio
 
 ### Requirement: El vocabulario del ciclo es configurable por empresa
-El sistema SHALL permitir que cada empresa defina su escala de severidad, sus metodologías de análisis de causa, sus plazos y el orden de las etapas.
+El sistema SHALL permitir que cada empresa defina su escala de severidad, sus metodologías de análisis de causa y los días que da cada severidad para cerrar.
 
 Sin esto, el segundo cliente que entre obliga a un cambio de esquema.
+
+**El orden de las etapas no se configura, y es deliberado** (4-oct): lo fija
+ISO 9001 §10.2.1 —primero reaccionar y corregir, después analizar la causa, y la
+verificación de eficacia al final—. Un ciclo con otro orden no es la misma norma
+con otras palabras: es otro ciclo. Lo que sí varía por tipo de registro es qué
+etapas corresponden (un riesgo o una oportunidad no llevan corrección ni análisis
+de causa).
 
 #### Scenario: Dos empresas con escalas distintas
 - **GIVEN** dos empresas con escalas de severidad diferentes

@@ -169,6 +169,10 @@ class NonconformityCreate(BaseModel):
     severity: str
     record_type: str | None = None
     detection_origin: str | None = None
+    #: Que se vio, donde y cuando. **Obligatoria en un hallazgo de auditoria**
+    #: (ISO 19011) y aparte de `description`: sin ella el hallazgo no se
+    #: sostiene cuando el auditado lo apela.
+    objective_evidence: str | None = None
     owner_user_id: UUID | None = None
     due_date: date | None = None
     #: Solo para `salida_no_conforme`. Claves: sku, lote, nombre, cantidad, unidad.
@@ -214,6 +218,18 @@ class NonconformityCreate(BaseModel):
                 "que lo origino, que es lo primero que se pide al revisar su "
                 "seguimiento."
             )
+
+        if self.detection_origin in ORIGENES_DE_AUDITORIA and not (
+            self.objective_evidence or ""
+        ).strip():
+            # **Separada de la descripcion, a proposito** (ISO 19011): la
+            # descripcion dice que esta mal, la evidencia dice que se vio, donde
+            # y cuando. Un hallazgo sin evidencia no se sostiene cuando el
+            # auditado lo apela, que es justo cuando se necesita.
+            raise ValueError(
+                "Un hallazgo de auditoria exige su evidencia objetiva: que se "
+                "vio, donde y cuando. Va aparte de la descripcion."
+            )
         return self
 
 
@@ -230,6 +246,8 @@ class NonconformityRead(OrmBase):
     status: str
     record_type: str | None
     detection_origin: str | None
+    #: La evidencia del hallazgo, separada de la descripcion (ISO 19011).
+    objective_evidence: str | None
     root_cause_answers: list
     improvement_stages: dict
     product_data: dict | None
@@ -247,6 +265,9 @@ class NonconformityRead(OrmBase):
 
 class NonconformityUpdate(BaseModel):
     title: str | None = None
+    #: Se puede completar despues; lo que no se puede es nacer sin ella si el
+    #: registro sale de una auditoria (lo exige tambien la base, `db/35`).
+    objective_evidence: str | None = None
     severity: str | None = None
     status: str | None = None
     root_cause_answers: list | None = None
@@ -599,6 +620,83 @@ class EtapaCreate(EtapaBase):
     kind: Literal[
         "registro", "correccion", "analisis_causa", "accion_correctiva", "seguimiento"
     ]
+
+
+#: Que salida reglamentaria compromete cada pregunta del seguimiento.
+#:
+#: Los nombres son los que la pantalla ya usaba (`packages/shared`): la matriz
+#: FODA no sale de una casilla del seguimiento —la agrega quien verifica— y por
+#: eso no esta aca, pero si es un tipo valido de compromiso.
+COMPROMISO_POR_CAMPO = {
+    "requiere_actualizar_riesgos": "matriz_riesgos",
+    "requiere_cambios_sgc": "documento_sgc",
+}
+
+TIPOS_DE_COMPROMISO = ("matriz_riesgos", "matriz_foda", "documento_sgc")
+
+
+class CompromisoCreate(BaseModel):
+    """Una salida que se compromete a mano. La que sale de una casilla del
+    seguimiento la crea el sistema (`COMPROMISO_POR_CAMPO`)."""
+
+    kind: str
+    descripcion: str | None = None
+    responsable_user_id: UUID | None = None
+    due_date: date | None = None
+
+    @model_validator(mode="after")
+    def _un_tipo_que_existe(self):
+        if self.kind not in TIPOS_DE_COMPROMISO:
+            raise ValueError(
+                "La salida comprometida es la matriz de riesgos, la matriz FODA "
+                "o un documento del sistema de gestion."
+            )
+        return self
+
+
+class CompromisoUpdate(BaseModel):
+    """Lo que se puede cambiar de una salida comprometida.
+
+    El `kind` no: es la salida que la verificacion dejo abierta, no una
+    eleccion. Y cerrarla **descartandola exige la justificacion** (la base
+    tambien lo exige): una salida reglamentaria que se descarta sin decir por
+    que es la que levanta el auditor.
+    """
+
+    descripcion: str | None = None
+    responsable_user_id: UUID | None = None
+    due_date: date | None = None
+    status: str | None = None
+    justificacion: str | None = None
+
+    @model_validator(mode="after")
+    def _descartar_exige_motivo(self):
+        if self.status == "descartada" and not (self.justificacion or "").strip():
+            raise ValueError(
+                "Descartar una salida comprometida exige decir por que: queda "
+                "en el registro de la mejora y es lo que se revisa despues."
+            )
+        if self.status is not None and self.status not in ("pendiente", "ejecutada", "descartada"):
+            raise ValueError("El estado de un compromiso es pendiente, ejecutada o descartada.")
+        return self
+
+
+class CompromisoRead(OrmBase):
+    id: UUID
+    tenant_id: UUID
+    nonconformity_id: UUID
+    #: `riesgos_y_oportunidades` (ISO 9001 10.2.1 e) o `cambios_sgc` (10.2.1 f).
+    kind: str
+    descripcion: str | None
+    status: str
+    responsable_user_id: UUID | None
+    responsable_nombre: str | None = None
+    due_date: date | None
+    justificacion: str | None
+    completada_en: datetime | None
+    #: El registro del que salio, para la lista transversal de pendientes.
+    nonconformity_code: str | None = None
+    nonconformity_title: str | None = None
 
 
 class EtapaUpdate(EtapaBase):

@@ -58,6 +58,12 @@ SUFIJOS_DE_ACCION = (
     # relacion inventada a mano diria que una norma modifica a otra sin que
     # ninguna fuente lo sostenga. Solo se leen.
     "/relations",
+    # Las salidas comprometidas de la verificacion (ISO 9001 10.2.1 e y f). **No
+    # se borran**: lo que el sistema de gestion prometio se ejecuta o se descarta
+    # con justificacion, y las dos cosas quedan. Se leen por registro y por
+    # empresa; una por salida y por registro, asi que no hay "una" que leer
+    # suelta. El alta cuelga del registro (`/nonconformities/{id}/compromisos`).
+    "/compromisos",
     # El historial de presentaciones es **de solo lectura por diseño**: cada
     # fila la escribe `services/declaracion.py` al presentar, aceptar o
     # rechazar. Un `POST` aparte permitiria inventar una presentacion que nunca

@@ -148,6 +148,10 @@ class Nonconformity(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     )
     record_type: Mapped[str | None] = mapped_column(String(24))
     detection_origin: Mapped[str | None] = mapped_column(String(24))
+    #: La evidencia del hallazgo, **separada de la descripcion** (ISO 19011):
+    #: que se vio, donde y cuando. La base la exige a los registros con origen
+    #: en una auditoria (`db/35`, `NOT VALID`: rige desde que se creo).
+    objective_evidence: Mapped[str | None] = mapped_column(Text)
     root_cause_answers: Mapped[list] = mapped_column(
         JSONB, nullable=False, server_default="[]"
     )
@@ -329,6 +333,48 @@ class ImprovementMethodology(Base, TenantMixin, TimestampMixin, SoftDeleteMixin)
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
+
+
+class ImprovementCommitment(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
+    """Una salida reglamentaria que la verificacion dejo comprometida.
+
+    ISO 9001 10.2.1 pide, despues de verificar la eficacia, **actualizar los
+    riesgos y oportunidades** (e) y **hacer los cambios al sistema de gestion**
+    que correspondan (f). El seguimiento tiene las dos preguntas desde el
+    principio; hasta el 4-oct-2026 eran casillas sin consecuencia: alguien
+    marcaba "Si", cerraba el registro, y nadie volvia a mencionarlo.
+
+    **No bloquea el cierre del registro**, a proposito: la salida tiene su
+    propio plazo. Lo que el cierre si exige es que cada compromiso pendiente
+    tenga responsable y fecha — sin eso no se le avisa a nadie, que es el
+    defecto original con otro nombre.
+
+    Ver `db/34_compromisos_del_seguimiento.sql`.
+    """
+
+    __tablename__ = "improvement_commitments"
+
+    id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    nonconformity_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("nonconformities.id", ondelete="CASCADE"), nullable=False
+    )
+    #: De que verificacion salio. Nulable: lo prometido no depende de la fila.
+    stage_entry_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("improvement_stage_entries.id", ondelete="SET NULL")
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    descripcion: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pendiente")
+    responsable_user_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id")
+    )
+    due_date: Mapped[date | None] = mapped_column(Date)
+    #: Obligatoria al descartar, y lo exige la base: una salida reglamentaria
+    #: que se descarta sin decir por que es la que levanta el auditor.
+    justificacion: Mapped[str | None] = mapped_column(Text)
+    completada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ImprovementStageEntry(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):

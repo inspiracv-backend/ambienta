@@ -93,6 +93,8 @@ services:
       - ./db/31_tareas_del_plan_de_accion.sql:/docker-entrypoint-initdb.d/31-tareas-del-plan-de-accion.sql:ro
       - ./db/32_admin_empresa_sin_departamento_obligatorio.sql:/docker-entrypoint-initdb.d/32-admin-empresa-sin-departamento.sql:ro
       - ./db/33_relaciones_y_bitacora_de_la_bcn.sql:/docker-entrypoint-initdb.d/33-relaciones-y-bitacora-de-la-bcn.sql:ro
+      - ./db/34_compromisos_del_seguimiento.sql:/docker-entrypoint-initdb.d/34-compromisos-del-seguimiento.sql:ro
+      - ./db/35_evidencia_objetiva_del_hallazgo.sql:/docker-entrypoint-initdb.d/35-evidencia-objetiva-del-hallazgo.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s

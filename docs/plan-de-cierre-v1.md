@@ -296,6 +296,34 @@ migracion, con el motivo escrito como las demas. La pantalla
 `/clasificacion-normativa` la muestra pero **no la edita**: no llama a ese
 endpoint.
 
+### 6.2 El bloque F quedo cerrado el 4-oct: **cero cambios activos**
+
+La auditoria del 10-sep decia "cero de nueve se pueden archivar". Hoy los nueve
+estan archivados y `openspec/specs/` tiene **13 capacidades vivas**. No se
+archivo nada "igual": cada cambio cerro sus requisitos o los corrigio contra lo
+que el sistema hace, y lo que queda fuera de la 1.0 esta anotado en su propio
+`tasks.md` con el motivo.
+
+Lo que aparecio al cerrarlos, y que no era burocracia:
+
+| Cambio | Lo que faltaba de verdad |
+|---|---|
+| `ingesta-normativa-bcn` | Nadie escribia las relaciones entre normas. Ahora las lee de la BCN y la bitacora es de solo agregar |
+| `acceso-por-sso` | Con Clerk activo **toda pantalla publica rebotaba al ingreso**: el Cliente Invitado no podia pedir su acceso ni la persona invitada crear su cuenta |
+| `matrices-ambientales-iso-14001` | La cadena §6.1 no se podia recorrer: el requisito legal de un aspecto no se elegia en ninguna pantalla |
+| `hallazgos-auditoria-no-conformidades` | "No fue eficaz" no devolvia el registro a tratamiento; las salidas comprometidas no existian; un hallazgo no tenia evidencia; la cobertura contaba lo no aplicable |
+| `credenciales-de-acceso` | Nada: sus tres requisitos ya se cumplian (la invitacion es un solo acto desde el 14-sep) |
+
+### 6.3 Decisiones abiertas que quedaron escritas
+
+| # | Decision | Por que no la tomo quien programa |
+|---|---|---|
+| A | **Los "decretos 40 y 48"** de la reunion: en la BCN no hay decretos con esos numeros de seguridad minera. Ver 6.1 | Es criterio legal: traer la norma equivocada hace evaluar articulos que no rigen |
+| B | **La clasificacion por sector del D.S. 609** (propuesta en 6.1) | A que rubros llega una norma lo decide negocio |
+| C | **La severidad, ¿solo en las no conformidades?** Hoy se pide en todo registro | Toca el modelo, las filas escritas y el plazo de las etapas, que sale de la severidad |
+| D | **¿Se puede borrar una evaluacion de la matriz?** Hoy se puede, y por el indice unico no se puede volver a crear: responde 409 para siempre | Una evaluacion es evidencia; que se borre es una decision, no un detalle tecnico |
+| E | **Las evaluaciones de una norma que dejo de aplicar**, ¿cuentan en el % de cumplimiento? Hoy si | Cambia el numero que la empresa muestra ante un fiscalizador |
+
 **Lo que no es codigo y queda del lado de la cuenta:** cerrar el registro en
 Clerk (5), las credenciales de Google y el registro en Entra ID (4), rotar la
 llave de B2 y verificar el dominio en Resend.

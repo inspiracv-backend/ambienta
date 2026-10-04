@@ -15,6 +15,13 @@ import {
 import { Button } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { useSession } from '@/lib/session';
+import {
+  actualizarCompromiso,
+  cargarCompromisos,
+  comprometerSalida,
+  type CompromisoApi,
+} from '@/lib/compromisos';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 import { mensajeDeError } from '@/lib/api-client';
 import {
   cargarCatalogos,
@@ -90,6 +97,107 @@ interface Props {
  * navegador: un riesgo u oportunidad nace con tres filas y la pantalla dibuja
  * las que existen.
  */
+/**
+ * Una salida comprometida: quién la hace, para cuándo, y cómo quedó.
+ *
+ * La justificación se guarda al salir del campo y no en cada tecla: cada
+ * cambio es una petición.
+ */
+function FilaDeCompromiso({
+  compromiso,
+  personas,
+  onCambiar,
+}: {
+  compromiso: CompromisoApi;
+  personas: { id: string; nombre: string }[];
+  onCambiar: (cuerpo: Record<string, unknown>) => void;
+}) {
+  const catalogo = SALIDAS_REGLAMENTARIAS.find((s) => s.value === compromiso.kind);
+  const [justificacion, setJustificacion] = useState(compromiso.justificacion ?? '');
+
+  return (
+    <li className="rounded-md border border-amber-200 bg-white p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <span className="text-sm font-medium text-amber-900">{catalogo?.label ?? compromiso.kind}</span>
+          <span className="block text-xs text-amber-800">{catalogo?.descripcion ?? compromiso.descripcion}</span>
+        </div>
+        <select
+          aria-label={`Estado de ${catalogo?.label ?? compromiso.kind}`}
+          className="h-8 rounded border border-amber-300 bg-amber-50 px-2 text-xs font-medium"
+          value={compromiso.status}
+          onChange={(e) => {
+            const nuevo = e.target.value;
+            // Descartar exige el motivo: se manda junto, o la API lo rechaza.
+            if (nuevo === 'descartada' && !justificacion.trim()) {
+              setJustificacion('');
+              onCambiar({ status: 'pendiente' });
+              return;
+            }
+            onCambiar(nuevo === 'descartada' ? { status: nuevo, justificacion } : { status: nuevo });
+          }}
+        >
+          <option value="pendiente">Pendiente</option>
+          <option value="ejecutada">Ejecutada</option>
+          <option value="descartada">Descartada</option>
+        </select>
+      </div>
+
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <label className="text-xs font-medium text-amber-900">
+          Responsable
+          <select
+            className="mt-1 h-8 w-full rounded border border-amber-300 px-2 text-xs"
+            value={compromiso.responsable_user_id ?? ''}
+            onChange={(e) => onCambiar({ responsable_user_id: e.target.value || null })}
+          >
+            <option value="">Sin asignar</option>
+            {personas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs font-medium text-amber-900">
+          Fecha comprometida
+          <input
+            type="date"
+            className="mt-1 h-8 w-full rounded border border-amber-300 px-2 text-xs"
+            value={compromiso.due_date ?? ''}
+            onChange={(e) => onCambiar({ due_date: e.target.value || null })}
+          />
+        </label>
+      </div>
+
+      {compromiso.status === 'descartada' || justificacion ? (
+        <div className="mt-2">
+          <label className="text-xs font-medium text-amber-900" htmlFor={`just-${compromiso.id}`}>
+            Justificación del descarte (obligatoria)
+          </label>
+          <textarea
+            id={`just-${compromiso.id}`}
+            rows={2}
+            className="mt-1 w-full rounded border border-amber-300 p-2 text-xs"
+            placeholder="Explique por qué esta salida no aplica…"
+            value={justificacion}
+            onChange={(e) => setJustificacion(e.target.value)}
+            onBlur={() => {
+              if ((compromiso.justificacion ?? '') !== justificacion) onCambiar({ justificacion });
+            }}
+          />
+        </div>
+      ) : null}
+
+      {compromiso.status === 'pendiente' && (compromiso.responsable_user_id === null || compromiso.due_date === null) && (
+        <p className="mt-2 text-xs text-amber-800">
+          Sin responsable o sin fecha no se le avisa a nadie: el registro no se cierra así.
+        </p>
+      )}
+    </li>
+  );
+}
+
 export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: Props) {
   const htmlId = useId();
   const { user } = useSession();
@@ -102,6 +210,9 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
   const [ciclo, setCiclo] = useState<CicloEnPantalla>({});
   const [causasPescado, setCausasPescado] = useState<string[]>(['', '', '']);
   const [guardando, setGuardando] = useState(false);
+  // Las salidas comprometidas viven en el servidor: ver `lib/compromisos.ts`.
+  const [compromisos, setCompromisos] = useState<CompromisoApi[] | null>(null);
+  const { personas } = usePersonasAsignables();
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
 
   function adoptar(nuevas: EtapaApi[]) {
@@ -110,6 +221,38 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
     setCiclo(c);
     const causas = c.analisisCausa?.espinaPescado?.causas.map((x) => x.texto) ?? [];
     setCausasPescado(causas.length > 0 ? causas : ['', '', '']);
+  }
+
+  async function refrescarCompromisos() {
+    if (!tenantId) return;
+    try {
+      setCompromisos(await cargarCompromisos(ncId, tenantId));
+    } catch {
+      // `null` = no se pudo preguntar. La seccion lo dice en vez de mostrar
+      // una lista vacia, que se leeria como "no hay nada comprometido".
+      setCompromisos(null);
+    }
+  }
+
+  async function comprometerLaFodaSiCorresponde() {
+    if (!tenantId || ciclo.seguimiento?.requiereActualizarFoda !== true) return;
+    if ((compromisos ?? []).some((c) => c.kind === 'matriz_foda')) return;
+    try {
+      await comprometerSalida(ncId, { kind: 'matriz_foda' }, tenantId);
+    } catch {
+      // Ya comprometida (409) o la API no respondio: lo dice el refresco.
+    }
+  }
+
+  async function cambiarCompromiso(id: string, cuerpo: Record<string, unknown>) {
+    if (!tenantId) return;
+    try {
+      await actualizarCompromiso(id, cuerpo, tenantId);
+      await refrescarCompromisos();
+      await refrescarCierre();
+    } catch (e) {
+      setResultado({ ok: false, texto: `No se pudo guardar la salida: ${mensajeDeError(e)}` });
+    }
   }
 
   async function refrescarCierre() {
@@ -135,6 +278,7 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
       })
       .catch((e) => { if (vigente) setErrorDeCarga(mensajeDeError(e)); });
     void refrescarCierre();
+    void refrescarCompromisos();
     return () => { vigente = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ncId, tenantId]);
@@ -196,6 +340,10 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
       }
       if (fallidas.length === 0) {
         adoptar(actuales);
+        // La FODA no sale de una casilla de la base: la compromete la pantalla.
+        // Las otras dos las crea la API al guardar el seguimiento.
+        await comprometerLaFodaSiCorresponde();
+        await refrescarCompromisos();
         setResultado({ ok: true, texto: 'Etapas guardadas.' });
       } else {
         // Solo `filas`: el formulario se queda con lo escrito, así que al volver
@@ -488,47 +636,34 @@ export function EtapasMejoraPanel({ ncId, responsableOptions, onCierreChange }: 
             ))}
           </div>
 
-          {salidas.length > 0 && (
+          {(compromisos === null || compromisos.length > 0 || salidas.length > 0) && (
             <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4">
               <p className="text-sm font-semibold text-amber-900">Salidas comprometidas por este tratamiento</p>
-              <ul className="mt-2 flex flex-col gap-3">
-                {salidas.map((tipo) => {
-                  const catalogo = SALIDAS_REGLAMENTARIAS.find((s) => s.value === tipo)!;
-                  const salidaExistente = seguimiento.salidas.find((s) => s.tipo === tipo);
-                  const estado = salidaExistente?.estado ?? 'pendiente';
-                  return (
-                    <li key={tipo} className="rounded-md border border-amber-200 bg-white p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <span className="text-sm font-medium text-amber-900">{catalogo.label}</span>
-                          <span className="block text-xs text-amber-800">{catalogo.descripcion}</span>
-                        </div>
-                        <select className="h-8 rounded border border-amber-300 bg-amber-50 px-2 text-xs font-medium" value={estado}
-                          onChange={(e) => {
-                            const nuevo = e.target.value as SalidaTratamiento['estado'];
-                            upsertSalida(tipo, { estado: nuevo, ...(nuevo !== 'descartada' ? { justificacionDescarte: undefined } : {}) });
-                          }}>
-                          <option value="pendiente">Pendiente</option>
-                          <option value="ejecutada">Ejecutada</option>
-                          <option value="descartada">Descartada</option>
-                        </select>
-                      </div>
-                      {estado === 'descartada' && (
-                        <div className="mt-2">
-                          <label className="text-xs font-medium text-amber-900">Justificación del descarte (obligatoria)</label>
-                          <textarea rows={2} className="mt-1 w-full rounded border border-amber-300 p-2 text-xs"
-                            placeholder="Explique por qué esta salida no aplica…"
-                            value={salidaExistente?.justificacionDescarte ?? ''}
-                            onChange={(e) => upsertSalida(tipo, { justificacionDescarte: e.target.value })} />
-                        </div>
-                      )}
-                      {estado === 'ejecutada' && <p className="mt-1 text-xs text-green-700">Resuelta</p>}
-                    </li>
-                  );
-                })}
-              </ul>
-              {salidasPendientes(seguimiento).length > 0 && (
-                <p className="mt-3 text-xs text-amber-800">{salidasPendientes(seguimiento).length} salida(s) pendiente(s).</p>
+              {compromisos === null ? (
+                <p className="mt-2 text-xs text-amber-800" role="alert">
+                  No se pudieron cargar las salidas comprometidas. Sin eso no se sabe qué quedó pendiente.
+                </p>
+              ) : compromisos.length === 0 ? (
+                <p className="mt-2 text-xs text-amber-800">
+                  Se comprometen al guardar: lo que marques «SI» queda con responsable y plazo, y sigue
+                  a la vista aunque el registro se cierre.
+                </p>
+              ) : (
+                <ul className="mt-2 flex flex-col gap-3">
+                  {compromisos.map((c) => (
+                    <FilaDeCompromiso
+                      key={c.id}
+                      compromiso={c}
+                      personas={personas}
+                      onCambiar={(cuerpo) => cambiarCompromiso(c.id, cuerpo)}
+                    />
+                  ))}
+                </ul>
+              )}
+              {compromisos !== null && compromisos.some((c) => c.status === 'pendiente') && (
+                <p className="mt-3 text-xs text-amber-800">
+                  {compromisos.filter((c) => c.status === 'pendiente').length} salida(s) pendiente(s).
+                </p>
               )}
             </div>
           )}

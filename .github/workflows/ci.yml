@@ -132,7 +132,9 @@ jobs:
                    28_comentarios \
                    29_normativa_propia 30_etapas_de_mejora 31_tareas_del_plan_de_accion \
                    32_admin_empresa_sin_departamento_obligatorio \
-                   33_relaciones_y_bitacora_de_la_bcn; do
+                   33_relaciones_y_bitacora_de_la_bcn \
+                   34_compromisos_del_seguimiento \
+                   35_evidencia_objetiva_del_hallazgo; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"

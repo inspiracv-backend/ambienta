@@ -54,6 +54,12 @@ const ETAPAS = ['registro', 'correccion', 'analisis_causa', 'accion_correctiva',
 );
 
 let cierre: { puede: boolean; motivo: string | null } = { puede: false, motivo: 'Hay etapas sin completar: correccion.' };
+let compromisos: Record<string, unknown>[] | 'falla' = [];
+
+// Las personas a las que se puede asignar una salida.
+vi.mock('@/lib/crm-etapas-store', () => ({
+  usePersonasAsignables: () => ({ personas: [{ id: 'u-1', nombre: 'Ana Rojas' }], cargando: false, fallo: false }),
+}));
 
 function wrapper({ children }: { children: ReactNode }) {
   return (
@@ -71,11 +77,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   cierre = { puede: false, motivo: 'Hay etapas sin completar: correccion.' };
+  compromisos = [];
   get.mockImplementation((url: string) => {
     if (url.endsWith('/etapas')) return Promise.resolve(ETAPAS);
     if (url.endsWith('/puede-cerrarse')) return Promise.resolve(cierre);
     if (url.includes('/catalogos/severidades')) return Promise.resolve([{ code: 'major', label: 'Mayor' }]);
     if (url.includes('/catalogos/metodologias')) return Promise.resolve([]);
+    if (url.includes('/compromisos')) {
+      return compromisos === 'falla'
+        ? Promise.reject(new ApiError(500, 'Internal Server Error', null))
+        : Promise.resolve(compromisos);
+    }
     return Promise.resolve([]);
   });
 });
@@ -173,3 +185,69 @@ describe('la severidad', () => {
     expect(opciones).not.toContain('Alta');
   });
 });
+
+describe('las salidas comprometidas', () => {
+  const compromiso = (over: Record<string, unknown> = {}) => ({
+    id: 'c-1',
+    nonconformity_id: 'nc-1',
+    kind: 'matriz_riesgos',
+    descripcion: null,
+    status: 'pendiente',
+    responsable_user_id: null,
+    responsable_nombre: null,
+    due_date: null,
+    justificacion: null,
+    completada_en: null,
+    nonconformity_code: 'NC-1',
+    nonconformity_title: 'Derrame',
+    ...over,
+  });
+
+  it('se leen del servidor, no del JSON de la etapa', async () => {
+    compromisos = [compromiso()];
+    await montar();
+
+    expect(await screen.findByText('Actualizar matriz de riesgos y oportunidades')).toBeTruthy();
+    expect(get).toHaveBeenCalledWith('/audits/nonconformities/nc-1/compromisos', { tenantId: expect.any(String) });
+  });
+
+  it('sin responsable o sin fecha dice que asi no se cierra', async () => {
+    compromisos = [compromiso()];
+    await montar();
+
+    expect(await screen.findByText(/no se le avisa a nadie/)).toBeTruthy();
+  });
+
+  it('asignar un responsable lo guarda en el servidor', async () => {
+    compromisos = [compromiso()];
+    patch.mockResolvedValue(compromiso({ responsable_user_id: 'u-1' }));
+    await montar();
+
+    await userEvent.selectOptions(await screen.findByLabelText('Responsable'), 'u-1');
+
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith('/audits/compromisos/c-1', { responsable_user_id: 'u-1' }, { tenantId: expect.any(String) }),
+    );
+  });
+
+  it('descartar sin justificacion no se manda: la API lo rechazaria', async () => {
+    compromisos = [compromiso()];
+    await montar();
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText('Estado de Actualizar matriz de riesgos y oportunidades'),
+      'descartada',
+    );
+
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    expect(patch.mock.calls.at(-1)?.[1]).toEqual({ status: 'pendiente' });
+  });
+
+  it('si no se pudieron cargar, lo dice en vez de parecer que no hay ninguna', async () => {
+    compromisos = 'falla';
+    await montar();
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/No se pudieron cargar las salidas/);
+  });
+});
+

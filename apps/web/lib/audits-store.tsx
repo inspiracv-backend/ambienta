@@ -258,6 +258,8 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
     tipoRegistro?: TipoRegistroMejora;
     origen?: string;
     auditItemId?: string;
+    /** Que se vio, donde y cuando. La exige la API en un hallazgo de auditoria. */
+    evidenciaObjetiva?: string;
     productData?: Record<string, string>;
     complaintData?: Record<string, string>;
   }): Promise<NonConformity> {
@@ -288,6 +290,7 @@ export function AuditsProvider({ children }: { children: ReactNode }) {
         ...(input.tipoRegistro ? { record_type: input.tipoRegistro } : {}),
         ...(input.origen ? { detection_origin: input.origen } : {}),
         ...(input.auditItemId ? { audit_item_id: input.auditItemId } : {}),
+        ...(input.evidenciaObjetiva ? { objective_evidence: input.evidenciaObjetiva } : {}),
         ...(input.productData ? { product_data: input.productData } : {}),
         ...(input.complaintData ? { complaint_data: input.complaintData } : {}),
       },

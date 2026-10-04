@@ -343,6 +343,11 @@ def cobertura(db: Session, audit: Audit) -> dict:
     aplicables = select(func.count(func.distinct(ArticleCompliance.id))).where(
         ArticleCompliance.tenant_id == audit.tenant_id,
         ArticleCompliance.deleted_at.is_(None),
+        # **Lo marcado "no aplica" sale del denominador** (4-oct). Un requisito
+        # que no le corresponde a la empresa no es algo que la auditoria dejo
+        # sin mirar: contarlo baja la cobertura por una razon que no existe.
+        # Medido en el seed: 43 de 264 evaluaciones estan en `not_applicable`.
+        ArticleCompliance.compliance_status != "not_applicable",
     )
     if audit.facility_id is not None:
         aplicables = aplicables.where(

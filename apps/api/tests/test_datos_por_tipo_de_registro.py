@@ -144,9 +144,13 @@ class TestElOrigenDeAuditoriaExigeSuHallazgo:
         with pytest.raises(ValidationError, match="hallazgo"):
             _alta(detection_origin=origen)
 
-    def test_con_hallazgo_se_acepta(self) -> None:
+    def test_con_hallazgo_y_evidencia_se_acepta(self) -> None:
+        """La evidencia objetiva tambien es parte del contrato de un hallazgo
+        desde el 4-oct (ISO 19011): ver `test_hallazgo_con_evidencia.py`."""
         assert _alta(
-            detection_origin="auditoria_interna", audit_item_id=uuid.uuid4()
+            detection_origin="auditoria_interna",
+            audit_item_id=uuid.uuid4(),
+            objective_evidence="Registro F-012 sin firma del operador.",
         ).audit_item_id is not None
 
     @pytest.mark.parametrize("origen", ["interna", "externa", "analisis_foda"])

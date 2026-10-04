@@ -42,10 +42,12 @@ cambió por ellos:
 Sin esto, las fases siguientes se construyen sobre supuestos.
 
 - [x] ~~Confirmar que el mapa de procesos expone procesos referenciables por id~~ — **resuelto**: `DepartamentoSchema` ya modela el departamento como proceso de §4.4 con `id`, `tipo`, `responsableId`, `entradas` y `salidas`. `procesoId` apunta ahí
-- [ ] Determinar qué entrega hoy el **Catálogo Normativo** a nivel de artículo, y si el checklist se puede desplegar desde ahí o hay que cargarlo a mano
+- [x] Determinar qué entrega hoy el **Catálogo Normativo** a nivel de artículo, y si el checklist se puede desplegar desde ahí o hay que cargarlo a mano **(se carga a mano y se ancla al artículo evaluado: `audit_items.article_compliance_id`. Desplegarlo automáticamente desde la norma queda para después del piloto)**
 - [x] Decidir dónde vive la **configuración por tenant** — hoy no hay un lugar para catálogos de empresa
 
 ## Fase 1 — Modelo compartido
+
+**Fuera de la v1.0** (4-oct). El modelo vive en la base y en los esquemas de la API; `packages/shared` describe el modelo de la pantalla y hoy no estorba. Reescribirlo entero —`Auditoria`, `Hallazgo`, `ItemChecklist`— es util cuando entre el modulo de auditoria completo, no antes: ningun requisito de este cambio lo necesita.
 
 - [ ] `packages/shared/src/schemas/auditoria.ts`: `Auditoria`, `SesionAuditoria`, `NotaAuditoria`, `InformeAuditoria`
 - [ ] `packages/shared/src/schemas/checklist.ts`: `ItemChecklist` con la escala de cumplimiento, agrupado por capítulo y acotado por proceso
@@ -66,6 +68,8 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 2 — Datos y stores
 
+**Fuera de la v1.0** (4-oct). Las pantallas leen la API desde hace meses; los mocks solo alimentan pruebas del modelo compartido. Agregar mocks nuevos seria mantener datos que el producto ya no muestra.
+
 - [ ] Migrar los mocks actuales según la tabla §8 del design
 - [ ] Agregar mocks que hoy no existen: hallazgos **conformes**, un registro por cada uno de los cinco tipos, y uno con seguimiento no eficaz (bucle de reapertura)
 - [x] Preset de `ConfiguracionMejoras` para el tenant demo **(`db/25` siembra los catalogos en todas las empresas, y `POST /tenants/` en las nuevas)**
@@ -74,6 +78,8 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 - [x] Instrumentar el audit log en cada transición de etapa y en el bucle de reapertura **(lo escribe el observador del `flush` (`services/auditoria_automatica.py`), no cada transicion a mano)**
 
 ## Fase 3 — Auditoría: planificación
+
+**Despues del piloto** (4-oct). Equipo auditor, agenda de sesiones y limitaciones del alcance son el modulo de auditoria completo. Lo que la v1.0 cubre es el ciclo: planificar, ejecutar el checklist, informar y tratar los hallazgos.
 
 - [x] **Crear auditoría** (falta por completo): tipo, rango, normas, objetivos, sitios, procesos, metodología
 - [ ] Asignación de procesos por auditor dentro del equipo
@@ -84,15 +90,19 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 4 — Auditoría: ejecución
 
+**Parcial.** El checklist, la cobertura y los veredictos por proceso estan (19-sep y 4-oct); desplegarlo por proceso desde las normas, la nota de auditoria por proceso y los hallazgos transversales quedan **despues del piloto**.
+
 - [ ] Desplegar un checklist **por proceso** desde las normas elegidas
 - [ ] Pantalla de checklist agrupada por capítulo de la norma, con encabezado de auditor / auditado / fecha
 - [ ] **Nota de auditoría por proceso** (PE2-R08): identificación, criterios y alcance de la muestra
-- [ ] Indicador de cobertura con `no_aplica` fuera del denominador
+- [x] Indicador de cobertura con `no_aplica` fuera del denominador **(4-oct: contaba los requisitos marcados «no aplica» en el denominador —43 de 264 en el seed—, asi que la cobertura salia mas baja por una razon que no existe)**
 - [x] Crear hallazgo desde un ítem del checklist
 - [ ] Hallazgos transversales, sin ítem asociado
 - [ ] Enlazar hallazgos concordantes con su motivo
 
 ## Fase 5 — Auditoría: informe
+
+**Parcial.** El informe se deriva de los hallazgos y sale en PDF desde la ficha (4-sep y 21-sep). Las fichas de hallazgo con todos los campos del design quedan **despues del piloto**.
 
 - [x] Informe con resumen ejecutivo derivado de los hallazgos
 - [x] **Matriz de resultados por proceso**, con las tres primeras columnas derivadas de nota y checklist
@@ -102,6 +112,8 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 - [x] Cierre de auditoría
 
 ## Fase 6 — Registro de Mejora
+
+**Parcial.** El ciclo tipado, su panel, el cierre con eficacia, el retorno a la accion correctiva y las salidas comprometidas estan (12-sep a 4-oct). El detalle como stepper y las bandejas por etapa quedan **despues del piloto**: son otra forma de mostrar lo mismo.
 
 - [x] Formulario de alta: el **tipo** es la primera decisión y define los campos condicionales
 - [ ] Alta desde un hallazgo, con los datos heredados y no reescribibles
@@ -118,6 +130,8 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 7 — Notificaciones
 
+**Parcial.** El aviso por etapa con su responsable esta (13-sep). El aviso de sesion de auditoria depende de la agenda (Fase 3) y el escalamiento de RF-42, los dos **despues del piloto**.
+
 - [x] Cálculo de fecha límite por etapa desde `plazosPorDefectoDias`
 - [x] Correo al asignar responsables y al avanzar de etapa
 - [x] Job periódico de plazos próximos y vencidos
@@ -130,10 +144,14 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 
 ## Fase 8 — Configuración por tenant
 
+**Parcial.** Los catalogos por empresa existen (`db/25`, `db/30`) y se editan por API. La pantalla queda **despues del piloto**, y **el orden de las etapas no se configura**: lo fija ISO 9001 10.2.1 (ver el spec). El preset ADCLEAN es contenido de un cliente, no del sistema.
+
 - [ ] Pantalla de catálogos: severidad, metodologías, plazos, orden de etapas, etiquetas
 - [ ] Preset "ADCLEAN" documentado como ejemplo, no como default del sistema
 
 ## Fase 9 — Consecuencias
+
+**Parcial.** El tablero y los reportes muestran el ciclo; los contadores por etapa y el filtro por tipo quedan **despues del piloto**.
 
 - [ ] Dashboard: contadores por etapa y % de resolución
 - [ ] Reportes: filtro por tipo y clasificación
@@ -141,6 +159,8 @@ Sin esto, las fases siguientes se construyen sobre supuestos.
 - [ ] Revisar que el mapa de procesos no quede como dependencia rota
 
 ## Fase 10 — Documentación
+
+**Fuera de la v1.0** (4-oct). El analisis funcional v1.8 es trabajo de negocio; las decisiones tomadas quedan en `docs/plan-de-cierre-v1.md`.
 
 - [ ] Actualizar `openspec/analisis/seccion-g-auditorias-no-conformidades.md`
 - [ ] Proponer actualización del Análisis Funcional a v1.8: §3.9 pasa de 8 requisitos a cubrir el ciclo completo

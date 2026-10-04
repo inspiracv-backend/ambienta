@@ -213,7 +213,12 @@ function cuerpoSinLimite(kind: TipoEtapa, ciclo: CicloEnPantalla): Record<string
         cumplio_proposito: e.cumplioProposito,
         requiere_actualizar_riesgos: e.requiereActualizarRiesgos,
         requiere_cambios_sgc: e.requiereCambiosSGC,
-        datos: { requiereActualizarFoda: e.requiereActualizarFoda, salidas: e.salidas },
+        // **Las salidas ya no van acá.** Viven en `improvement_commitments`
+        // desde el 4-oct: dentro del JSON el responsable era texto sin clave
+        // foránea y no había forma de listar lo que el sistema de gestión debe.
+        // La pregunta de la FODA sí: es del formulario, y es la que crea su
+        // compromiso (`lib/compromisos.ts`).
+        datos: { requiereActualizarFoda: e.requiereActualizarFoda },
       };
     }
     default:
