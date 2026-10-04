@@ -10,6 +10,9 @@ import { api, mensajeDeError } from '@/lib/api-client';
 
 interface LegalMatrixContextValue {
   norms: LegalNorm[];
+  /** Las normas que están en la matriz de la empresa (`matrix_norms`), tengan o
+      no planta asignada. Ver `normasVisibles`. */
+  enMatriz: Set<string>;
   loading: boolean;
   /** Por que la lista esta vacia, si es que fallo (#208). `null` = se pregunto. */
   errorDeCarga: string | null;
@@ -20,7 +23,8 @@ interface LegalMatrixContextValue {
     articuloId: string,
     titulo: string,
   ) => Promise<{ id: string; code: string }>;
-  addNorm: (input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) => void;
+  /** `false` si la API rechazó el alta: la lista no se toca y la pantalla lo dice. */
+  addNorm: (input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) => Promise<boolean>;
   setNormPlants: (normId: string, plantIds: string[]) => void;
 }
 
@@ -68,6 +72,22 @@ const TIPO_POR_NORM_TYPE: Record<string, TipoDocumento> = {
  * un artículo que estaba en `partial`, se guarda como `non_compliant` y el
  * matiz se pierde. Recuperarlo pide una quinta opción en la interfaz.
  */
+/** `legal_norms.status` → la vigencia de la pantalla. `draft` es un proyecto. */
+const VIGENCIA_POR_STATUS: Record<string, NonNullable<LegalNorm['vigencia']>['estado']> = {
+  vigente: 'vigente',
+  parcialmente_vigente: 'parcialmente_vigente',
+  derogada: 'derogada',
+  draft: 'proyecto',
+  desconocida: 'desconocida',
+};
+
+/** `matrix_norms.applicability` → si la norma le aplica a la empresa. */
+const APLICABILIDAD_POR_VALOR: Record<string, NonNullable<NonNullable<LegalNorm['aplicabilidad']>['estado']>> = {
+  applicable: 'aplica',
+  not_applicable: 'no_aplica',
+  pending_analysis: 'por_analizar',
+};
+
 const RESPUESTA_POR_STATUS: Record<string, Articulo['respuesta']> = {
   compliant: 'SI',
   non_compliant: 'NO',
@@ -100,6 +120,7 @@ const FUENTE_POR_CODIGO: Record<string, LegalNorm['fuente']> = {
 export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   const [norms, setNorms] = useState<LegalNorm[]>([]);
   const [loading, setLoading] = useState(true);
+  const [datosDe, setDatosDe] = useState<string | null>(null);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
@@ -119,6 +140,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
 
   /** `norma` → id de esa norma **dentro de la matriz de esta empresa**. */
   const matrizNormaRef = useRef(new Map<string, string>());
+  const [enMatriz, setEnMatriz] = useState<Set<string>>(() => new Set());
 
   /**
    * `articulo` → los `attributes` que ya tiene guardados su evaluación.
@@ -149,7 +171,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     async function plantasPorNorma(): Promise<Map<string, string[]>> {
       const mapa = new Map<string, string[]>();
       const plantas = await api
-        .get<Record<string, unknown>[]>('/facilities/', { tenantId: user!.tenantId })
+        .getTodas<Record<string, unknown>>('/facilities/', { tenantId: user!.tenantId })
         .catch(() => []);
       const asignaciones = await Promise.all(
         plantas.map((p) =>
@@ -195,16 +217,38 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         string,
         { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }
       >,
+      /**
+       * De dónde salen los artículos. Por defecto el catálogo público.
+       *
+       * **La normativa propia va por otra ruta a propósito.** Medido el 10-sep:
+       * `/catalog/norms/{id}/articles` sí devuelve hoy el articulado de una RCA
+       * a su dueña, pero **por un efecto de borde** — `get_tenant_db` recibe su
+       * sesión de `get_db` y FastAPI cachea las dependencias por request, así
+       * que en un router con guarda de permisos la ruta «sin empresa» corre con
+       * la empresa declarada. Está documentado en `deps.py::get_db`.
+       *
+       * Apoyarse en eso significaría que el día que el catálogo deje de llevar
+       * esa guarda, las RCAs de la pantalla se quedan sin considerandos y nadie
+       * relaciona una cosa con la otra.
+       */
+      ruta: (id: string) => string = (id) => `/catalog/norms/${id}/articles`,
+      opts?: { tenantId: string },
     ): Promise<Map<string, Articulo[]>> {
       const mapa = new Map<string, Articulo[]>();
       const porNorma = await Promise.all(
-        normas.map((n) =>
-          api
-            .get<Record<string, unknown>[]>(`/catalog/norms/${n.id}/articles`)
+        normas.map((n) => {
+          const url = ruta(String(n.id));
+          // `opts` se omite del todo cuando no hay, en vez de mandar
+          // `undefined`: el catálogo público se sigue pidiendo exactamente
+          // igual que antes de que esta función tuviera dos caminos.
+          const pedido = opts
+            ? api.get<Record<string, unknown>[]>(url, opts)
+            : api.get<Record<string, unknown>[]>(url);
+          return pedido
             .then((filas) => ({ norma: String(n.id), filas }))
             // Una norma sin articulado no puede tumbar la pantalla entera.
-            .catch(() => ({ norma: String(n.id), filas: [] as Record<string, unknown>[] })),
-        ),
+            .catch(() => ({ norma: String(n.id), filas: [] as Record<string, unknown>[] }));
+        }),
       );
       for (const { norma, filas } of porNorma) {
         mapa.set(
@@ -219,6 +263,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
               // articulo es `content`, que es NOT NULL.
               descripcion: String(f.heading || f.content || ''),
               respuesta: RESPUESTA_POR_STATUS[evaluacion?.estado ?? ''] ?? 'N_E',
+              ...(evaluacion?.ac ? { evaluacionId: evaluacion.ac } : {}),
               ...(evaluacion?.forma ? { formaCumplimiento: evaluacion.forma } : {}),
               ...(evaluacion?.responsableId
                 ? { responsableId: evaluacion.responsableId }
@@ -246,15 +291,22 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
      * También deja el `id` de la evaluación, que es contra el que se escribe:
      * `/article-compliance` se direcciona por la evaluación, no por el
      * artículo.
+     *
+     * **Todas las páginas, y sin respaldo vacío** (21-sep). Con `get` llegaban
+     * las primeras 100 —la API corta ahí si no se le pide otra cosa— y en la
+     * empresa de prueba **164 de 264 evaluaciones** se mostraban "sin evaluar".
+     * Y si la petición fallaba, el `catch` devolvía una lista vacía: la matriz
+     * entera aparecía sin evaluar. Las dos cosas le dicen a la empresa que
+     * nadie miró lo que sí miró; ahora un fallo se informa como tal
+     * (`errorDeCarga`). Además, escribir sobre una evaluación "perdida" creaba
+     * otra en vez de corregir la que existía.
      */
     async function evaluacionesPorArticulo(): Promise<
       Map<string, { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }>
     > {
-      const filas = await api
-        .get<Record<string, unknown>[]>('/compliance/article-compliance', {
-          tenantId: user!.tenantId,
-        })
-        .catch(() => []);
+      const filas = await api.getTodas<Record<string, unknown>>('/compliance/article-compliance', {
+        tenantId: user!.tenantId,
+      });
       const mapa = new Map<
         string,
         { ac: string; estado: string; forma?: string; responsableId?: string; attributes?: Record<string, unknown> }
@@ -289,24 +341,73 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
      */
     async function matrizPorNorma(): Promise<Map<string, string>> {
       const filas = await api
-        .get<Record<string, unknown>[]>('/compliance/matrix-norms', {
+        .getTodas<Record<string, unknown>>('/compliance/matrix-norms', {
           tenantId: user!.tenantId,
         })
         .catch(() => []);
+      // De paso, **si le aplica**: la sincronizacion marca `not_applicable` lo
+      // que dejo de corresponderle y lo conserva. Sin leerlo, la Ley 20.920 de
+      // la empresa de prueba salia "Pendiente de evaluar · 61 sin evaluar": la
+      // pantalla pedia evaluar una norma que ya no le aplica (21-sep).
+      for (const f of filas) {
+        aplicabilidadPorNorma.set(String(f.norm_id), {
+          determinadaPor: f.inclusion_source === 'automatic' ? 'automatica' : 'manual',
+          estado: APLICABILIDAD_POR_VALOR[String(f.applicability ?? '')] ?? 'por_analizar',
+          ...(f.applicability_reason ? { criterio: String(f.applicability_reason) } : {}),
+          actividadesEconomicas: [],
+          aspectoAmbientalIds: [],
+        });
+      }
       return new Map(
         filas.map((f) => [String(f.norm_id), String(f.id)] as [string, string]),
       );
     }
 
+    /**
+     * La normativa propia de la empresa: sus RCAs y sus ISO.
+     *
+     * **Va en una llamada aparte porque `/catalog/norms` no la trae.** Esa ruta
+     * responde el catálogo compartido; una RCA es de una empresa (`db/29`), y
+     * sin esto una RCA recién cargada **desaparecía al recargar la pantalla** —
+     * el defecto de medio viaje de ida y vuelta que este repositorio ya sufrió
+     * con `limiteUsuarios`.
+     *
+     * Si falla se devuelve vacío y el catálogo público se muestra igual: un
+     * error acá no puede dejar la matriz legal entera en blanco.
+     */
+    async function propiasDeLaEmpresa(): Promise<Record<string, unknown>[]> {
+      return api
+        .get<Record<string, unknown>[]>('/compliance/normativa-propia/', {
+          tenantId: user!.tenantId,
+        })
+        .catch(() => []);
+    }
+
+    // **Con la empresa, desde el 21-sep.** Sin ella, en modo desarrollo la
+    // peticion salia sin credencial y respondia 401: la matriz no cargaba.
+    // Mandarla no duplica las normas propias porque la API filtra el catalogo
+    // a lo publico (`catalog.py::list_norms`); antes no lo hacia, y con Clerk
+    // —donde el token siempre trae la empresa— cada RCA salia dos veces.
+    const conEmpresa = { tenantId: user.tenantId! };
+    const aplicabilidadPorNorma = new Map<string, NonNullable<LegalNorm['aplicabilidad']>>();
     Promise.all([
-      api.get<Record<string, unknown>[]>('/catalog/norms'),
+      // Todas las páginas: el catálogo crece con cada sincronización de la
+      // BCN, y una norma más allá de la número 100 desaparecería de la matriz.
+      api.getTodas<Record<string, unknown>>('/catalog/norms', conEmpresa),
       plantasPorNorma(),
       // Las normas traen `source_id`, no el codigo. Sin esta lista no hay forma
       // de saber si una norma es de la BCN, una ISO o una RCA de la empresa.
-      api.get<Record<string, unknown>[]>('/catalog/sources').catch(() => []),
+      api.get<Record<string, unknown>[]>('/catalog/sources', conEmpresa).catch(() => []),
+      propiasDeLaEmpresa(),
     ])
-      .then(async ([data, porNorma, fuentes]) => {
+      .then(async ([publicas, porNorma, fuentes, propias]) => {
         if (cancelled) return;
+
+        // **Se concatenan y no se mezclan por id.** Las dos listas son
+        // disjuntas por construcción: `listar()` filtra `tenant_id IS NOT NULL`
+        // y el catálogo filtra `tenant_id IS NULL` (lo prueba
+        // `test_catalogo_es_solo_lo_publico.py`).
+        const data = [...publicas, ...propias];
 
         const [evaluaciones, porNormaMatriz] = await Promise.all([
           evaluacionesPorArticulo(),
@@ -321,8 +422,23 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         evaluaciones.forEach((v, articulo) => ids.set(articulo, v.ac));
         evaluacionRef.current = ids;
         matrizNormaRef.current = porNormaMatriz;
+        setEnMatriz(new Set(porNormaMatriz.keys()));
 
-        const articulosPorNorma = await articulosDeLasNormas(data, evaluaciones);
+        // Cada grupo por su propia ruta: el catálogo público es global y la
+        // normativa propia exige declarar empresa. Ver el parámetro `ruta`.
+        const [articulosPublicos, articulosPropios] = await Promise.all([
+          // Con la empresa por la misma razon que el listado: sin ella, en
+          // desarrollo cada articulado respondia 401 y las normas llegaban vacias.
+          articulosDeLasNormas(publicas, evaluaciones, undefined, conEmpresa),
+          articulosDeLasNormas(
+            propias,
+            evaluaciones,
+            (id) => `/compliance/normativa-propia/${id}/articulos`,
+            { tenantId: user.tenantId! },
+          ),
+        ]);
+        const articulosPorNorma = articulosPublicos;
+        articulosPropios.forEach((v, k) => articulosPorNorma.set(k, v));
         if (cancelled) return;
 
         const codigoPorFuente = new Map<string, string>(
@@ -337,6 +453,14 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
           nombre: String(raw.title ?? raw.norm_number ?? ''),
           fuente: FUENTE_POR_CODIGO[codigoPorFuente.get(String(raw.source_id)) ?? ''] ?? 'RCA',
           articulos: articulosPorNorma.get(String(raw.id)) ?? [],
+          // Vigencia y aplicabilidad (tarea 58 de ISO). Una norma derogada o que
+          // dejo de aplicar se ve distinta de una vigente que aplica.
+          ...(VIGENCIA_POR_STATUS[String(raw.status ?? '')]
+            ? { vigencia: { estado: VIGENCIA_POR_STATUS[String(raw.status)]! } }
+            : {}),
+          ...(aplicabilidadPorNorma.has(String(raw.id))
+            ? { aplicabilidad: aplicabilidadPorNorma.get(String(raw.id))! }
+            : {}),
         }));
         // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
         // de antes no distinguia dos cosas muy distintas: que la API fallara
@@ -355,7 +479,7 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
         // preguntar' — la misma mentira de #208 en su otra forma.
         setErrorDeCarga(mensajeDeError(e));
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setDatosDe(user?.tenantId ?? null); } });
     return () => { cancelled = true; };
   // `user` completo y no solo su tenantId: el efecto lo usa adentro para las
   // peticiones anidadas, y depender de una parte deja la otra vieja.
@@ -668,37 +792,80 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * **Esto todavía no llega a la base, pero el bloqueo se redujo a la mitad.**
+   * Registra una RCA o una ISO de la empresa. **Ahora sí llega a la base.**
    *
-   * Los dos identificadores que exige `POST /catalog/norms` **ya se pueden
-   * resolver**: `GET /catalog/countries` existe, y `legal_sources` sí tiene
-   * códigos `ISO` y `RCA` (los siembra `db/03_seed_catalogos.sql`), así que
-   * `fuente` mapea directo. La versión anterior de esta nota decía que las
-   * fuentes eran solo organismos —`BCN`, `SMA`, `RETC`— y estaba equivocada.
+   * ## Lo que la desbloqueó, y por qué esta nota decía otra cosa
    *
-   * **El bloqueo real es otro, y es de diseño.** `legal_norms` es un catálogo
-   * global **sin `tenant_id`, a propósito**: su propio comentario en el esquema
-   * dice que la norma es la misma para todos los tenants y que lo que se
-   * registra por empresa es la aplicabilidad y el cumplimiento.
+   * Durante semanas acá decía que el bloqueo era de diseño: `legal_norms` es un
+   * catálogo global **sin `tenant_id`**, así que escribir una RCA ahí publicaba
+   * la resolución de un cliente en el catálogo que ven todos los demás. Era
+   * cierto — y **dejó de serlo el 8-sep**, cuando `db/29` agregó la columna, su
+   * política de RLS y `/compliance/normativa-propia`. La nota se quedó vieja y
+   * nadie volvió a mirarla: el mismo patrón que este repositorio persigue.
    *
-   * Una RCA **no** es la misma para todos: es de una empresa. Dejar que esta
-   * pantalla escriba ahí publicaría la resolución de un cliente en el catálogo
-   * que ven todos los demás. No es un `POST` que falte: hay que decidir dónde
-   * vive la normativa propia de una empresa —columna `tenant_id` en
-   * `legal_norms`, tabla aparte, o solo dentro de `matrix_norms`— y esa
-   * decisión tiene consecuencias sobre RLS.
+   * ## Por qué NO va a `POST /catalog/norms`
+   *
+   * Esa ruta escribe el catálogo compartido y exige Admin Global. Lo que decide
+   * si una norma es propia es **`tenant_id` y nada más**, no la fuente: el
+   * catálogo público tiene una norma archivada bajo la fuente `RCA`
+   * —`RE-574/2019`, sobre reporte al RETC— que es normativa general y no el
+   * permiso de nadie.
+   *
+   * ## Devuelve si se guardó, y no toca la lista si falló
+   *
+   * Pintar la norma antes de saberlo es cómo se produce una pantalla que
+   * confirma un cambio que la base nunca recibió. Es lo mismo que ya pasó con
+   * `limiteUsuarios`, que se "guardaba" y se deshacía al recargar.
    */
-  function addNorm(input: { nombre: string; tipoDocumento: TipoDocumento; fuente: 'RCA' | 'ISO'; tenantId: string; plantIds: string[] }) {
+  async function addNorm(input: {
+    nombre: string;
+    tipoDocumento: TipoDocumento;
+    fuente: 'RCA' | 'ISO';
+    tenantId: string;
+    plantIds: string[];
+  }): Promise<boolean> {
+    let creada: Record<string, unknown>;
+    try {
+      creada = await api.post<Record<string, unknown>>(
+        '/compliance/normativa-propia/',
+        {
+          fuente: input.fuente,
+          // El tipo de la pantalla es el vocabulario del catálogo, en
+          // minúsculas: `Resolucion` -> `resolucion`, `NCh` -> `nch`. Mandarlo
+          // como se ve dejaría dos escrituras distintas del mismo valor.
+          norm_type: input.tipoDocumento.toLowerCase(),
+          title: input.nombre,
+        },
+        { tenantId: input.tenantId },
+      );
+    } catch (error) {
+      mostrarToast({
+        tipo: 'error',
+        mensaje: 'No se pudo registrar el documento',
+        descripcion: mensajeDeError(error),
+      });
+      return false;
+    }
+
     const newNorm: LegalNorm = {
-      id: `norm-${Date.now()}`,
+      id: String(creada.id),
       tenantId: input.tenantId,
-      plantIds: input.plantIds,
+      plantIds: [],
       tipoDocumento: input.tipoDocumento,
       nombre: input.nombre,
       fuente: input.fuente,
+      // **Sin artículos, y eso es verdad.** Una RCA se registra primero y sus
+      // considerandos se cargan después: RF-11 deja la extracción del PDF
+      // fuera, y depende de `ai-service`, que es una carpeta vacía.
       articulos: [],
     };
     setNorms((prev) => [...prev, newNorm]);
+
+    // Las plantas se asignan después del alta porque cuelgan de la norma ya
+    // creada: `setNormPlants` es el mismo camino que usa la edición.
+    if (input.plantIds.length > 0) {
+      setNormPlants(newNorm.id, input.plantIds);
+    }
 
     registrar({
       entidadTipo: 'norma',
@@ -706,12 +873,13 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
       entidadLabel: newNorm.nombre,
       tenantId: input.tenantId,
       accion: 'creado',
-      resumen: `Agregó la norma al catálogo (${input.fuente})`,
+      resumen: `Registró normativa propia de la empresa (${input.fuente})`,
       cambios: [
         { campo: 'Fuente', antes: null, despues: input.fuente },
         { campo: 'Plantas asignadas', antes: null, despues: String(input.plantIds.length) },
       ],
     });
+    return true;
   }
 
   function setNormPlants(normId: string, plantIds: string[]) {
@@ -780,8 +948,15 @@ export function LegalMatrixProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  // **Mientras no se haya preguntado POR ESTA empresa, se sigue cargando.**
+  // El efecto baja `loading` a `false` cuando todavia no hay sesion, y al
+  // llegar el tenant no lo vuelve a subir: quedaba una ventana con la lista
+  // vacia y `loading` en `false`, y las fichas afirmaban "No encontramos esto"
+  // sobre algo que si existe, durante todo el viaje de red.
+  const cargandoDeVerdad = loading || (!!user?.tenantId && datosDe !== user.tenantId);
+
   return (
-    <LegalMatrixContext.Provider value={{ norms, loading, errorDeCarga, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
+    <LegalMatrixContext.Provider value={{ norms, enMatriz, loading: cargandoDeVerdad, errorDeCarga, updateArticulo, setIncluidoEnCalculo, generarObligacion, addNorm, setNormPlants }}>
       {children}
     </LegalMatrixContext.Provider>
   );

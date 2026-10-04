@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Audit, LegalNorm, NonConformity, Obligation, Plant } from '@ambienta/shared';
+import type { AspectoApi, RiesgoApi } from './iso-store';
 import {
   buildAuditFolderContent,
   buildCumplimientoReport,
+  buildMatrizAspectosReport,
   buildMatrizLegalReport,
   buildNoConformidadesReport,
   downloadTextFile,
@@ -200,6 +202,28 @@ describe('buildMatrizLegalReport', () => {
 
   it('marca empty sin normas', () => {
     expect(buildMatrizLegalReport([], []).empty).toBe(true);
+  });
+
+  it('el cumplimiento es el del tablero y lo de lo evaluado va en su columna', () => {
+    // Un artículo cumplido y tres sin evaluar: 25 % de cumplimiento, 100 % de
+    // lo evaluado. Hasta el 21-sep el reporte decía 100 % a secas.
+    const norma = {
+      id: 'n1',
+      nombre: 'DS 148',
+      fuente: 'BCN',
+      plantIds: [],
+      articulos: [
+        { id: 'a', respuesta: 'SI', incluidoEnCalculo: true },
+        { id: 'b', respuesta: 'N_E', incluidoEnCalculo: true },
+        { id: 'c', respuesta: 'N_E', incluidoEnCalculo: true },
+        { id: 'd', respuesta: 'N_E', incluidoEnCalculo: true },
+      ],
+    } as unknown as LegalNorm;
+    const r = buildMatrizLegalReport([norma], []);
+    const col = (h: string) => r.rows[0][r.headers.indexOf(h)];
+
+    expect(col('% Cumplimiento')).toBe('25%');
+    expect(col('% de lo evaluado')).toBe('100%');
   });
 });
 
@@ -460,5 +484,154 @@ describe('el CSV se abre bien en Excel', () => {
     downloadTextFile('REPORTE.CSV', 'a,b', 'text/csv');
 
     expect(String(creado!.partes[0])).toMatch(/^﻿/);
+  });
+});
+
+describe('la carpeta de una auditoría sin fecha ni planta', () => {
+  const sinFecha = {
+    id: 'a2', plantId: '', titulo: 'Auditoría de toda la empresa', tipo: 'interna',
+    fecha: '', estado: 'planificada', procesos: [], normativaIds: [],
+  } as unknown as Audit;
+
+  it('no escribe «Invalid Date»', () => {
+    // `mapApiAudit` deja `fecha` vacía cuando no hay fecha planificada, en vez
+    // de inventar la de hoy: el exportador tiene que decirlo.
+    const texto = buildAuditFolderContent(sinFecha, undefined, []);
+    expect(texto).not.toContain('Invalid Date');
+    expect(texto).toContain('Sin fecha');
+  });
+
+  it('dice «Toda la empresa» en vez de dejar la cabecera colgando', () => {
+    const texto = buildAuditFolderContent(sinFecha, undefined, []);
+    expect(texto).toContain('Toda la empresa');
+    expect(texto.split('\n')[0]).not.toMatch(/—\s*$/);
+  });
+});
+
+describe('buildMatrizAspectosReport', () => {
+  function aspecto(over: Partial<AspectoApi> & { id: string }): AspectoApi {
+    return {
+      facilityId: 'p1',
+      procesoId: null,
+      articleComplianceId: null,
+      actividad: 'Chancado',
+      aspecto: 'Emisión de polvo',
+      tipoImpacto: 'emision_atmosferica',
+      condicionOperacion: 'normal',
+      puntajeSeveridad: null,
+      puntajeFrecuencia: null,
+      puntajeLegal: null,
+      puntajeTotal: null,
+      significancia: 'pending',
+      responsableId: null,
+      ...over,
+    };
+  }
+  const ctx = {
+    plantas: [{ id: 'p1', nombre: 'Planta Calama' }],
+    procesos: [{ id: 'pr1', nombre: 'Chancado primario' }],
+    riesgos: [] as RiesgoApi[],
+    nombreDe: (id: string) => (id === 'u1' ? 'Ana Rojas' : id),
+    filtros: [] as string[],
+    total: 3,
+  };
+
+  /** La celda por su encabezado: agregar una columna no rompe las pruebas. */
+  function celda(r: { headers: string[]; rows: string[][] }, fila: number, encabezado: string) {
+    const i = r.headers.indexOf(encabezado);
+    expect(i, `no hay columna "${encabezado}"`).toBeGreaterThanOrEqual(0);
+    return r.rows[fila][i];
+  }
+
+  it('sin puntajes dice "Sin evaluar", no cero', () => {
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], ctx);
+
+    expect(celda(r, 0, 'Puntaje')).toBe('Sin evaluar');
+    expect(celda(r, 0, 'Significancia')).toBe('Sin evaluar');
+    expect(['Frecuencia', 'Severidad', 'Legal'].map((h) => celda(r, 0, h))).toEqual(['—', '—', '—']);
+  });
+
+  it('lleva los tres puntajes, que son la evidencia de como se evaluo', () => {
+    const r = buildMatrizAspectosReport(
+      [
+        aspecto({
+          id: 'a1',
+          puntajeFrecuencia: 8,
+          puntajeSeveridad: 7,
+          puntajeLegal: 3,
+          puntajeTotal: 56,
+          significancia: 'significant',
+        }),
+      ],
+      ctx,
+    );
+
+    expect(['Frecuencia', 'Severidad', 'Legal', 'Puntaje', 'Significancia'].map((h) => celda(r, 0, h))).toEqual([
+      '8',
+      '7',
+      '3',
+      '56',
+      'Significativo',
+    ]);
+  });
+
+  it('distingue significativo tratado de sin tratar', () => {
+    const riesgo = { id: 'r1', aspectoAmbientalId: 'a2' } as RiesgoApi;
+    const r = buildMatrizAspectosReport(
+      [
+        aspecto({ id: 'a1', significancia: 'significant' }),
+        aspecto({ id: 'a2', significancia: 'significant' }),
+        aspecto({ id: 'a3', significancia: 'significant', articleComplianceId: 'ac1' }),
+        aspecto({ id: 'a4', significancia: 'not_significant' }),
+      ],
+      { ...ctx, riesgos: [riesgo] },
+    );
+
+    // a3 tiene un requisito legal enlazado y ningun riesgo: sin tratar. El
+    // requisito que le aplica no es una accion sobre el aspecto, y el panel del
+    // servidor ya lo contaba asi (21-sep, se unificaron los criterios).
+    expect(r.rows.map((_, i) => celda(r, i, 'Tratamiento'))).toEqual(['Sin tratar', 'Tratado', 'Sin tratar', '—']);
+  });
+
+  it('traduce planta, tipo, condicion y responsable', () => {
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1', responsableId: 'u1' })], ctx);
+
+    expect(celda(r, 0, 'Planta')).toBe('Planta Calama');
+    expect(celda(r, 0, 'Tipo de impacto')).toBe('Emisión atmosférica');
+    expect(celda(r, 0, 'Condición')).toBe('Normal');
+    expect(celda(r, 0, 'Responsable')).toBe('Ana Rojas');
+  });
+
+  it('dice el proceso, y lo sin proceso lo dice en palabras', () => {
+    const r = buildMatrizAspectosReport(
+      [aspecto({ id: 'a1', procesoId: 'pr1' }), aspecto({ id: 'a2' }), aspecto({ id: 'a3', procesoId: 'pr-retirado' })],
+      ctx,
+    );
+
+    // Uno que no esta en el mapa sale con su id: un guion pareceria "sin proceso".
+    expect(r.rows.map((_, i) => celda(r, i, 'Proceso'))).toEqual(['Chancado primario', 'Sin proceso', 'pr-retirado']);
+  });
+
+  it('filtrada, lo dice y dice cuantos de cuantos', () => {
+    // Una matriz filtrada sin aviso se lee como la matriz completa.
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], {
+      ...ctx,
+      filtros: ['Planta: Planta Calama'],
+    });
+
+    expect(r.notas[0]).toBe('Filtrado: Planta: Planta Calama. Muestra 1 de los 3 aspectos de la matriz.');
+  });
+
+  it('sin filtro no inventa uno', () => {
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], ctx);
+
+    expect(r.notas.some((n) => n.startsWith('Filtrado'))).toBe(false);
+  });
+
+  it('el CSV sale de las mismas filas que el PDF', () => {
+    const r = buildMatrizAspectosReport([aspecto({ id: 'a1' })], ctx);
+
+    expect(r.csv.split('\n')[0]).toBe(r.headers.join(','));
+    expect(r.csv).toContain('Planta Calama');
   });
 });

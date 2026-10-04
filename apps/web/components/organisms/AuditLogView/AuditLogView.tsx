@@ -7,6 +7,8 @@ import { ACCION_LABEL, ENTIDAD_LABEL } from '@ambienta/shared';
 import { Button, Input } from '@/components/atoms';
 import { EmptyState, FormField } from '@/components/molecules';
 import { useAuditLog, useRegistrarAuditoria } from '@/lib/audit-log-store';
+import { useRegistroDelServidor } from '@/lib/registro-de-actividades';
+import { useSession } from '@/lib/session';
 import { useTenants } from '@/lib/tenants-store';
 import {
   actoresDe,
@@ -33,6 +35,14 @@ const ENTIDADES: EntidadAuditable[] = [
   'contrato',
   'departamento',
   'planta',
+  'aspecto_ambiental',
+  'riesgo_oportunidad',
+  'equipo',
+  'documento',
+  'rol',
+  'crm',
+  'comentario',
+  'otro',
 ];
 
 /**
@@ -48,13 +58,25 @@ const ENTIDADES: EntidadAuditable[] = [
  * backend lo garantiza RLS.
  */
 export function AuditLogView({ tenantIdVisible }: { tenantIdVisible: string | null }) {
-  const { entries } = useAuditLog();
+  const { entries: deLaSesion } = useAuditLog();
+  const { user } = useSession();
   const { tenants } = useTenants();
   const { mostrarToast } = useToast();
   const registrar = useRegistrarAuditoria();
   const [filtros, setFiltros] = useState<FiltrosAuditoria>(FILTROS_INICIALES);
 
   const esSuperadmin = tenantIdVisible === null;
+
+  // **Lo del servidor, no solo lo de la sesión** (decisión 10 del 21-sep). El
+  // registro se escribe solo desde el 24-ago y hasta el 21-sep esta pantalla no
+  // lo leía: se vaciaba al recargar. Las fechas del filtro se piden al servidor
+  // para poder consultar un período que no está entre los últimos eventos.
+  const servidor = useRegistroDelServidor(
+    esSuperadmin ? (user?.tenantId ?? null) : tenantIdVisible,
+    { desde: filtros.desde, hasta: filtros.hasta },
+    { tenantDePlataforma: esSuperadmin ? user?.tenantId : null },
+  );
+  const entries = useMemo(() => [...servidor.entradas, ...deLaSesion], [servidor.entradas, deLaSesion]);
 
   /**
    * Que el Superadmin consulte el historial de un cliente es en sí mismo un
@@ -228,6 +250,20 @@ export function AuditLogView({ tenantIdVisible }: { tenantIdVisible: string | nu
           </Button>
         </div>
       </div>
+
+      {servidor.error && (
+        <p role="alert" className="rounded-card bg-semaforo-no-cumple-bg px-4 py-3 text-sm text-semaforo-no-cumple">
+          No se pudo leer el registro del servidor: {servidor.error}. Lo que ves es solo lo de esta sesión.
+        </p>
+      )}
+      {/* **Una lista cortada en silencio afirma que eso es todo lo que pasó.**
+          El servidor devuelve hasta 500 eventos por consulta. */}
+      {servidor.hayMas && (
+        <p role="status" className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Se muestran los 500 eventos más recientes{filtros.desde || filtros.hasta ? ' del período' : ''}. Hay
+          anteriores: acota las fechas para verlos.
+        </p>
+      )}
 
       {filtrados.length === 0 ? (
         <EmptyState

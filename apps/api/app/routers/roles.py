@@ -17,7 +17,7 @@ Conviene decirlo aca porque cuesta caro confundirlos:
 
 | Campo | Valores | Para que sirve |
 |---|---|---|
-| `users.user_type` | `platform_admin`, `tenant_admin`, `internal`, `guest`, `manager` | **Que clase de cuenta es.** Decide si pertenece a un departamento (`ck_users_interno_con_departamento`), si es un invitado, si administra la plataforma |
+| `users.user_type` | `platform_admin`, `tenant_admin`, `internal`, `guest`, `manager` | **Que clase de cuenta es.** Decide si debe pertenecer a un departamento (`ck_users_interno_con_departamento`, solo `internal`), si es un invitado, si administra la plataforma |
 | `roles.code` | `admin_empresa`, `encargado_ambiental`, `operador`, y los que cree la empresa | **Que puede hacer.** Es lo que se cruza con `role_permissions` |
 
 `09_roles_por_codigo.sql` derivo el segundo del primero **una vez**, para que
@@ -34,13 +34,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..crud.organization import crud_role, crud_user
+from ..crud.organization import crud_facility, crud_role, crud_user
 from ..deps import get_tenant_db, get_tenant_id
 from ..models.organization import Role
 from ..schemas.organization import RoleRead
-from ..schemas.roles import RolesDelUsuario, ResultadoDeRoles, FijarRoles
+from ..schemas.roles import (
+    AlcanceDelUsuario,
+    FijarAlcance,
+    FijarRoles,
+    ResultadoDeRoles,
+    RolesDelUsuario,
+)
 from ..services import usuarios as svc
-from ..services.permisos import roles_vigentes
+from ..services.permisos import alcance_del_usuario, roles_vigentes
 from ._comun import validar_visible
 
 router = APIRouter(tags=["roles"])
@@ -140,11 +146,76 @@ def fijar_roles(
         ) from None
 
     efectos = svc.fijar_roles(db, usuario, tenant_id, datos.role_ids)
-    db.commit()
-
-    return ResultadoDeRoles(
+    # **La respuesta se arma ANTES de confirmar**, y despues del `flush` para
+    # que la consulta vea lo recien escrito (`autoflush=False`). Despues del
+    # commit la sesion ya no tiene empresa: respondia `role_ids: []` aunque los
+    # roles quedaban asignados.
+    db.flush()
+    resultado = ResultadoDeRoles(
         user_id=user_id,
         role_ids=[a.role_id for a in svc.roles_vigentes_de(db, user_id)],
         codigos=roles_vigentes(db, user_id),
         efectos=efectos,
     )
+    db.commit()
+    return resultado
+
+
+def _alcance(db: Session, user_id: UUID) -> AlcanceDelUsuario:
+    instalaciones, _ = alcance_del_usuario(db, user_id)
+    return AlcanceDelUsuario(
+        user_id=user_id, facility_ids=sorted(instalaciones, key=str)
+    )
+
+
+@router.get(
+    "/users/{user_id}/alcance",
+    response_model=AlcanceDelUsuario,
+    summary="A que plantas esta acotada una persona",
+)
+def leer_alcance(user_id: UUID, db: Session = Depends(get_tenant_db)):
+    """Las plantas a las que esta acotada, segun sus roles vigentes.
+
+    **Una lista vacia es "todas", no "ninguna"**: es la regla de
+    `alcance_del_usuario`, y confundirlas dejaria a un administrador creyendo
+    que alguien sin acotar no ve nada.
+    """
+    if crud_user.get(db, user_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return _alcance(db, user_id)
+
+
+@router.put(
+    "/users/{user_id}/alcance",
+    response_model=AlcanceDelUsuario,
+    summary="Acotar a una persona a una planta, o a todas",
+    description=(
+        "`facility_id: null` la deja **sin acotar**. Se escribe en todos sus "
+        "roles vigentes: acotar uno solo no acotaria a nadie, porque manda el "
+        "rol mas amplio.\n\n"
+        "Responde **409** si la persona no tiene roles vigentes: el alcance se "
+        "guarda en ellos."
+    ),
+)
+def fijar_alcance(
+    user_id: UUID, datos: FijarAlcance, db: Session = Depends(get_tenant_db)
+):
+    # **Las claves foraneas no pasan por RLS**: sin esto se podria acotar a
+    # alguien a una planta de otra empresa, y dejaria de ver todo. Va antes de
+    # buscar a la persona para que la prueba pueda medirlo sin escribir nada.
+    validar_visible(crud_facility, db, datos.facility_id, campo="facility_id")
+    usuario = crud_user.get(db, user_id)
+    if usuario is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    try:
+        svc.fijar_alcance(db, usuario, datos.facility_id)
+    except svc.ErrorDeUsuarios as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    # **Se lee antes de confirmar.** Despues del commit no hay empresa declarada,
+    # la relectura veia cero roles y respondia `facility_ids: []` — que aca
+    # significa "sin acotar": lo contrario de lo que se acababa de guardar, y la
+    # pantalla pinta a la persona con esta respuesta.
+    db.flush()
+    resultado = _alcance(db, user_id)
+    db.commit()
+    return resultado

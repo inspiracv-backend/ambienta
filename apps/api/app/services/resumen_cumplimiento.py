@@ -37,7 +37,10 @@ devuelven los dos desde el mismo conteo en vez de elegir uno:
 
 - `porcentaje_sobre_evaluados` — de lo que se miro, cuanto se cumple
 - `cobertura` — cuanto se alcanzo a mirar
-- `porcentaje` — el conservador: lo pendiente cuenta como no cumplido
+- `porcentaje` — el conservador: lo pendiente cuenta como no cumplido. **Es
+  el "% de cumplimiento" de todo el producto desde el 21-sep** (decision 3
+  del plan de cierre): el tablero, la matriz en pantalla y los reportes lo
+  muestran como numero principal, y `porcentaje_sobre_evaluados` al lado.
 
 No son tres verdades sueltas: salen del mismo conteo. En aritmetica exacta
 `porcentaje = porcentaje_sobre_evaluados x cobertura / 100`, asi que describen

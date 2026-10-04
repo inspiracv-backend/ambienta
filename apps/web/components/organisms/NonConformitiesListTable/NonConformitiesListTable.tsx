@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Inbox, Plus } from 'lucide-react';
 import { Button, StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { ncSemaforo, NC_ESTADO_LABEL, CRITICIDAD_LABEL } from '@/lib/audit-status';
 import type { NonConformitiesListTableProps } from './NonConformitiesListTable.types';
 
@@ -15,6 +15,8 @@ function formatFecha(iso: string) {
 
 /** S-22 Listado de No Conformidades (hallazgos). */
 export function NonConformitiesListTable({ nonConformities, plants }: NonConformitiesListTableProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [estadoFiltro, setEstadoFiltro] = useState('todos');
   const [criticidadFiltro, setCriticidadFiltro] = useState('todas');

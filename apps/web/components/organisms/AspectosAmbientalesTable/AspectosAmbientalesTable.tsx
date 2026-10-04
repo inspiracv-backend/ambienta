@@ -1,40 +1,30 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Inbox, Pencil, Plus, Trash2 } from 'lucide-react';
-import { FEATURE_FLAGS } from '@ambienta/shared';
+import { FileSpreadsheet, FileText, Inbox, Pencil, Plus, Scale, Trash2 } from 'lucide-react';
+import { FEATURE_FLAGS, type Tenant } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
-import { FilterBar } from '@/components/molecules';
+import { DocumentoImprimible, FilterBar } from '@/components/molecules';
+import { ReporteImprimible } from '@/components/organisms/ReporteImprimible';
 import { ConfirmarBorrado, FormularioIso, type CampoIso } from '@/components/organisms/IsoForms';
-import { getUserName } from '@/lib/get-user-name';
-import { aspectoSinTratar, useIso, type AspectoApi, type PlantaApi } from '@/lib/iso-store';
+import { EvaluarSignificanciaModal } from '@/components/organisms/EvaluarSignificanciaModal';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
+import { aspectoSinTratar, useIso, type AspectoApi, type PlantaApi, type RiesgoApi } from '@/lib/iso-store';
+import { useLegalMatrix } from '@/lib/legal-matrix-store';
+import { CONDICION_OPERACION, TIPO_IMPACTO, etiqueta, opciones } from '@/lib/iso-vocabulario';
+import { buildMatrizAspectosReport, downloadTextFile } from '@/lib/reports';
+import { useAnotarEmision } from '@/lib/emisiones';
+import { useSession } from '@/lib/session';
+import { useDepartamentos } from '@/lib/departamentos-store';
 
-const CONDICION_LABEL: Record<string, string> = {
-  normal: 'Normal',
-  anormal: 'Anormal',
-  emergencia: 'Emergencia',
-};
-
-/**
- * Traducciones de los tipos que vienen en clave.
- *
- * `impact_type` es texto libre en la base, así que la mayoría llega ya
- * legible. Esto sólo traduce los valores en clave que puedan quedar de los
- * datos de ejemplo; lo que no reconoce **se muestra crudo**, que es lo que
- * hace que alguien lo note.
- */
-const TIPO_LABEL: Record<string, string> = {
-  emision_atmosferica: 'Emisión atmosférica',
-  vertido_agua: 'Vertido al agua',
-  residuo_solido: 'Residuo sólido',
-  residuo_peligroso: 'Residuo peligroso',
-  consumo_agua: 'Consumo de agua',
-  consumo_energia: 'Consumo de energía',
-  ruido: 'Ruido',
-  contaminacion_suelo: 'Contaminación de suelo',
-  biodiversidad: 'Biodiversidad',
-  gases_efecto_invernadero: 'GEI',
-  otro: 'Otro',
+/** Las opciones del filtro de significancia. **"No significativo" no incluye lo
+    sin evaluar**: hasta el 21-sep si lo incluia, y un aspecto que nadie
+    evaluo salia listado —y exportado— bajo "No significativo". */
+const FILTRO_SIGNIFICANCIA: Record<string, string> = {
+  si: 'Significativo',
+  no: 'No significativo',
+  pendiente: 'Sin evaluar',
+  sin_tratar: 'Significativo sin tratar',
 };
 
 /**
@@ -46,7 +36,11 @@ const TIPO_LABEL: Record<string, string> = {
  * "guardado" y los pierda al recargar — que ya pasó en este repositorio con
  * `evidence_url` y es la forma más silenciosa de perder un dato.
  */
-function campos(plants: PlantaApi[]): CampoIso[] {
+function campos(
+  plants: PlantaApi[],
+  procesos: { id: string; nombre: string }[],
+  requisitos: { value: string; label: string }[],
+): CampoIso[] {
   return [
     {
       nombre: 'facility_id',
@@ -54,6 +48,29 @@ function campos(plants: PlantaApi[]): CampoIso[] {
       tipo: 'select',
       requerido: true,
       opciones: plants.map((p) => ({ value: p.id, label: p.nombre })),
+    },
+    {
+      // **Opcional**: un aspecto puede ser de la planta entera y no de un
+      // proceso. Forzarlo inventaria una pertenencia (el mismo criterio que
+      // `audit_items.process_id`, `db/26`).
+      nombre: 'process_id',
+      etiqueta: 'Proceso',
+      tipo: 'select',
+      opciones: procesos.map((p) => ({ value: p.id, label: p.nombre })),
+      ayuda: 'El proceso del mapa de procesos al que pertenece la actividad.',
+    },
+    {
+      // El eslabon legal de la cadena (§6.1.3): una evaluacion de la Matriz
+      // Legal de esta empresa. Hasta el 21-sep no se podia elegir desde ninguna
+      // pantalla, asi que ningun aspecto quedaba enlazado a su requisito.
+      nombre: 'article_compliance_id',
+      etiqueta: 'Requisito legal que le aplica',
+      tipo: 'select',
+      opciones: requisitos,
+      ayuda:
+        requisitos.length > 0
+          ? 'Un artículo ya evaluado en la Matriz Legal.'
+          : 'Evalúa el artículo en la Matriz Legal para poder enlazarlo.',
     },
     {
       nombre: 'activity',
@@ -86,19 +103,9 @@ function campos(plants: PlantaApi[]): CampoIso[] {
       etiqueta: 'Condición de operación',
       tipo: 'select',
       requerido: true,
-      opciones: Object.entries(CONDICION_LABEL).map(([value, label]) => ({ value, label })),
+      opciones: opciones(CONDICION_OPERACION),
       ayuda: 'Un aspecto de emergencia se evalúa distinto que uno de rutina.',
     },
-    {
-      nombre: 'severity_score',
-      etiqueta: 'Severidad',
-      tipo: 'numero',
-      min: 1,
-      max: 10,
-      ayuda: 'De 1 a 10. La base lo exige en ese rango.',
-    },
-    { nombre: 'frequency_score', etiqueta: 'Frecuencia', tipo: 'numero', min: 1, max: 10 },
-    { nombre: 'legal_score', etiqueta: 'Requisito legal', tipo: 'numero', min: 1, max: 10 },
   ];
 }
 
@@ -106,6 +113,9 @@ interface Props {
   aspectos: AspectoApi[];
   /** Las plantas **de la API**, con su id real. Ver `plantas` en `iso-store`. */
   plants: PlantaApi[];
+  /** La empresa que emite la matriz exportada. Sin ella no hay PDF: un documento
+      sin quien lo emite no sirve para entregar. */
+  tenant?: Tenant;
 }
 
 /**
@@ -120,35 +130,136 @@ interface Props {
  * ## El filtro que importa
  *
  * "Sin tratar" es un aspecto **significativo** que no está ligado a ningún
- * requisito legal ni a ningún riesgo. Es el hallazgo más común en una auditoría
+ * riesgo u oportunidad (`iso-store.ts::aspectoSinTratar`, el mismo criterio del
+ * panel del servidor). Es el hallazgo más común en una auditoría
  * de 14001: la empresa identificó el problema y no hizo nada. Por eso es un
  * filtro y no una columna — se busca, no se mira de pasada.
  */
-export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
+function recortar(texto: string, largo = 48): string {
+  return texto.length > largo ? `${texto.slice(0, largo - 1)}…` : texto;
+}
+
+/** Requisito legal y riesgos de un aspecto, en palabras. Vacío se dice. */
+function CadenaDelAspecto({ requisito, riesgos }: { requisito: string | null; riesgos: RiesgoApi[] }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span>{requisito ?? <span className="text-slate-400">Sin requisito enlazado</span>}</span>
+      {riesgos.length === 0 ? (
+        <span className="text-slate-400">Sin riesgo enlazado</span>
+      ) : (
+        riesgos.map((rg) => (
+          <span key={rg.id}>
+            {rg.codigo}
+            {rg.planAccionId ? ' · con plan de acción' : ' · sin plan de acción'}
+          </span>
+        ))
+      )}
+    </div>
+  );
+}
+
+export function AspectosAmbientalesTable({ aspectos, plants, tenant }: Props) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   // El guard de la flag va DESPUES de los hooks: React exige que todo hook se
   // llame en el mismo orden en cada render, y un `return` antes los vuelve
   // condicionales.
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [condicionFiltro, setCondicionFiltro] = useState('todas');
+  const [procesoFiltro, setProcesoFiltro] = useState('todos');
   const [significativoFiltro, setSignificativoFiltro] = useState('todos');
   const [editando, setEditando] = useState<AspectoApi | null>(null);
   const [creando, setCreando] = useState(false);
   const [borrando, setBorrando] = useState<AspectoApi | null>(null);
+  const [evaluando, setEvaluando] = useState<AspectoApi | null>(null);
 
   const { riesgos, crearAspecto, editarAspecto, borrarAspecto } = useIso();
+  // Los requisitos legales se eligen entre las evaluaciones de la Matriz Legal:
+  // el aspecto se enlaza a lo que esta empresa respondio sobre un articulo, no al
+  // texto de la ley.
+  const { norms } = useLegalMatrix();
+  const requisitos = useMemo(
+    () =>
+      norms.flatMap((n) =>
+        n.articulos
+          .filter((art) => art.evaluacionId)
+          .map((art) => ({ value: art.evaluacionId!, label: `${recortar(n.nombre)} · ${art.numero}` })),
+      ),
+    [norms],
+  );
+  const requisitoPorId = useMemo(
+    () => new Map<string, string>(requisitos.map((q) => [q.value, q.label] as [string, string])),
+    [requisitos],
+  );
+  const { departamentos: procesos } = useDepartamentos();
+  const nombreDeProceso = (id: string | null) =>
+    // Un proceso que no esta en la lista —retirado, o de un mapa que no cargo—
+    // se muestra con su id: escondido tras un guion pareceria "sin proceso".
+    id === null ? null : (procesos.find((p) => p.id === id)?.nombre ?? id);
 
   const filtered = useMemo(
     () =>
       aspectos.filter((a) => {
         if (plantaFiltro !== 'todas' && a.facilityId !== plantaFiltro) return false;
         if (condicionFiltro !== 'todas' && a.condicionOperacion !== condicionFiltro) return false;
+        if (procesoFiltro === 'ninguno' && a.procesoId !== null) return false;
+        if (procesoFiltro !== 'todos' && procesoFiltro !== 'ninguno' && a.procesoId !== procesoFiltro)
+          return false;
         if (significativoFiltro === 'si' && a.significancia !== 'significant') return false;
-        if (significativoFiltro === 'no' && a.significancia === 'significant') return false;
+        if (significativoFiltro === 'no' && a.significancia !== 'not_significant') return false;
+        if (significativoFiltro === 'pendiente' && a.significancia !== 'pending') return false;
         if (significativoFiltro === 'sin_tratar' && !aspectoSinTratar(a, riesgos)) return false;
         return true;
       }),
-    [aspectos, riesgos, plantaFiltro, condicionFiltro, significativoFiltro],
+    [aspectos, riesgos, plantaFiltro, condicionFiltro, procesoFiltro, significativoFiltro],
   );
+
+  const { user } = useSession();
+  const anotarEmision = useAnotarEmision();
+
+  // **Se exporta lo que se ve**, filtros incluidos, y el documento los nombra.
+  const reporte = useMemo(() => {
+    const filtros = [
+      plantaFiltro !== 'todas' &&
+        `Planta: ${plants.find((p) => p.id === plantaFiltro)?.nombre ?? plantaFiltro}`,
+      procesoFiltro !== 'todos' &&
+        `Proceso: ${
+          procesoFiltro === 'ninguno'
+            ? 'Sin proceso'
+            : (procesos.find((p) => p.id === procesoFiltro)?.nombre ?? procesoFiltro)
+        }`,
+      condicionFiltro !== 'todas' && `Condición: ${etiqueta(CONDICION_OPERACION, condicionFiltro)}`,
+      significativoFiltro !== 'todos' &&
+        `Significancia: ${FILTRO_SIGNIFICANCIA[significativoFiltro] ?? significativoFiltro}`,
+    ].filter((f): f is string => typeof f === 'string');
+    return buildMatrizAspectosReport(filtered, {
+      plantas: plants,
+      procesos,
+      riesgos,
+      nombreDe: getUserName,
+      filtros,
+      total: aspectos.length,
+    });
+  }, [filtered, plants, procesos, riesgos, getUserName, plantaFiltro, condicionFiltro, procesoFiltro, significativoFiltro, aspectos.length]);
+
+  /** Queda en el registro del servidor, con los filtros que tenía (RNF-26). */
+  function anotar(formato: 'pdf' | 'csv') {
+    anotarEmision({
+      documento: 'matriz_de_aspectos',
+      titulo: reporte.titulo,
+      formato,
+      filas: reporte.rows.length,
+      filtros: reporte.notas.filter((n) => n.startsWith('Filtrado')),
+    });
+  }
+
+  function exportarCsv() {
+    const fecha = new Date().toISOString().slice(0, 10);
+    downloadTextFile(`matriz-aspectos-${fecha}.csv`, reporte.csv, 'text/csv;charset=utf-8');
+    anotar('csv');
+  }
+
+  const puedeImprimir = Boolean(tenant && user) && !reporte.empty;
 
   if (!FEATURE_FLAGS.matricesIso) return null;
 
@@ -168,38 +279,85 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
               ],
             },
             {
+              id: 'filtro-proceso-asp',
+              label: 'Proceso',
+              value: procesoFiltro,
+              onChange: setProcesoFiltro,
+              options: [
+                { value: 'todos', label: 'Todos los procesos' },
+                ...procesos.map((p) => ({ value: p.id, label: p.nombre })),
+                { value: 'ninguno', label: 'Sin proceso' },
+              ],
+            },
+            {
               id: 'filtro-condicion',
               label: 'Condición',
               value: condicionFiltro,
               onChange: setCondicionFiltro,
-              options: [
-                { value: 'todas', label: 'Todas' },
-                { value: 'normal', label: 'Normal' },
-                { value: 'anormal', label: 'Anormal' },
-                { value: 'emergencia', label: 'Emergencia' },
-              ],
+              options: [{ value: 'todas', label: 'Todas' }, ...opciones(CONDICION_OPERACION)],
             },
             {
               id: 'filtro-significativo',
               label: 'Significancia',
               value: significativoFiltro,
               onChange: setSignificativoFiltro,
-              options: [
-                { value: 'todos', label: 'Todos' },
-                { value: 'si', label: 'Significativo' },
-                { value: 'no', label: 'No significativo' },
-                { value: 'sin_tratar', label: 'Significativo sin tratar' },
-              ],
+              options: [{ value: 'todos', label: 'Todos' }, ...opciones(FILTRO_SIGNIFICANCIA)],
             },
           ]}
         />
-        <Button
-          onClick={() => setCreando(true)}
-          icon={<Plus className="h-4 w-4" aria-hidden />}
-        >
-          Nuevo aspecto
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => window.print()}
+            disabled={!puedeImprimir}
+            title={
+              reporte.empty
+                ? 'No hay aspectos que exportar con estos filtros.'
+                : !tenant
+                  ? 'Falta cargar la empresa que emite el documento.'
+                  : undefined
+            }
+            icon={<FileText className="h-4 w-4" aria-hidden />}
+          >
+            Exportar PDF
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={exportarCsv}
+            disabled={reporte.empty}
+            icon={<FileSpreadsheet className="h-4 w-4" aria-hidden />}
+          >
+            Exportar CSV
+          </Button>
+          <Button
+            onClick={() => setCreando(true)}
+            icon={<Plus className="h-4 w-4" aria-hidden />}
+          >
+            Nuevo aspecto
+          </Button>
+        </div>
       </div>
+      {!tenant && !reporte.empty && (
+        // **Se dice por que no hay PDF**, en vez de dejar un boton apagado sin
+        // explicacion (la misma leccion del informe de auditoria).
+        <p className="text-xs text-slate-500">
+          Para exportar en PDF falta cargar la empresa que emite el documento. El CSV sí está disponible.
+        </p>
+      )}
+      {puedeImprimir && tenant && user && (
+        <DocumentoImprimible
+          onAntesDeImprimir={() => anotar('pdf')}
+        >
+          <ReporteImprimible
+            tenant={tenant}
+            usuario={user}
+            reporte={reporte}
+            subtitulo="ISO 14001 §6.1.2"
+          />
+        </DocumentoImprimible>
+      )}
 
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-card border border-dashed border-slate-300 py-12 text-center text-slate-500">
@@ -224,12 +382,14 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
             <caption className="sr-only">Aspectos ambientales identificados</caption>
             <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
               <tr>
+                <th className="px-4 py-3">Proceso</th>
                 <th className="px-4 py-3">Actividad</th>
                 <th className="px-4 py-3">Aspecto</th>
                 <th className="px-4 py-3">Tipo</th>
                 <th className="px-4 py-3">Condición</th>
                 <th className="px-4 py-3">Puntaje</th>
                 <th className="px-4 py-3">Significativo</th>
+                <th className="px-4 py-3">Requisito y riesgo</th>
                 <th className="px-4 py-3">Responsable</th>
                 <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
@@ -237,10 +397,13 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
             <tbody className="divide-y divide-slate-100">
               {filtered.map((a) => (
                 <tr key={a.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-600">
+                    {nombreDeProceso(a.procesoId) ?? <span className="text-slate-400">Sin proceso</span>}
+                  </td>
                   <td className="px-4 py-3 font-medium text-slate-900">{a.actividad}</td>
                   <td className="px-4 py-3 text-slate-700">{a.aspecto}</td>
                   <td className="px-4 py-3 text-slate-600">
-                    {TIPO_LABEL[a.tipoImpacto] ?? a.tipoImpacto}
+                    {etiqueta(TIPO_IMPACTO, a.tipoImpacto)}
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -252,7 +415,7 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
                             : 'text-slate-600'
                       }
                     >
-                      {CONDICION_LABEL[a.condicionOperacion] ?? a.condicionOperacion}
+                      {etiqueta(CONDICION_OPERACION, a.condicionOperacion)}
                     </span>
                   </td>
                   <td className="px-4 py-3 tabular-nums text-slate-600">
@@ -276,11 +439,28 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
                       <StatusBadge status="cumple" label="No significativo" />
                     )}
                   </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {/* La cadena de §6.1 desde el aspecto: el requisito que le
+                        aplica y el riesgo que lo trata, con su plan. */}
+                    <CadenaDelAspecto
+                      requisito={a.articleComplianceId ? requisitoPorId.get(a.articleComplianceId) ?? 'Requisito enlazado' : null}
+                      riesgos={riesgos.filter((rg) => rg.aspectoAmbientalId === a.id)}
+                    />
+                  </td>
                   <td className="px-4 py-3 text-slate-600">
                     {a.responsableId ? getUserName(a.responsableId) : '—'}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Evaluar significancia de ${a.actividad}`}
+                        onClick={() => setEvaluando(a)}
+                        icon={<Scale className="h-4 w-4" aria-hidden />}
+                      >
+                        Evaluar
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -312,8 +492,8 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
         open={creando}
         onOpenChange={setCreando}
         titulo="Nuevo aspecto ambiental"
-        descripcion="La significancia la calcula el servidor con los puntajes y el umbral de la empresa."
-        campos={campos(plants)}
+        descripcion="La significancia la calcula el servidor con los puntajes y el criterio del sistema."
+        campos={campos(plants, procesos, requisitos)}
         onGuardar={crearAspecto}
       />
 
@@ -321,21 +501,22 @@ export function AspectosAmbientalesTable({ aspectos, plants }: Props) {
         open={editando !== null}
         onOpenChange={(v) => !v && setEditando(null)}
         titulo="Editar aspecto ambiental"
-        campos={campos(plants)}
+        campos={campos(plants, procesos, requisitos)}
         valores={
           editando && {
             facility_id: editando.facilityId,
+            process_id: editando.procesoId,
+            article_compliance_id: editando.articleComplianceId,
             activity: editando.actividad,
             aspect: editando.aspecto,
             impact_type: editando.tipoImpacto,
             operating_condition: editando.condicionOperacion,
-            severity_score: editando.puntajeSeveridad,
-            frequency_score: editando.puntajeFrecuencia,
-            legal_score: editando.puntajeLegal,
           }
         }
         onGuardar={(d) => (editando ? editarAspecto(editando.id, d) : Promise.resolve(false))}
       />
+
+      <EvaluarSignificanciaModal aspecto={evaluando} onOpenChange={() => setEvaluando(null)} />
 
       <ConfirmarBorrado
         open={borrando !== null}

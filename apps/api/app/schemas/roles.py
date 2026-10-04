@@ -30,3 +30,22 @@ class ResultadoDeRoles(RolesDelUsuario):
     #: que la pantalla lo pueda decir, en vez de que la persona lo deduzca
     #: comparando antes y despues.
     efectos: list[str] = Field(default_factory=list)
+
+
+class FijarAlcance(BaseModel):
+    """A que planta queda acotada una persona.
+
+    **`facility_id` es obligatorio aunque admita `null`.** `null` significa
+    "todas las plantas", que es ampliar el acceso: un cuerpo vacio no puede
+    hacerlo por omision.
+    """
+
+    facility_id: UUID | None
+
+
+class AlcanceDelUsuario(BaseModel):
+    user_id: UUID
+    #: Vacia = **sin acotar**, ve todas las plantas. Es una lista y no un solo
+    #: id porque SQL a mano pudo dejar roles en plantas distintas, y la pantalla
+    #: tiene que poder decirlo en vez de mostrar solo una.
+    facility_ids: list[UUID]

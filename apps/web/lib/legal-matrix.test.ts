@@ -137,3 +137,92 @@ describe('las dos definiciones tienen un equivalente en la API', () => {
     expect(computeNormCoverage(UNO_CUMPLIDO_Y_DIECINUEVE_SIN_EVALUAR)).toBeCloseTo(0.05, 3);
   });
 })
+
+describe('un solo "% de cumplimiento" en todo el producto (decisión 3, 21-sep)', () => {
+  // Se importa aca para no tocar los imports de arriba.
+  it('lo sin evaluar cuenta como no cumplido, y lo de lo evaluado va aparte', async () => {
+    const { computeNormComplianceOrNull, computeNormComplianceSobreEvaluadosOrNull } = await import('./legal-matrix');
+    const articulo = (respuesta: 'SI' | 'NO' | 'NA' | 'N_E', i: number) =>
+      ({ id: `a${i}`, respuesta, incluidoEnCalculo: true }) as never;
+    // Un artículo cumplido y quince sin evaluar: el ejemplo del plan de cierre.
+    const norma = {
+      articulos: [articulo('SI', 0), ...Array.from({ length: 15 }, (_, i) => articulo('N_E', i + 1))],
+    } as never;
+
+    expect(computeNormComplianceOrNull(norma)).toBeCloseTo(1 / 16);
+    expect(computeNormComplianceSobreEvaluadosOrNull(norma)).toBe(1);
+  });
+
+  it('sin nada evaluado no hay cumplimiento que informar: null, no 0', async () => {
+    const { computeNormComplianceOrNull } = await import('./legal-matrix');
+    const norma = {
+      articulos: Array.from({ length: 3 }, (_, i) => ({ id: `a${i}`, respuesta: 'N_E', incluidoEnCalculo: true })),
+    } as never;
+
+    expect(computeNormComplianceOrNull(norma)).toBeNull();
+  });
+
+  it('lo no aplicable y lo excluido del calculo salen del denominador', async () => {
+    const { computeNormComplianceOrNull } = await import('./legal-matrix');
+    const norma = {
+      articulos: [
+        { id: 'a', respuesta: 'SI', incluidoEnCalculo: true },
+        { id: 'b', respuesta: 'NA', incluidoEnCalculo: true },
+        { id: 'c', respuesta: 'N_E', incluidoEnCalculo: false },
+      ],
+    } as never;
+
+    expect(computeNormComplianceOrNull(norma)).toBe(1);
+  });
+});
+
+describe('que normas muestra la Matriz Legal', () => {
+  const norma = (id: string, over: Record<string, unknown> = {}) =>
+    ({ id, tenantId: null, plantIds: [], articulos: [], ...over }) as never;
+
+  it('las de la matriz se ven aunque no tengan planta asignada', async () => {
+    // Asi las crea la sincronizacion de normativa aplicable. Hasta el 21-sep
+    // quedaban fuera, y una empresa nueva veia la matriz vacia.
+    const { normasVisibles } = await import('./legal-matrix');
+    const r = normasVisibles([norma('ley-19300')], { tenantId: 't', enMatriz: new Set(['ley-19300']), plantas: [] });
+
+    expect(r.map((n: { id: string }) => n.id)).toEqual(['ley-19300']);
+  });
+
+  it('una sin planta y fuera de la matriz no se ve: es solo catalogo', async () => {
+    const { normasVisibles } = await import('./legal-matrix');
+    const r = normasVisibles([norma('ds-99')], { tenantId: 't', enMatriz: new Set(), plantas: [] });
+
+    expect(r).toEqual([]);
+  });
+
+  it('una con planta se ve si la planta esta en el alcance, y si no, no', async () => {
+    const { normasVisibles } = await import('./legal-matrix');
+    const normas = [norma('ds-148', { plantIds: ['p1'] }), norma('ds-38', { plantIds: ['p2'] })];
+    const r = normasVisibles(normas, { tenantId: 't', enMatriz: new Set(), plantas: [{ id: 'p1' }] });
+
+    expect(r.map((n: { id: string }) => n.id)).toEqual(['ds-148']);
+  });
+
+  it('la de toda la empresa la ve tambien quien esta acotado a una planta', async () => {
+    const { normasVisibles } = await import('./legal-matrix');
+    const r = normasVisibles([norma('ley-19300')], {
+      tenantId: 't',
+      enMatriz: new Set(['ley-19300']),
+      plantas: [{ id: 'p1' }],
+    });
+
+    expect(r).toHaveLength(1);
+  });
+
+  it('una norma propia de otra empresa nunca', async () => {
+    const { normasVisibles } = await import('./legal-matrix');
+    const r = normasVisibles([norma('rca-ajena', { tenantId: 'otra' })], {
+      tenantId: 't',
+      enMatriz: new Set(['rca-ajena']),
+      plantas: [],
+    });
+
+    expect(r).toEqual([]);
+  });
+});

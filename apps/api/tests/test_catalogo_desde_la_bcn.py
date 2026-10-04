@@ -264,6 +264,16 @@ class TestLosTerminosDeLaTarea:
         numeros = {n for _, n in TERMINOS}
         assert {"19300", "20920", "148", "90", "38", "13", "40"} <= numeros
 
+    def test_estan_las_normas_del_piloto(self) -> None:
+        """Decision 1 del plan de cierre (21-sep): las normas de la reunion.
+
+        Faltan los "decretos 40 y 48" de seguridad: en la BCN no hay decreto 40
+        ni 48 de seguridad minera, y cual de los candidatos es lo decide negocio
+        (`docs/plan-de-cierre-v1.md`, §6). El 40 de aca es el del SEIA.
+        """
+        numeros = {n for _, n in TERMINOS}
+        assert {"19300", "40", "609"} <= numeros
+
 
 class TestQueBuscarNoRepitaLaMismaNorma:
     """De 5 filas por la Ley 19.300, **4 eran la misma norma**.

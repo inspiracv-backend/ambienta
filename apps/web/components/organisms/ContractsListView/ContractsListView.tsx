@@ -17,25 +17,27 @@ function formatFecha(iso: string) {
  * (depende de apps/ai-service) — el alta es manual.
  */
 export function ContractsListView({ subTenantId, subTenantNombre }: ContractsListViewProps) {
-  const { contratos, addContrato } = useGestores();
+  const { contratos, addContrato, errorAlGuardar } = useGestores();
   const formId = useId();
   const subContratos = contratos.filter((c) => c.subTenantId === subTenantId);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [numero, setNumero] = useState('');
   const [nombre, setNombre] = useState('');
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaTermino, setFechaTermino] = useState('');
   const [campos, setCampos] = useState<{ clave: string; valor: string }[]>([{ clave: '', valor: '' }]);
   const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
 
   function updateCampo(index: number, field: 'clave' | 'valor', value: string) {
     setCampos((prev) => prev.map((c, i) => (i === index ? { ...c, [field]: value } : c)));
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!nombre.trim() || !fechaInicio || !fechaTermino) {
-      setError('Completa nombre, fecha de inicio y fecha de término.');
+    if (!numero.trim() || !nombre.trim() || !fechaInicio || !fechaTermino) {
+      setError('Completa número, nombre, fecha de inicio y fecha de término.');
       return;
     }
     const clavesValidas = campos.filter((c) => c.clave.trim());
@@ -45,13 +47,24 @@ export function ContractsListView({ subTenantId, subTenantNombre }: ContractsLis
       return;
     }
     const camposCustom = Object.fromEntries(clavesValidas.map((c) => [c.clave.trim(), c.valor.trim()]));
-    addContrato({
+    setGuardando(true);
+    const ok = await addContrato({
       subTenantId,
+      numero: numero.trim(),
       nombre: nombre.trim(),
-      fechaInicio: new Date(fechaInicio).toISOString(),
-      fechaTermino: new Date(fechaTermino).toISOString(),
+      // **Se manda la fecha de calendario tal cual, sin pasar por `Date`.**
+      // `new Date('2026-08-27').toISOString()` es medianoche UTC, y en Chile
+      // —UTC−4— eso es el 26: la vigencia de un contrato empezaria un dia
+      // antes. Es el defecto que ya aparecio en la pantalla de documentos.
+      fechaInicio,
+      fechaTermino,
       camposCustom,
     });
+    setGuardando(false);
+    // Solo se limpia si se guardo: el numero duplicado es un rechazo esperable
+    // y perder lo escrito obligaria a tipear el contrato entero de nuevo.
+    if (!ok) return;
+    setNumero('');
     setNombre('');
     setFechaInicio('');
     setFechaTermino('');
@@ -71,6 +84,14 @@ export function ContractsListView({ subTenantId, subTenantNombre }: ContractsLis
 
       {isFormOpen && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-card border border-slate-200 bg-white p-4" noValidate>
+          <FormField
+            label="Número de contrato"
+            htmlFor={`${formId}-numero`}
+            required
+            hint="El que figura en el documento firmado. No se genera solo: un número inventado no coincidiría con el del papel."
+          >
+            <Input id={`${formId}-numero`} value={numero} onChange={(e) => setNumero(e.target.value)} />
+          </FormField>
           <FormField label="Nombre del contrato" htmlFor={`${formId}-nombre`} required error={error ?? undefined}>
             <Input id={`${formId}-nombre`} value={nombre} invalid={!!error} onChange={(e) => setNombre(e.target.value)} />
           </FormField>
@@ -116,11 +137,18 @@ export function ContractsListView({ subTenantId, subTenantNombre }: ContractsLis
             <input id={`${formId}-pdf`} type="file" accept="application/pdf" className="text-sm" />
           </FormField>
 
+          {errorAlGuardar && (
+            <p role="alert" className="text-sm text-semaforo-no-cumple">
+              No se pudo guardar el contrato: {errorAlGuardar}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={() => setIsFormOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit">Guardar contrato</Button>
+            <Button type="submit" disabled={guardando}>
+              {guardando ? 'Guardando…' : 'Guardar contrato'}
+            </Button>
           </div>
         </form>
       )}

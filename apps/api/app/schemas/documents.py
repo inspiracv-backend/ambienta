@@ -161,6 +161,18 @@ class MotivoDeObsolescencia(BaseModel):
 class EnlaceDeDescarga(BaseModel):
     url: str
     expires_in: int
+    #: La huella de la revision, para comprobar lo descargado.
+    #:
+    #: Viaja **con el enlace** y no en otra llamada: entre dos peticiones
+    #: alguien puede publicar una revision nueva, y quien descargue validaria
+    #: el archivo contra el hash de otro texto — concluyendo que se corrompio
+    #: cuando lo que paso es que cambio.
+    #:
+    #: Nulo cuando la revision no lo tiene: se calcula al confirmar la
+    #: subida, y una creada por otro camino puede no tenerlo. **No se inventa
+    #: un hash**; quien descarga sabe que no puede verificar, que es distinto
+    #: de verificar mal.
+    checksum_sha256: str | None = None
 
 
 class EntityDocumentCreate(BaseModel):

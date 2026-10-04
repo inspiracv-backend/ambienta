@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, mensajeDeError } from './api-client';
+import { ApiError, codigoDeError, mensajeDeError } from './api-client';
 
 /**
  * `detail` de FastAPI llega en dos formas segun quien rechaza, y la segunda es
@@ -54,5 +54,30 @@ describe('mensajeDeError', () => {
   it('ignora una lista de detalles vacia en vez de devolver cadena vacia', () => {
     const error = new ApiError(422, 'Unprocessable Entity', { detail: [] });
     expect(mensajeDeError(error).length).toBeGreaterThan(0);
+  });
+
+  it('con código y campos nombra el campo, sin depender del texto', () => {
+    const e = new ApiError(409, 'Conflict', {
+      detail: 'Ya existe un registro con ese valor. (restriccion: uq_x)',
+      codigo: 'valor_duplicado',
+      campos: ['code'],
+    });
+    expect(mensajeDeError(e)).toBe('Ya existe un registro con ese valor en: code.');
+  });
+
+  it('una referencia rota dice qué campo apunta mal', () => {
+    const e = new ApiError(422, 'Unprocessable Entity', { detail: 'x', codigo: 'referencia_inexistente', campos: ['facility_id'] });
+    expect(mensajeDeError(e)).toMatch(/facility_id/);
+  });
+});
+
+describe('codigoDeError', () => {
+  it('devuelve el código estable', () => {
+    expect(codigoDeError(new ApiError(409, 'Conflict', { detail: 'texto que se puede reescribir', codigo: 'valor_duplicado' }))).toBe('valor_duplicado');
+  });
+
+  it('sin código o sin llegar a la API, null', () => {
+    expect(codigoDeError(new ApiError(404, 'Not Found', { detail: 'no' }))).toBeNull();
+    expect(codigoDeError(new TypeError('Failed to fetch'))).toBeNull();
   });
 });

@@ -8,6 +8,7 @@ import { SessionProvider } from './session';
 import { UsersProvider } from './users-store';
 import { ApiError } from './api-client';
 import { useAuditLog } from './audit-log-store';
+import { iniciarSesionComo } from '@/test/utils';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
@@ -185,10 +186,25 @@ describe('el alta de empresa manda el perfil normativo', () => {
     expect(cuerpo).toHaveProperty('size_bracket', null);
   });
 
-  it('reemplaza el id inventado por el que devuelve la API', async () => {
-    // El id local es `tenant-${Date.now()}`. Si no se reconcilia, la empresa
-    // recién creada queda en pantalla apuntando a una fila que no existe, y
-    // cualquier acción posterior sobre ella falla sin explicación.
+  it('manda al administrador y los ajustes en el mismo pedido', async () => {
+    // Antes el administrador se invitaba aparte, con el id local inventado de
+    // la empresa: ninguna empresa nueva recibía a su administrador. Y el límite
+    // y los módulos del alta no viajaban, así que se perdían al recargar.
+    const { result } = await montar({});
+
+    act(() => void result.current.t.createTenant({
+      ...NUEVA,
+      administrador: { nombre: 'Rosa Muñoz', email: 'rosa@forestal.cl' },
+    }));
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [ruta, cuerpo] = post.mock.calls[0] as [string, Record<string, unknown>];
+    expect(ruta).toBe('/tenants/');
+    expect(cuerpo.administrador).toEqual({ full_name: 'Rosa Muñoz', email: 'rosa@forestal.cl' });
+    expect(cuerpo.settings).toEqual({ limiteUsuarios: 10, modulosActivos: [] });
+  });
+
+  it('la empresa que queda en la lista es la que devolvió la API', async () => {
     const REAL = 'b0000000-0000-0000-0000-0000000000ff';
     post.mockResolvedValue({
       id: REAL,
@@ -203,34 +219,29 @@ describe('el alta de empresa manda el perfil normativo', () => {
     });
     const { result } = await montar({});
 
-    act(() => void result.current.t.createTenant(NUEVA));
-
-    await waitFor(() => expect(result.current.t.tenants).toHaveLength(2));
-    await waitFor(() => {
-      const creada = result.current.t.tenants.find((t) => t.nombre === 'Forestal Nueva');
-      expect(creada?.id).toBe(REAL);
+    await act(async () => {
+      await result.current.t.createTenant(NUEVA);
     });
-    const creada = result.current.t.tenants.find((t) => t.id === REAL);
+
+    const creada = result.current.t.tenants.find((t) => t.nombre === 'Forestal Nueva');
+    expect(creada?.id).toBe(REAL);
     expect(creada?.sectorId).toBe(3);
     expect(creada?.tramo).toBe('mediana');
   });
 
-  it('si la API rechaza el alta, la empresa desaparece y lo dice', async () => {
-    // Antes era `.catch(() => {})`: quedaba en la lista como si existiera y se
-    // esfumaba al recargar. Es el mismo silencio que escondió que el alta de no
-    // conformidades nunca había funcionado.
+  it('si la API rechaza el alta, rechaza con el motivo y no aparece nada', async () => {
+    // Sin fila optimista: antes aparecía con un id inventado y se esfumaba al
+    // recargar. El motivo lo muestra el formulario, que queda con lo escrito.
     post.mockRejectedValue(
-      new ApiError(422, 'Unprocessable Entity', { detail: 'RUT ya registrado' }),
+      new ApiError(503, 'Service Unavailable', { detail: 'Falta CLERK_SECRET_KEY' }),
     );
     const { result } = await montar({});
 
-    act(() => void result.current.t.createTenant(NUEVA));
+    await act(async () => {
+      await expect(result.current.t.createTenant(NUEVA)).rejects.toBeInstanceOf(ApiError);
+    });
 
-    await waitFor(() => expect(result.current.toast.toasts.length).toBeGreaterThan(0));
     expect(result.current.t.tenants.some((t) => t.nombre === 'Forestal Nueva')).toBe(false);
-    expect(result.current.toast.toasts[0].mensaje).toContain('No se pudo crear');
-    // El motivo tiene que llegar: "algo salió mal" no le sirve a nadie.
-    expect(result.current.toast.toasts[0].descripcion).toContain('RUT ya registrado');
   });
 });
 
@@ -432,5 +443,79 @@ describe('lo que se manda de verdad al guardar el perfil', () => {
 
     // No hay nada que completar: ya estaba "completa" sin haber hecho el wizard.
     expect(patch).not.toHaveBeenCalled();
+  });
+});
+
+describe('suspender una empresa', () => {
+  it('si la API rechaza, vuelve a como estaba y dice por qué', async () => {
+    // Antes era `.catch(() => {})`: la empresa se veía suspendida y al recargar
+    // seguía activa. Desde el 14-sep la API rechaza que una empresa cambie su
+    // propio estado, así que el rechazo es un caso real, no teórico.
+    patch.mockRejectedValue(
+      new ApiError(403, 'Forbidden', { detail: 'Solo el Admin Global puede cambiar status de una empresa.' }),
+    );
+    const { result } = await montar({});
+    const empresa = result.current.t.tenants[0];
+
+    act(() => result.current.t.setEstado(empresa.id, 'suspendido'));
+
+    await waitFor(() => expect(result.current.toast.toasts.length).toBeGreaterThan(0));
+    expect(result.current.t.tenants[0].estado).toBe(empresa.estado);
+    expect(result.current.toast.toasts[0].descripcion).toContain('Solo el Admin Global');
+  });
+});
+
+describe('la lista de empresas se pide con la empresa de la sesion', () => {
+  // Sin esto, en modo desarrollo `/tenants/` salia sin credencial y respondia
+  // 401: la lista quedaba vacia, 21 pantallas sin plantas y la ficha de
+  // auditoria sin quien emite el informe.
+  it('con sesion, `/tenants/` y `/facilities/` llevan su empresa', async () => {
+    const u = iniciarSesionComo('admin_empresa');
+    get.mockImplementation((ruta: string) =>
+      Promise.resolve(ruta.startsWith('/tenants') ? [tenantApi({})] : []),
+    );
+    renderHook(() => useTenants(), { wrapper });
+
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith('/tenants/', { tenantId: u.tenantId }),
+    );
+    expect(get).toHaveBeenCalledWith('/facilities/', { tenantId: u.tenantId });
+  });
+
+  it('sin empresa en la sesion pregunta igual y, si falla, lo dice', async () => {
+    // El Admin Global de desarrollo no tiene empresa. Saltarse la peticion
+    // dejaria "no hay empresas" en vez de "no se pudo cargar".
+    get.mockImplementation((ruta: string) =>
+      ruta.startsWith('/tenants') ? Promise.reject(new ApiError(401, 'No autenticado', null)) : Promise.resolve([]),
+    );
+    const { result } = renderHook(() => useTenants(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(get).toHaveBeenCalledWith('/tenants/', undefined);
+    expect(result.current.errorDeCarga).toBeTruthy();
+  });
+});
+
+describe('el estado de la empresa', () => {
+  it('una empresa cerrada se lee como cerrada, no como activa', async () => {
+    // Hasta el 21-sep `closed` caia en 'activo': una empresa dada de baja —en
+    // solo lectura desde ese dia— aparecia activa en la cartera.
+    get.mockImplementation((ruta: string) =>
+      Promise.resolve(ruta.startsWith('/tenants') ? [{ ...tenantApi({}), status: 'closed' }] : []),
+    );
+    const { result } = renderHook(() => useTenants(), { wrapper });
+
+    await waitFor(() => expect(result.current.tenants).toHaveLength(1));
+    expect(result.current.tenants[0].estado).toBe('cerrado');
+  });
+
+  it('una en prueba opera como activa', async () => {
+    get.mockImplementation((ruta: string) =>
+      Promise.resolve(ruta.startsWith('/tenants') ? [{ ...tenantApi({}), status: 'trial' }] : []),
+    );
+    const { result } = renderHook(() => useTenants(), { wrapper });
+
+    await waitFor(() => expect(result.current.tenants).toHaveLength(1));
+    expect(result.current.tenants[0].estado).toBe('activo');
   });
 });

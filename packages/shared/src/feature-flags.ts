@@ -43,11 +43,23 @@ export interface FeatureFlags {
    * hallazgo simple con criticidad alta/media/baja.
    */
   registroMejora: boolean;
+
+  /**
+   * Ingreso con RUT y clave local (RF-06): la pestaña del login y la tarjeta
+   * del perfil donde cada persona fija su clave.
+   *
+   * **Apagada por defecto**, por decisión del 21-sep (plan de cierre, §6,
+   * decisión 6): el piloto entra con correo, Google o Microsoft, y falta decidir
+   * si un RUT es único en toda la plataforma o por empresa. Queda construida;
+   * se enciende con `NEXT_PUBLIC_FF_INGRESO_RUT=true`.
+   */
+  ingresoConRut: boolean;
 }
 
 export const FEATURE_FLAGS: FeatureFlags = {
   matricesIso: flagActiva(process.env.NEXT_PUBLIC_FF_MATRICES_ISO, true),
   registroMejora: flagActiva(process.env.NEXT_PUBLIC_FF_REGISTRO_MEJORA, true),
+  ingresoConRut: flagActiva(process.env.NEXT_PUBLIC_FF_INGRESO_RUT, false),
 };
 
 /** Azúcar sintáctico para leer una flag por nombre. */

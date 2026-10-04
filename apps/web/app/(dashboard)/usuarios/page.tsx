@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/molecules';
 import { UsersManagementTable } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useUsers } from '@/lib/users-store';
-import { useDepartamentos } from '@/lib/departamentos-store';
+import { useUnidadesOrganizativas } from '@/lib/unidades-organizativas';
 import { navItemsParaRol, rutaInicialParaRol } from '@/lib/navigation';
 import { useTenants } from '@/lib/tenants-store';
 
@@ -25,7 +25,8 @@ export default function UsuariosPage() {
   const { user, cargando } = useSession();
   const { tenants } = useTenants();
   const { users } = useUsers();
-  const { departamentos } = useDepartamentos();
+  // Departamentos organizativos: contra esa tabla valida la API el de cada persona.
+  const { unidades } = useUnidadesOrganizativas();
 
   const puedeGestionarUsuarios = user
     ? navItemsParaRol(user.role).some((item) => item.href === '/usuarios')
@@ -46,7 +47,7 @@ export default function UsuariosPage() {
 
   const tenant = tenants.find((t) => t.id === user.tenantId);
   const tenantUsers = users.filter((u) => u.tenantId === user.tenantId);
-  const tenantDepartamentos = departamentos.filter((d) => d.tenantId === user.tenantId);
+  const tenantDepartamentos = unidades;
 
   return (
     <div className="flex flex-col gap-6">

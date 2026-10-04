@@ -141,7 +141,19 @@ export function FormularioIso({
                         value={valor}
                         onChange={(e) => cambiar(e.target.value)}
                       >
-                        {!campo.requerido && <option value="">—</option>}
+                        {/* **Siempre hay una opcion vacia.** Sin ella, en un select
+                            obligatorio con el valor en `''` el navegador muestra la
+                            primera opcion como elegida y el estado sigue vacio: la
+                            pantalla decia "Planta Calama" y al guardar respondia
+                            "Planta es obligatorio" (visto en el navegador el
+                            21-sep). En los obligatorios no se puede volver a elegir. */}
+                        {campo.requerido ? (
+                          <option value="" disabled>
+                            Elige una opción
+                          </option>
+                        ) : (
+                          <option value="">—</option>
+                        )}
                         {(campo.opciones ?? []).map((o) => (
                           <option key={o.value} value={o.value}>
                             {o.label}

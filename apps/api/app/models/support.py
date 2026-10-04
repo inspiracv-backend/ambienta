@@ -12,7 +12,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, SoftDeleteMixin, TenantMixin, TimestampMixin
@@ -145,8 +145,19 @@ class ChatbotMessage(Base, TenantMixin):
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    #: **La columna es `uuid[]`, no JSONB**, y el modelo decia JSONB.
+    #:
+    #: Medido el 8-sep con una sonda: escribirla producia
+    #: `DatatypeMismatch: column "cited_norm_ids" is of type uuid[] but
+    #: expression is of type jsonb` — o sea **HTTP 500**. Nadie lo habia notado
+    #: porque **nadie la escribia nunca**: `ChatbotMessageCreate` tampoco la
+    #: declaraba, asi que Pydantic la descartaba antes de llegar aca.
+    #:
+    #: Dos defectos tapandose entre si: el que descartaba en silencio ocultaba
+    #: al que revienta. Es la trampa de "el modelo esta escrito dos veces" de
+    #: CLAUDE.md, esta vez entre SQLAlchemy y la base.
     cited_norm_ids: Mapped[list] = mapped_column(
-        "cited_norm_ids", JSONB, nullable=False, server_default="[]"
+        ARRAY(UUID(as_uuid=True)), nullable=False, server_default="{}"
     )
     citations: Mapped[list] = mapped_column(
         JSONB, nullable=False, server_default="[]"

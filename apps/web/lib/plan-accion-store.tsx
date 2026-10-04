@@ -26,7 +26,6 @@ interface PlanAccionContextValue {
     responsableId?: string;
     fechaLimite: string;
   }) => PlanAccion;
-  toggleTarea: (planId: string, tareaId: string) => void;
   findByOrigen: (origenId: string) => PlanAccion | undefined;
 }
 
@@ -35,6 +34,7 @@ const PlanAccionContext = createContext<PlanAccionContextValue | null>(null);
 export function PlanAccionProvider({ children }: { children: ReactNode }) {
   const [plans, setPlans] = useState<PlanAccion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [datosDe, setDatosDe] = useState<string | null>(null);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
@@ -56,6 +56,8 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
           responsableId: raw.owner_user_id ? String(raw.owner_user_id) : undefined,
           fechaLimite: raw.target_date ? String(raw.target_date) : new Date().toISOString(),
           estado: (raw.status === 'closed' ? 'cerrado' : raw.status === 'in_progress' ? 'en_progreso' : 'abierto') as PlanAccion['estado'],
+          // El listado no trae tareas: se cargan en la ficha del plan
+          // (`lib/tareas-del-plan.ts`), para no pedir una lista por cada plan.
           tareas: [],
         }));
         // **Se escribe siempre, incluso vacio** (#208). El `if (length > 0)`
@@ -75,7 +77,7 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
         // preguntar' — que es la misma mentira de #208 en su otra forma.
         setErrorDeCarga(mensajeDeError(e));
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setDatosDe(user?.tenantId ?? null); } });
     return () => { cancelled = true; };
   }, [user?.tenantId]);
 
@@ -125,60 +127,24 @@ export function PlanAccionProvider({ children }: { children: ReactNode }) {
     return newPlan;
   }
 
-  /**
-   * **No llega a la base: las tareas no existen en el modelo.**
-   *
-   * El mapper de lectura arma `tareas: []` para todos los planes, y
-   * `ActionPlanUpdate` no tiene ningun campo donde guardarlas. Marcar una tarea
-   * se ve en pantalla y se pierde al recargar.
-   *
-   * Conectarlo exige decidir primero si las tareas son un modelo propio o una
-   * lista dentro del plan.
-   */
-  function toggleTarea(planId: string, tareaId: string) {
-    const plan = plans.find((p) => p.id === planId);
-    const tarea = plan?.tareas.find((t) => t.id === tareaId);
-
-    let estadoNuevo: PlanAccion['estado'] | null = null;
-
-    setPlans((prev) =>
-      prev.map((p) => {
-        if (p.id !== planId) return p;
-        const tareas = p.tareas.map((t) => (t.id === tareaId ? { ...t, hecha: !t.hecha } : t));
-        const estado =
-          tareas.length > 0 && tareas.every((t) => t.hecha) ? 'cerrado' : p.estado === 'abierto' ? 'en_progreso' : p.estado;
-        estadoNuevo = estado;
-        return { ...p, tareas, estado };
-      }),
-    );
-
-    if (!plan || !tarea) return;
-
-    const hechaAhora = !tarea.hecha;
-    const cerroElPlan = estadoNuevo === 'cerrado' && plan.estado !== 'cerrado';
-
-    registrar({
-      entidadTipo: 'plan_accion',
-      entidadId: planId,
-      entidadLabel: plan.titulo,
-      tenantId: plan.tenantId,
-      accion: cerroElPlan ? 'cerrado' : 'actualizado',
-      resumen: cerroElPlan
-        ? 'Completó la última tarea y cerró el plan'
-        : `${hechaAhora ? 'Completó' : 'Reabrió'} la tarea "${tarea.titulo}"`,
-      cambios: [
-        { campo: tarea.titulo, antes: tarea.hecha ? 'Hecha' : 'Pendiente', despues: hechaAhora ? 'Hecha' : 'Pendiente' },
-        ...(cerroElPlan ? [{ campo: 'Estado del plan', antes: 'En progreso', despues: 'Cerrado' }] : []),
-      ],
-    });
-  }
+  // `toggleTarea` se quitó el 13-sep: las tareas de un plan no existen en el
+  // modelo (#169), el mapper las arma siempre vacías, y marcar una se perdía
+  // al recargar — y además podía mostrar el plan como cerrado sin que la base
+  // lo supiera. Vuelve con el modelo de tareas.
 
   function findByOrigen(origenId: string) {
     return plans.find((p) => p.origenId === origenId);
   }
 
+  // **Mientras no se haya preguntado POR ESTA empresa, se sigue cargando.**
+  // El efecto baja `loading` a `false` cuando todavia no hay sesion, y al
+  // llegar el tenant no lo vuelve a subir: quedaba una ventana con la lista
+  // vacia y `loading` en `false`, y las fichas afirmaban "No encontramos esto"
+  // sobre algo que si existe, durante todo el viaje de red.
+  const cargandoDeVerdad = loading || (!!user?.tenantId && datosDe !== user.tenantId);
+
   return (
-    <PlanAccionContext.Provider value={{ plans, loading, errorDeCarga, createPlan, toggleTarea, findByOrigen }}>
+    <PlanAccionContext.Provider value={{ plans, loading: cargandoDeVerdad, errorDeCarga, createPlan, findByOrigen }}>
       {children}
     </PlanAccionContext.Provider>
   );

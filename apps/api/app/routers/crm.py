@@ -545,11 +545,13 @@ def promover_a_contrato(
         efectos = svc.promover_a_contrato(db, deal, contrato, etapa)
     except svc.ErrorDeCrm as exc:
         raise _traducir(exc) from None
+    # **Se lee antes de confirmar**: el commit se lleva la empresa declarada y la
+    # recarga ve cero filas (CLAUDE.md, "no consultar despues de db.commit()").
+    # Las pruebas con savepoint no lo muestran, porque ahi el commit no cierra la
+    # transaccion de afuera; en ejecucion real esto respondia 500.
+    leido = CrmDealRead.model_validate(deal)
     db.commit()
-    db.refresh(deal)
-    return ResultadoPromocion(
-        deal=CrmDealRead.model_validate(deal), efectos=efectos
-    )
+    return ResultadoPromocion(deal=leido, efectos=efectos)
 
 
 # ── Actividades ───────────────────────────────────────────────────────────

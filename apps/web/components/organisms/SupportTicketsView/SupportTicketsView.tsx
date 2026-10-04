@@ -1,13 +1,14 @@
 'use client';
 
-import { useId, useState } from 'react';
-import { Eye, EyeOff, Inbox } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
+import { Inbox } from 'lucide-react';
 import { Button, Textarea } from '@/components/atoms';
 import { EmptyState, FormField } from '@/components/molecules';
 import { useSupportTickets } from '@/lib/support-tickets-store';
 import { useToast } from '@/lib/toast-store';
 import { cn } from '@/lib/utils';
-import type { SupportTicket } from '@ambienta/shared';
+import type { CorreccionTicket, SupportTicket } from '@ambienta/shared';
+import { mensajeDeError } from '@/lib/api-client';
 import { HistorialTimeline } from '@/components/organisms/HistorialTimeline';
 import type { SupportTicketsViewProps } from './SupportTicketsView.types';
 
@@ -53,56 +54,80 @@ function EstadoTicket({ estado }: { estado: SupportTicket['estado'] }) {
  * quién lo creó, quién lo tomó, cada cambio de estado y cada corrección — y
  * no solo las notas, que era lo único que se registraba antes.
  */
-export function SupportTicketsView({ tickets, tenantNombre, currentUserId }: SupportTicketsViewProps) {
-  const { updateEstado, addCorreccion, setVisibilidad } = useSupportTickets();
+export function SupportTicketsView({ tickets, tenantNombre }: SupportTicketsViewProps) {
+  const { updateEstado, addCorreccion, cargarCorrecciones } = useSupportTickets();
   const { mostrarToast } = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [nota, setNota] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [correcciones, setCorrecciones] = useState<CorreccionTicket[]>([]);
+  const [errorCorrecciones, setErrorCorrecciones] = useState<string | null>(null);
   const formId = useId();
 
   const selected = tickets.find((t) => t.id === selectedId) ?? null;
   const ordenados = [...tickets].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
-  function handleCorregir() {
+  // Las correcciones se leen de la base al abrir el ticket. El historial de
+  // abajo (`HistorialTimeline`) es de la sesión: `ticket_soporte` no tiene
+  // historia en la API, así que no puede ser la prueba de que se guardó.
+  useEffect(() => {
+    setCorrecciones([]);
+    setErrorCorrecciones(null);
+    if (!selectedId) return;
+    let cancelado = false;
+    cargarCorrecciones(selectedId)
+      .then((c) => { if (!cancelado) setCorrecciones(c); })
+      .catch((e) => { if (!cancelado) setErrorCorrecciones(mensajeDeError(e)); });
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  async function handleCorregir() {
     if (!selected) return;
     if (!nota.trim()) {
       setError('Describe qué se corrigió antes de guardar.');
       return;
     }
-    addCorreccion(selected.id, currentUserId, nota.trim());
-    setNota('');
-    setError(null);
-    mostrarToast({
-      tipo: 'exito',
-      mensaje: 'Corrección registrada',
-      descripcion: 'Quedó en el historial del ticket con tu nombre y la fecha.',
-    });
+    setGuardando(true);
+    try {
+      const guardada = await addCorreccion(selected.id, nota.trim());
+      setCorrecciones((prev) => [...prev, guardada]);
+      setNota('');
+      setError(null);
+      // El toast va **después** de que la base respondió. Antes salía siempre,
+      // y la corrección solo existía en la pestaña.
+      mostrarToast({
+        tipo: 'exito',
+        mensaje: 'Corrección registrada',
+        descripcion: 'Quedó guardada en el ticket con tu nombre y la fecha.',
+      });
+    } catch (e) {
+      setError(`No se guardó: ${mensajeDeError(e)}`);
+    } finally {
+      setGuardando(false);
+    }
   }
 
-  function handleEstado(nuevo: SupportTicket['estado']) {
+  async function handleEstado(nuevo: SupportTicket['estado']) {
     if (!selected) return;
+    const ticketId = selected.id;
     const anterior = selected.estado;
-    updateEstado(selected.id, nuevo);
+    try {
+      await updateEstado(ticketId, nuevo);
+    } catch (e) {
+      mostrarToast({ tipo: 'error', mensaje: 'No se cambió el estado', descripcion: mensajeDeError(e) });
+      return;
+    }
     mostrarToast({
       tipo: 'exito',
       mensaje: `Ticket ${ESTADO_LABEL[nuevo].toLowerCase()}`,
-      descripcion: 'El cambio quedó registrado en el historial.',
-      onUndo: () => updateEstado(selected.id, anterior),
-    });
-  }
-
-  function handleVisibilidad() {
-    if (!selected) return;
-    const nuevo = !selected.visibleParaCliente;
-    setVisibilidad(selected.id, nuevo);
-    mostrarToast({
-      tipo: 'info',
-      mensaje: nuevo ? 'Ticket visible para el cliente' : 'Ticket oculto al cliente',
-      descripcion: nuevo
-        ? 'El cliente puede ver este ticket y su estado.'
-        : 'Solo el equipo interno puede verlo.',
-      onUndo: () => setVisibilidad(selected.id, !nuevo),
+      descripcion: 'El cambio quedó guardado.',
+      onUndo: () => {
+        updateEstado(ticketId, anterior).catch((e) =>
+          mostrarToast({ tipo: 'error', mensaje: 'No se pudo deshacer', descripcion: mensajeDeError(e) }),
+        );
+      },
     });
   }
 
@@ -126,7 +151,6 @@ export function SupportTicketsView({ tickets, tenantNombre, currentUserId }: Sup
               <th scope="col" className="px-4 py-3">Ticket</th>
               <th scope="col" className="px-4 py-3">Empresa</th>
               <th scope="col" className="px-4 py-3">Estado</th>
-              <th scope="col" className="px-4 py-3">Visibilidad</th>
             </tr>
           </thead>
           <tbody>
@@ -146,17 +170,6 @@ export function SupportTicketsView({ tickets, tenantNombre, currentUserId }: Sup
                 <td className="px-4 py-3 text-slate-500">{tenantNombre(t.tenantId)}</td>
                 <td className="px-4 py-3">
                   <EstadoTicket estado={t.estado} />
-                </td>
-                <td className="px-4 py-3 text-slate-500">
-                  {t.visibleParaCliente ? (
-                    <span className="inline-flex items-center gap-1 text-xs">
-                      <Eye className="h-3.5 w-3.5" aria-hidden /> Cliente ve esto
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-xs">
-                      <EyeOff className="h-3.5 w-3.5" aria-hidden /> Solo interno
-                    </span>
-                  )}
                 </td>
               </tr>
             ))}
@@ -206,15 +219,6 @@ export function SupportTicketsView({ tickets, tenantNombre, currentUserId }: Sup
                   </select>
                 </FormField>
 
-                <Button
-                  variant="secondary"
-                  size="md"
-                  className="shrink-0"
-                  onClick={handleVisibilidad}
-                  icon={selected.visibleParaCliente ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
-                >
-                  {selected.visibleParaCliente ? 'Ocultar al cliente' : 'Mostrar al cliente'}
-                </Button>
               </div>
 
               <div className="mt-5 border-t border-slate-100 pt-4">
@@ -235,9 +239,24 @@ export function SupportTicketsView({ tickets, tenantNombre, currentUserId }: Sup
                     placeholder="Ej: se corrigió la fecha de detección, estaba mal ingresada."
                   />
                 </FormField>
-                <Button size="md" className="mt-2" onClick={handleCorregir}>
-                  Guardar corrección
+                <Button size="md" className="mt-2" onClick={handleCorregir} disabled={guardando}>
+                  {guardando ? 'Guardando…' : 'Guardar corrección'}
                 </Button>
+
+                {errorCorrecciones ? (
+                  <p className="mt-3 text-xs text-semaforo-no-cumple">
+                    No se pudieron cargar las correcciones guardadas: {errorCorrecciones}
+                  </p>
+                ) : correcciones.length > 0 ? (
+                  <ol className="mt-3 flex flex-col gap-2">
+                    {correcciones.map((c) => (
+                      <li key={c.id} className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                        <p>{c.nota}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{formatFecha(c.fecha)}</p>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
               </div>
             </div>
 

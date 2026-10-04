@@ -6,8 +6,9 @@ import type { Articulo } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
 import { ArticleEvaluationModal } from '@/components/organisms/ArticleEvaluationModal';
 import { ComplianceConfigModal } from '@/components/organisms/ComplianceConfigModal';
-import { articuloSemaforo, normSemaforoDe, resumenDeNorma } from '@/lib/legal-matrix';
-import { getUserName } from '@/lib/get-user-name';
+import { RelacionesDeNorma } from '@/components/organisms/RelacionesDeNorma';
+import { articuloSemaforo, noAplica, normSemaforoDe, resumenDeNorma, VIGENCIA_LABEL } from '@/lib/legal-matrix';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
 import type { NormDetailViewProps } from './NormDetailView.types';
 
@@ -48,6 +49,8 @@ function TextoDeArticulo({ texto }: { texto: string }) {
 
 /** S-09 Detalle de Norma + Evaluación por Artículo. */
 export function NormDetailView({ norm: normProp, activeTenantId, responsableOptions }: NormDetailViewProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const { norms } = useLegalMatrix();
   const norm = norms.find((n) => n.id === normProp.id) ?? normProp;
 
@@ -68,6 +71,27 @@ export function NormDetailView({ norm: normProp, activeTenantId, responsableOpti
                 DE EMISIONES Y TRANSFERENCIAS DE CONTAMINANTES, RETC"— y a
                 tamano de titular ocupaban dos lineas de grito. */}
             <h1 className="mt-1 text-lg font-semibold leading-snug text-slate-900">{norm.nombre}</h1>
+            {/* Vigencia y aplicabilidad (ISO 14001 §6.1.3, tarea 58). Se dicen
+                solo cuando no son lo normal: vigente y que aplica. */}
+            {(norm.vigencia?.estado && norm.vigencia.estado !== 'vigente') || noAplica(norm) ? (
+              <dl className="mt-2 flex flex-col gap-1 text-sm">
+                {norm.vigencia?.estado && norm.vigencia.estado !== 'vigente' && (
+                  <div className="flex gap-2">
+                    <dt className="text-slate-500">Vigencia</dt>
+                    <dd className="font-medium text-amber-800">{VIGENCIA_LABEL[norm.vigencia.estado]}</dd>
+                  </div>
+                )}
+                {noAplica(norm) && (
+                  <div className="flex gap-2">
+                    <dt className="text-slate-500">Aplicabilidad</dt>
+                    <dd className="text-slate-700">
+                      <span className="font-medium">No aplica a la empresa.</span>{' '}
+                      {norm.aplicabilidad?.criterio}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            ) : null}
             {norm.fuenteUrl && (
               <a
                 href={norm.fuenteUrl}
@@ -99,6 +123,14 @@ export function NormDetailView({ norm: normProp, activeTenantId, responsableOpti
                   <span className="ml-1 text-xs font-normal text-slate-500">de cumplimiento</span>
                 </p>
               )}
+              {/* Lo sin evaluar cuenta como no cumplido en el numero de arriba
+                  (la definicion del tablero). Este dice cuanto se cumple de lo
+                  que ya se reviso, solo si es otro numero. */}
+              {resumen.pct !== null && resumen.sinEvaluar > 0 && resumen.pctSobreEvaluados !== null && (
+                <p className="mt-1 text-xs text-slate-600">
+                  {Math.round(resumen.pctSobreEvaluados * 100)}% de lo evaluado
+                </p>
+              )}
 
               <div className="mt-3">
                 <div className="flex items-baseline justify-between text-xs text-slate-600">
@@ -125,6 +157,9 @@ export function NormDetailView({ norm: normProp, activeTenantId, responsableOpti
           </div>
         </div>
       </div>
+
+      {/* Solo las de la BCN: es la fuente que publica las relaciones. */}
+      {norm.fuente === 'BCN' && <RelacionesDeNorma normId={norm.id} tenantId={activeTenantId ?? null} />}
 
       <div className="overflow-x-auto rounded-card border border-slate-200 bg-white">
         <table className="w-full min-w-[840px] table-fixed text-sm">

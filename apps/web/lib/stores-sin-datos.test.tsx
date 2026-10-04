@@ -54,6 +54,8 @@ vi.mock('./api-client', async (importarReal) => {
     ...real,
     api: {
       get: (...a: unknown[]) => get(...a),
+      // Los listados completos se leen con `getTodas`; aca responde lo mismo que `get`.
+      getTodas: (...a: unknown[]) => get(...a),
       patch: vi.fn(),
       post: vi.fn(),
       delete: vi.fn(),

@@ -43,6 +43,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
@@ -148,14 +151,48 @@ class Resultado:
     con_version_nueva: list[str] = field(default_factory=list)
 
 
+#: Segundos de espera antes del segundo y del tercer intento.
+#:
+#: Pocos y cortos a proposito: la sincronizacion corre una vez al dia y un
+#: termino que falla no detiene a los demas. Lo que se busca es no perder una
+#: corrida entera por un corte de red de un segundo, no insistir contra una
+#: fuente caida.
+ESPERAS_ENTRE_INTENTOS: tuple[float, ...] = (2, 5)
+
+
+def _vale_reintentar(exc: Exception) -> bool:
+    """Un fallo de red o del servidor se reintenta; una consulta rechazada, no.
+
+    Un 400 dice que la pregunta esta mal: repetirla da lo mismo tres veces y
+    tapa el error con una espera. 429 si se reintenta, porque se arregla
+    esperando.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError))
+
+
 def _consultar(sparql: str, timeout: int = 120) -> list[dict[str, Any]]:
-    """Una consulta al endpoint publico. Sin credenciales."""
+    """Una consulta al endpoint publico. Sin credenciales.
+
+    Con **reintento y espera creciente** (`ESPERAS_ENTRE_INTENTOS`) ante un
+    fallo de red o del servidor. Si el ultimo intento falla, la excepcion sube:
+    quien llama la anota y sigue con lo demas.
+    """
     url = f"{ENDPOINT}?query={urllib.parse.quote(sparql)}&output=json"
     req = urllib.request.Request(
         url, headers={"Accept": "application/sparql-results+json"}
     )
-    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
-        return json.loads(r.read().decode("utf-8"))["results"]["bindings"]
+    for espera in (*ESPERAS_ENTRE_INTENTOS, None):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
+                return json.loads(r.read().decode("utf-8"))["results"]["bindings"]
+        except Exception as exc:
+            if espera is None or not _vale_reintentar(exc):
+                raise
+            logger.warning("La BCN no respondio (%s); se reintenta en %s s", exc, espera)
+            time.sleep(espera)
+    raise AssertionError("inalcanzable")  # pragma: no cover
 
 
 def _fecha(valor: str | None) -> date | None:
@@ -362,6 +399,64 @@ ORDER BY ?fecha"""
 
 
 # ── Escribir lo leido en la base ──────────────────────────────────────────
+
+
+#: Las relaciones entre normas que publica la BCN, y como se guardan.
+#:
+#: `(tipo en legal_relations, es_la_inversa)`. La inversa se guarda en su
+#: sentido directo: "A `isModifiedBy` B" es "B modifica A". Asi una relacion
+#: queda una sola vez aunque la fuente la declare desde las dos puntas.
+#:
+#: **No hay derogacion.** La ontologia no publica una propiedad para eso
+#: (consultado el 21-sep): que una norma ya no rige se sabe por su vigencia.
+RELACIONES: dict[str, tuple[str, bool]] = {
+    "modifiesTo": ("modifica", False),
+    "isModifiedBy": ("modifica", True),
+    "regulates": ("reglamenta", False),
+    "isRegulatedBy": ("reglamenta", True),
+    "recasts": ("refundido", False),
+    "isRecastedBy": ("refundido", True),
+    "rectifies": ("rectifica", False),
+    "isRectifiedBy": ("rectifica", True),
+    "agreeWith": ("concordancia", False),
+}
+
+#: Una URI de la BCN y nada mas: va entre `<>` dentro de la consulta SPARQL.
+_URI_BCN = re.compile(r"^http://datos\.bcn\.cl/recurso/[^\s<>\"{}|^`\\]+$")
+
+
+@dataclass(frozen=True)
+class RelacionBCN:
+    """Lo que la fuente declara entre esta norma y otra, por su codigo de Ley Chile."""
+
+    predicado: str
+    codigo: str
+
+
+def relaciones_de(uri_norma: str) -> list[RelacionBCN]:
+    """Las relaciones que la BCN publica para esta norma, **en las dos direcciones**.
+
+    Se pide la norma raiz de la otra punta (la que tiene `leychileCode`): la
+    fuente tambien apunta a versiones concretas (`.../609/es@2000-09-26`), y
+    esas no son normas del catalogo. Deduplicado: SPARQL repite filas.
+    """
+    if not _URI_BCN.match(uri_norma):
+        raise ValueError(f"No es una URI de la BCN: {uri_norma!r}")
+    valores = " ".join(f"<{BCN_NORMS}{p}>" for p in RELACIONES)
+    filas = _consultar(
+        f"""SELECT DISTINCT ?p ?codigo WHERE {{
+  VALUES ?p {{ {valores} }}
+  <{uri_norma}> ?p ?o .
+  ?o <{BCN_NORMS}leychileCode> ?codigo .
+}}"""
+    )
+    vistas: set[RelacionBCN] = set()
+    for f in filas:
+        predicado = (_v(f, "p") or "").rsplit("#", 1)[-1]
+        codigo = _v(f, "codigo")
+        if predicado in RELACIONES and codigo:
+            vistas.add(RelacionBCN(predicado, str(codigo)))
+    return sorted(vistas, key=lambda r: (r.predicado, r.codigo))
 
 
 def _hash_de_version(v: VersionBCN) -> str:

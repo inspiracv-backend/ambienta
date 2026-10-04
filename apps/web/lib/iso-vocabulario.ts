@@ -73,6 +73,36 @@ export const AUTORIDAD: Record<string, string> = {
   OTRO: 'Otra',
 };
 
+/** `environmental_aspects.operating_condition`. */
+export const CONDICION_OPERACION: Record<string, string> = {
+  normal: 'Normal',
+  anormal: 'Anormal',
+  emergencia: 'Emergencia',
+};
+
+/**
+ * `environmental_aspects.impact_type`, que es **texto libre** en la base: la
+ * mayoria llega ya legible. Esto solo traduce los valores en clave que puedan
+ * quedar de los datos de ejemplo; lo demas se muestra tal cual (`etiqueta`).
+ *
+ * Vivia dentro de la tabla de aspectos y paso aca el 21-sep, cuando la matriz
+ * se empezo a exportar: con dos copias, la pantalla y el documento dirian
+ * cosas distintas del mismo aspecto.
+ */
+export const TIPO_IMPACTO: Record<string, string> = {
+  emision_atmosferica: 'Emisión atmosférica',
+  vertido_agua: 'Vertido al agua',
+  residuo_solido: 'Residuo sólido',
+  residuo_peligroso: 'Residuo peligroso',
+  consumo_agua: 'Consumo de agua',
+  consumo_energia: 'Consumo de energía',
+  ruido: 'Ruido',
+  contaminacion_suelo: 'Contaminación de suelo',
+  biodiversidad: 'Biodiversidad',
+  gases_efecto_invernadero: 'GEI',
+  otro: 'Otro',
+};
+
 /** `environmental_aspects.significance` (ver `db/21`). */
 export const SIGNIFICANCIA: Record<string, string> = {
   significant: 'Significativo',

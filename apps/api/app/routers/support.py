@@ -14,7 +14,8 @@ from ..crud.support import (
 )
 from ..deps import get_current_user, get_tenant_db, get_tenant_id
 from ._paginacion import Pagina, paginacion, recortar
-from ._comun import borrar_o_404, obtener_o_404, verificar_padre
+from ._comun import borrar_o_404, obtener_o_404, validar_visible, verificar_padre
+from ..crud.organization import crud_user
 from ..schemas.support import (
     ChatbotConversationCreate,
     ChatbotConversationUpdate,
@@ -104,24 +105,97 @@ def update_ticket(ticket_id: UUID, data: SupportTicketUpdate, db: Session = Depe
     return obj
 
 
-@router.get("/tickets/{ticket_id}/messages", response_model=list[SupportTicketMessageRead])
+@router.get(
+    "/tickets/{ticket_id}/messages",
+    response_model=list[SupportTicketMessageRead],
+    summary="La conversacion de un ticket, en orden",
+)
 def list_ticket_messages(ticket_id: UUID, db: Session = Depends(get_tenant_db)):
+    """El hilo del ticket, del mas antiguo al mas nuevo.
+
+    **Tenia los dos defectos que el 8-sep se arreglaron en los mensajes del
+    chatbot**, y nadie los habia mirado aca: sin `ORDER BY` —Postgres devuelve
+    el orden fisico, y un `UPDATE` que no puede ser HOT mueve la fila al
+    final— y sin comprobar el ticket, asi que uno inexistente respondia `[]`,
+    que se lee como "este ticket no tiene mensajes".
+
+    Importa mas desde el 13-sep: **las correcciones de un registro erroneo
+    (RF-83) viven aca**, como `internal_note`. Un historial de correcciones
+    barajado le cambia el sentido a lo que se corrigio.
+    """
     from sqlalchemy import select
+
     from ..models.support import SupportTicketMessage
-    stmt = select(SupportTicketMessage).where(SupportTicketMessage.ticket_id == ticket_id)
+
+    obtener_o_404(crud_support_ticket, db, ticket_id, recurso="SupportTicket")
+    stmt = (
+        select(SupportTicketMessage)
+        .where(SupportTicketMessage.ticket_id == ticket_id)
+        .order_by(SupportTicketMessage.created_at, SupportTicketMessage.id)
+    )
     return list(db.scalars(stmt).all())
 
 
-@router.post("/tickets/{ticket_id}/messages", response_model=SupportTicketMessageRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/tickets/{ticket_id}/messages",
+    response_model=SupportTicketMessageRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Agregar un mensaje o una correccion al ticket",
+)
 def create_ticket_message(
     ticket_id: UUID,
     data: SupportTicketMessageCreate,
     tenant_id: UUID = Depends(get_tenant_id),
+    actual: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_tenant_db),
 ):
+    """Escribe un turno del hilo.
+
+    ## El autor sale de la sesion, no del cuerpo
+
+    `author_user_id` venia **del cuerpo, sin mirarlo**. Para un comentario
+    cualquiera es un descuido; para una **correccion de un registro erroneo**
+    (RF-83) es lo que invalida el requisito entero: la pantalla promete *"queda
+    registrado con tu nombre"*, y ese nombre lo elegia quien mandaba la
+    peticion. Una correccion atribuida a otro es exactamente lo que un auditor
+    no puede distinguir de una real.
+
+    Cuando hay sesion identificada, **gana el usuario de la sesion** y lo que
+    diga el cuerpo se ignora. Sin sesion —el modo `X-Tenant-Id` de desarrollo—
+    el id del cuerpo se acepta solo si es de esta empresa: **las claves foraneas
+    no pasan por RLS** (CLAUDE.md §4), asi que sin esa comprobacion se podia
+    firmar con el id de alguien de otra empresa.
+
+    ## Y el ticket se comprueba antes de escribir
+
+    Mismo arreglo que los mensajes del chatbot:
+
+    | lo que se manda | antes | ahora |
+    |---|---|---|
+    | un ticket inexistente | **500** — revienta la clave foranea | 404 |
+    | el ticket de otra empresa | **201**, y la fila quedaba escrita | 404 |
+    """
+    from sqlalchemy import select
+
     from ..models.support import SupportTicketMessage
+
+    obtener_o_404(crud_support_ticket, db, ticket_id, recurso="SupportTicket")
+
     msg_data = data.model_dump(exclude_unset=True)
     msg_data["ticket_id"] = ticket_id
+
+    autor = None
+    if actual is not None and actual.user_id:
+        autor = db.scalars(
+            select(User).where(User.clerk_id == actual.user_id, User.deleted_at.is_(None))
+        ).first()
+    if autor is not None:
+        msg_data["author_user_id"] = autor.id
+    else:
+        validar_visible(
+            crud_user, db, msg_data.get("author_user_id"), campo="author_user_id"
+        )
+
     obj = SupportTicketMessage(**msg_data, tenant_id=tenant_id)
     db.add(obj)
     db.flush()
@@ -146,22 +220,93 @@ def create_conversation(
     return obj
 
 
-@router.get("/chatbot/{conversation_id}/messages", response_model=list[ChatbotMessageRead])
+@router.get(
+    "/chatbot/{conversation_id}/messages",
+    response_model=list[ChatbotMessageRead],
+    summary="Los mensajes de una conversacion, en orden",
+)
 def list_chatbot_messages(conversation_id: UUID, db: Session = Depends(get_tenant_db)):
+    """El hilo completo, del mas antiguo al mas nuevo.
+
+    ## El `ORDER BY` no es cosmetico: en un chat el orden ES la conversacion
+
+    Esta consulta no tenia ninguno. Sin `ORDER BY`, Postgres devuelve las filas
+    como quiera —en la practica, el orden fisico del heap— y **un `UPDATE`
+    mueve la fila al final**. O sea que el `PATCH` que existe justamente para
+    agregarle las citas a un mensaje lo mandaba al final del hilo: la respuesta
+    quedaba despues de la pregunta que vino tres turnos mas tarde.
+
+    Para el servicio de IA eso no es un detalle de presentacion. De aca sale el
+    contexto que se le manda al modelo, y un historial barajado le hace
+    contestar otra cosa — sin ningun error a la vista. Es el mismo defecto que
+    ya estaba documentado en `/catalog/norms` ("sin `ORDER BY` la paginacion se
+    rompe en silencio"), aca sobre el dato que da sentido al modulo.
+
+    Se desempata por `id` —`BIGSERIAL`, o sea orden de insercion— porque dos
+    mensajes escritos en la misma transaccion comparten `created_at`. Misma
+    leccion que los usuarios del seed.
+
+    Y una conversacion que no existe responde **404**, no una lista vacia: para
+    quien indexa, `[]` se lee como "esta conversacion no tiene mensajes", que es
+    una afirmacion distinta.
+    """
     from sqlalchemy import select
+
     from ..models.support import ChatbotMessage
-    stmt = select(ChatbotMessage).where(ChatbotMessage.conversation_id == conversation_id)
+
+    obtener_o_404(
+        crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation"
+    )
+    stmt = (
+        select(ChatbotMessage)
+        .where(ChatbotMessage.conversation_id == conversation_id)
+        .order_by(ChatbotMessage.created_at, ChatbotMessage.id)
+    )
     return list(db.scalars(stmt).all())
 
 
-@router.post("/chatbot/{conversation_id}/messages", response_model=ChatbotMessageRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/chatbot/{conversation_id}/messages",
+    response_model=ChatbotMessageRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Guardar un mensaje de la conversacion",
+)
 def create_chatbot_message(
     conversation_id: UUID,
     data: ChatbotMessageCreate,
     tenant_id: UUID = Depends(get_tenant_id),
     db: Session = Depends(get_tenant_db),
 ):
+    """Escribe un turno del hilo, con sus citas si las tiene.
+
+    **La conversacion se comprueba antes de escribir**, y era el unico endpoint
+    anidado de este router que no lo hacia. Sin eso pasaban dos cosas, ninguna
+    con el codigo correcto:
+
+    | lo que se manda | antes | ahora |
+    |---|---|---|
+    | una conversacion inexistente | **500** — revienta la clave foranea | 404 |
+    | la conversacion de otra empresa | **201**, y la fila quedaba escrita | 404 |
+
+    El segundo es el conocido: **las claves foraneas no pasan por RLS**
+    (CLAUDE.md §4), asi que la restriccion solo exige que la fila exista, no que
+    sea de esta empresa. El mensaje quedaba con el `tenant_id` propio colgando
+    de un hilo ajeno — invisible para las dos empresas y contando en los
+    conteos de una.
+
+    El 500 es el que mas duele en una integracion: un servicio que reintenta
+    ante un 5xx reintenta para siempre algo que nunca va a funcionar.
+
+    `conversation_id` sale de la **ruta**, no del cuerpo. El esquema tambien lo
+    declara —lo pide el contrato— pero si los dos discrepan manda la URL: es
+    donde el recurso ya se comprobo.
+    """
     from ..models.support import ChatbotMessage
+
+    obtener_o_404(
+        crud_chatbot_conversation, db, conversation_id, recurso="ChatbotConversation"
+    )
+
     msg_data = data.model_dump(exclude_unset=True)
     msg_data["conversation_id"] = conversation_id
     obj = ChatbotMessage(**msg_data, tenant_id=tenant_id)
@@ -206,9 +351,23 @@ def get_ticket_message(ticket_id: UUID, mensaje_id: int, db: Session = Depends(g
 @router.patch("/tickets/{ticket_id}/messages/{mensaje_id}", response_model=SupportTicketMessageRead)
 def update_ticket_message(ticket_id: UUID, mensaje_id: int, data: SupportTicketMessageUpdate, db: Session = Depends(get_tenant_db)):
     """Corrige el texto. El autor no cambia: editar quien dijo algo seria
-    falsificar la conversacion con el cliente."""
+    falsificar la conversacion con el cliente.
+
+    **Una `internal_note` no se edita.** Desde el 13-sep las correcciones de un
+    registro erroneo (RF-83) viven ahi, y la pantalla promete que "no se puede
+    editar despues". La tabla no tiene `updated_at`: una correccion reescrita
+    no deja rastro de que lo fue. Si la correccion estaba mal, se agrega otra.
+    """
     obj = obtener_o_404(crud_ticket_message, db, mensaje_id, recurso="SupportTicketMessage")
     verificar_padre(obj, ticket_id, campo="ticket_id")
+    if obj.message_type == "internal_note":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Una correccion registrada no se edita. Si estaba mal, "
+                "registra otra que la corrija."
+            ),
+        )
     obj = crud_ticket_message.update(db, db_obj=obj, obj_in=data)
     db.commit()
     return obj

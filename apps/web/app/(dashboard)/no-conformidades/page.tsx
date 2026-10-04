@@ -1,9 +1,11 @@
 'use client';
 
+import { visibleEnAlcance } from '@/lib/alcance';
 import { useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/atoms';
-import { NonConformitiesListTable } from '@/components/organisms';
+import { NonConformitiesListTable, SalidasPendientes } from '@/components/organisms';
 import { useSession } from '@/lib/session';
 import { useAudits } from '@/lib/audits-store';
 import { useTenants } from '@/lib/tenants-store';
@@ -35,14 +37,22 @@ export default function NoConformidadesPage() {
       : tenant?.plants ?? [];
 
   const visibleNCs = nonConformities.filter(
-    (nc) => nc.tenantId === user.tenantId && scopedPlants.some((p) => p.id === nc.plantId),
+    (nc) => nc.tenantId === user.tenantId && visibleEnAlcance(nc.plantId, scopedPlants),
   );
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">No Conformidades</h1>
-        <p className="text-sm text-slate-500">{tenant?.nombre}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">No Conformidades</h1>
+          <p className="text-sm text-slate-500">{tenant?.nombre}</p>
+        </div>
+        <Link
+          href="/no-conformidades/catalogos"
+          className="inline-flex h-11 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          Catálogos y plazos
+        </Link>
       </div>
       {errorDeCarga && (
         <p
@@ -53,6 +63,10 @@ export default function NoConformidadesPage() {
           vacío porque no se pudo preguntar, no porque no haya nada.
         </p>
       )}
+      {/* Lo que el sistema de gestion todavia debe (ISO 9001 10.2.1 e y f).
+          Antes desaparecia al cerrar el registro. */}
+      <SalidasPendientes />
+
       <NonConformitiesListTable nonConformities={visibleNCs} plants={scopedPlants} />
     </div>
   );

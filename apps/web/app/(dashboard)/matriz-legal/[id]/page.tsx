@@ -1,23 +1,23 @@
 'use client';
 
-import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { HistorialTimeline, NormDetailView } from '@/components/organisms';
+import { FichaNoDisponible, HistorialTimeline, NormDetailView } from '@/components/organisms';
 import { useLegalMatrix } from '@/lib/legal-matrix-store';
 import { useSession } from '@/lib/session';
-import { mockUsers } from '@/mocks/users';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 
 export default function NormDetailPage({ params }: { params: { id: string } }) {
-  const { norms } = useLegalMatrix();
+  const { norms, loading: cargandoNormas } = useLegalMatrix();
   const { user } = useSession();
+  // Personas de la base (`/users/`), no `mockUsers`: el responsable es una
+  // clave foránea y un id de ejemplo hacía que la API rechazara la escritura.
+  const { personas } = usePersonasAsignables();
   const norm = norms.find((n) => n.id === params.id);
 
-  if (!norm) return notFound();
+  if (!norm) return <FichaNoDisponible cargando={cargandoNormas} que="esta norma" volverA="/matriz-legal" volverEtiqueta="Volver a la matriz legal" />;
   if (!user) return null;
 
-  const responsableOptions = mockUsers
-    .filter((u) => u.tenantId === norm.tenantId || norm.tenantId === null)
-    .map((u) => ({ id: u.id, nombre: u.nombre }));
+  const responsableOptions = personas;
 
   return (
     <div className="flex flex-col gap-4">

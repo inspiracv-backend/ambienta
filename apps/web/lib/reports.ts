@@ -1,10 +1,14 @@
+import { enRangoDeDias } from '@/lib/fechas';
 import type { Audit, LegalNorm, NonConformity, Obligation, Plant } from '@ambienta/shared';
 import {
   computeNormComplianceOrNull,
+  computeNormComplianceSobreEvaluadosOrNull,
   countArticulosEnIncumplimiento,
   countArticulosSinEvaluar,
 } from '@/lib/legal-matrix';
 import { AUDIT_ESTADO_LABEL, NC_ESTADO_LABEL, CRITICIDAD_LABEL } from '@/lib/audit-status';
+import { aspectoSinTratar, type AspectoApi, type RiesgoApi } from '@/lib/iso-store';
+import { CONDICION_OPERACION, SIGNIFICANCIA, TIPO_IMPACTO, etiqueta } from '@/lib/iso-vocabulario';
 
 export type TipoReporte = 'cumplimiento' | 'no-conformidades' | 'matriz-legal';
 
@@ -76,17 +80,14 @@ function toCsv(headers: string[], rows: string[][]): string {
   return [headers, ...rows].map((row) => row.map(csvEscape).join(',')).join('\n');
 }
 
+/** Sin fecha planificada se dice, no sale «Invalid Date». */
 function formatFecha(iso: string): string {
+  if (!iso) return 'Sin fecha';
   return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function inRange(iso: string, desde: string, hasta: string): boolean {
-  if (!desde && !hasta) return true;
-  const t = new Date(iso).getTime();
-  if (desde && t < new Date(desde).getTime()) return false;
-  if (hasta && t > new Date(hasta).getTime() + 86_400_000 - 1) return false;
-  return true;
-}
+// Días de calendario, no instantes UTC: ver `lib/fechas.ts::enRangoDeDias`.
+const inRange = enRangoDeDias;
 
 /**
  * RF-50: reporte de Cumplimiento. Reutiliza la misma regla de "% de
@@ -186,19 +187,105 @@ export function buildMatrizLegalReport(norms: LegalNorm[], plants: Plant[]): Rep
     // una norma recien importada llega entera sin evaluar y el informe la
     // declaraba incumplida ante quien lo lee.
     porcentaje(computeNormComplianceOrNull(norm)),
+    porcentaje(computeNormComplianceSobreEvaluadosOrNull(norm)),
     String(countArticulosEnIncumplimiento(norm)),
     String(countArticulosSinEvaluar(norm)),
   ]);
 
   return armar(
     'Reporte de Matriz Legal',
-    ['Norma', 'Fuente', 'Plantas', '% Cumplimiento', 'Artículos en incumplimiento', 'Artículos sin evaluar'],
+    ['Norma', 'Fuente', 'Plantas', '% Cumplimiento', '% de lo evaluado', 'Artículos en incumplimiento', 'Artículos sin evaluar'],
     rows,
     norms.length === 0,
     // La columna nueva no es decoracion: sin ella, "Sin evaluar" no dice cuanto
     // falta, y un 100 % sobre un articulo de doscientos se lee igual que un
     // 100 % sobre los doscientos.
-    ['El % de cumplimiento se calcula sobre los articulos ya evaluados. La ultima columna dice cuantos faltan.'],
+    [
+      'El % de cumplimiento cuenta los articulos sin evaluar como no cumplidos: es la misma definicion del tablero, y no se infla con una muestra. "% de lo evaluado" dice cuanto se cumple de lo que ya se reviso; la ultima columna, cuantos faltan.',
+    ],
+  );
+}
+
+export interface ContextoMatrizAspectos {
+  plantas: { id: string; nombre: string }[];
+  /** El mapa de procesos. Uno que no este se muestra con su id, no en blanco. */
+  procesos: { id: string; nombre: string }[];
+  riesgos: RiesgoApi[];
+  nombreDe: (userId: string) => string;
+  /** Los filtros de la pantalla, dichos en palabras. Vacio = la matriz entera. */
+  filtros: string[];
+  /** Cuantos aspectos tiene la matriz sin filtrar. */
+  total: number;
+}
+
+/**
+ * La matriz de aspectos e impactos (ISO 14001 §6.1.2), para entregar a un
+ * certificador. Sale **lo que la pantalla muestra filtrado**, y el documento lo
+ * dice: una matriz filtrada sin aviso se lee como la matriz completa.
+ *
+ * Lleva los tres puntajes por separado aunque la tabla muestre solo el total:
+ * es la evidencia de como se evaluo, que es lo que el auditor revisa.
+ */
+export function buildMatrizAspectosReport(
+  aspectos: AspectoApi[],
+  ctx: ContextoMatrizAspectos,
+): Reporte {
+  const puntaje = (n: number | null) => (n === null ? '—' : String(n));
+  const rows = aspectos.map((a) => [
+    ctx.plantas.find((p) => p.id === a.facilityId)?.nombre ?? a.facilityId,
+    a.procesoId === null
+      ? 'Sin proceso'
+      : (ctx.procesos.find((p) => p.id === a.procesoId)?.nombre ?? a.procesoId),
+    a.actividad,
+    a.aspecto,
+    etiqueta(TIPO_IMPACTO, a.tipoImpacto),
+    etiqueta(CONDICION_OPERACION, a.condicionOperacion),
+    puntaje(a.puntajeFrecuencia),
+    puntaje(a.puntajeSeveridad),
+    puntaje(a.puntajeLegal),
+    // `null` es "sin evaluar", no cero: un cero diria que se evaluo y salio sin
+    // importancia, que es lo contrario.
+    a.puntajeTotal === null ? 'Sin evaluar' : String(a.puntajeTotal),
+    etiqueta(SIGNIFICANCIA, a.significancia),
+    a.significancia === 'significant'
+      ? aspectoSinTratar(a, ctx.riesgos)
+        ? 'Sin tratar'
+        : 'Tratado'
+      : '—',
+    a.responsableId ? ctx.nombreDe(a.responsableId) : 'Sin asignar',
+  ]);
+
+  const notas = [
+    'La significancia la decide el servidor con el umbral de la empresa: un requisito legal puede hacer significativo un aspecto aunque su puntaje sea bajo.',
+    '"Sin evaluar" quiere decir que el aspecto todavia no tiene puntajes, no que no sea significativo.',
+    '"Tratado": el aspecto significativo esta ligado a un requisito legal o a un riesgo u oportunidad (§6.1.4).',
+  ];
+  if (ctx.filtros.length > 0) {
+    notas.unshift(
+      `Filtrado: ${ctx.filtros.join(' · ')}. Muestra ${aspectos.length} de los ${ctx.total} aspectos de la matriz.`,
+    );
+  }
+
+  return armar(
+    'Matriz de aspectos e impactos ambientales',
+    [
+      'Planta',
+      'Proceso',
+      'Actividad',
+      'Aspecto',
+      'Tipo de impacto',
+      'Condición',
+      'Frecuencia',
+      'Severidad',
+      'Legal',
+      'Puntaje',
+      'Significancia',
+      'Tratamiento',
+      'Responsable',
+    ],
+    rows,
+    aspectos.length === 0,
+    notas,
   );
 }
 
@@ -210,7 +297,9 @@ export function buildMatrizLegalReport(norms: LegalNorm[], plants: Plant[]): Rep
 export function buildAuditFolderContent(audit: Audit, plant: Plant | undefined, nonConformities: NonConformity[]): string {
   const relatedNcs = nonConformities.filter((nc) => nc.auditId === audit.id);
   const lines = [
-    `CARPETA DE AUDITORÍA — ${plant?.nombre ?? audit.plantId}`,
+    // Una auditoria de toda la empresa no tiene planta: el titulo la nombra.
+    `CARPETA DE AUDITORÍA — ${audit.titulo || plant?.nombre || 'Toda la empresa'}`,
+    `Planta: ${plant?.nombre || (audit.plantId ? audit.plantId : 'Toda la empresa')}`,
     `Tipo: ${audit.tipo === 'interna' ? 'Interna' : 'Externa'}`,
     `Fecha: ${formatFecha(audit.fecha)}`,
     `Estado: ${AUDIT_ESTADO_LABEL[audit.estado]}`,

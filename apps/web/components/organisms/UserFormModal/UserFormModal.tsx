@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { Button, Input } from '@/components/atoms';
@@ -8,6 +8,7 @@ import { FormField } from '@/components/molecules';
 import { useUsers } from '@/lib/users-store';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { useToast } from '@/lib/toast-store';
+import { mensajeDeError } from '@/lib/api-client';
 import {
   eventoCambioDeDepartamento,
   eventoCambioDePlantas,
@@ -27,7 +28,7 @@ const ROLES_ASIGNABLES: AssignableRole[] = ['admin_empresa', 'usuario_interno', 
  */
 export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTenant, plants, departamentos }: UserFormModalProps) {
   const formId = useId();
-  const { inviteUser, updateRole, updatePlants, updateDepartamento, updateDescriptorCargo } = useUsers();
+  const { inviteUser, updateRole, leerAlcance, fijarAlcance, updateDepartamento } = useUsers();
   const registrar = useRegistrarAuditoria();
   const { mostrarToast } = useToast();
   const esEdicion = !!user;
@@ -35,10 +36,31 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
   const [nombre, setNombre] = useState(user?.nombre ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [role, setRole] = useState<AssignableRole>((user?.role as AssignableRole) ?? 'usuario_interno');
-  const [plantIds, setPlantIds] = useState<string[]>(user?.plantIds ?? []);
   const [departamentoId, setDepartamentoId] = useState<string>(user?.departamentoId ?? '');
-  const [cargo, setCargo] = useState(user?.descriptorCargo?.cargo ?? '');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // El alcance **se lee de la base al abrir**: `plantIds` del listado viene
+  // vacío porque la API no trae el alcance de cada persona en la lista, y
+  // mostrarlo como "todas" sería afirmar algo que no se preguntó.
+  const [alcanceAlAbrir, setAlcanceAlAbrir] = useState<string[] | null>(null);
+  const [planta, setPlanta] = useState<string>('');
+  const [errorAlcance, setErrorAlcance] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  useEffect(() => {
+    if (!open || !user || !user.tenantId) return;
+    let cancelado = false;
+    setAlcanceAlAbrir(null);
+    setErrorAlcance(null);
+    leerAlcance(user.id, user.tenantId)
+      .then((ids) => {
+        if (cancelado) return;
+        setAlcanceAlAbrir(ids);
+        setPlanta(ids.length === 1 ? ids[0] : '');
+      })
+      .catch((e) => { if (!cancelado) setErrorAlcance(mensajeDeError(e)); });
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, user?.id]);
 
   const rolesDisponibles = ROLES_ASIGNABLES.filter((r) => r !== 'gestor' || esGestorTenant);
 
@@ -46,27 +68,23 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
     setNombre(user?.nombre ?? '');
     setEmail(user?.email ?? '');
     setRole((user?.role as AssignableRole) ?? 'usuario_interno');
-    setPlantIds(user?.plantIds ?? []);
     setDepartamentoId(user?.departamentoId ?? '');
     setErrors({});
   }
 
-  function togglePlant(plantId: string) {
-    setPlantIds((prev) => (prev.includes(plantId) ? prev.filter((id) => id !== plantId) : [...prev, plantId]));
-  }
-
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const next: Record<string, string> = {};
     if (!esEdicion) {
       if (!nombre.trim()) next.nombre = 'Ingresa un nombre.';
       if (!/^\S+@\S+\.\S+$/.test(email)) next.email = 'Ingresa un correo válido.';
     }
-    if (role === 'usuario_interno' && !departamentoId) next.departamentoId = 'Selecciona un departamento (RF-11).';
+    if (role !== 'admin_empresa' && !departamentoId) next.departamentoId = 'Selecciona un departamento (RF-11).';
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
-    const depto = role === 'usuario_interno' ? departamentoId : null;
+    // Solo el administrador puede no tener departamento: es quien los crea.
+    const depto = role !== 'admin_empresa' ? departamentoId : null;
 
     if (esEdicion && user) {
       // Se registra un evento por dimensión cambiada, no uno genérico
@@ -77,22 +95,25 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
         updateRole(user.id, role);
         registrar(eventoCambioDeRol(user, user.role, role));
       }
-      // `plantIds` del listado viene `undefined` —la API no trae el alcance de
-      // cada persona en la lista— y eso NO es lo mismo que `[]`. Se compara
-      // contra lo que el formulario mostro al abrirse, que es `?? []`: sin
-      // eso, abrir y cerrar sin tocar nada se anotaria como un cambio.
-      const plantasAlAbrir = user.plantIds ?? [];
-      if (JSON.stringify(plantasAlAbrir) !== JSON.stringify(plantIds)) {
-        updatePlants(user.id, plantIds);
-        registrar(eventoCambioDePlantas(user, plantasAlAbrir, plantIds, plants));
-      }
-      if ((user.descriptorCargo?.cargo ?? '') !== cargo.trim()) {
-        updateDescriptorCargo(user.id, {
-          cargo: cargo.trim(),
-          funciones: user.descriptorCargo?.funciones ?? [],
-          responsabilidades: user.descriptorCargo?.responsabilidades ?? [],
-          ...(user.descriptorCargo?.documentoUrl ? { documentoUrl: user.descriptorCargo.documentoUrl } : {}),
-        });
+      // Se compara contra lo que la base dijo al abrir, no contra el listado.
+      // Si no se pudo leer, no se escribe: no hay un "antes" contra el cual
+      // decidir si cambió, y guardar a ciegas podría ampliar el acceso.
+      const nuevaPlanta = planta || null;
+      const plantasAlAbrir = alcanceAlAbrir ?? [];
+      const cambioAlcance =
+        alcanceAlAbrir !== null &&
+        !(plantasAlAbrir.length <= 1 && (plantasAlAbrir[0] ?? null) === nuevaPlanta);
+      if (cambioAlcance && user.tenantId) {
+        setGuardando(true);
+        try {
+          const despues = await fijarAlcance(user.id, user.tenantId, nuevaPlanta);
+          registrar(eventoCambioDePlantas(user, plantasAlAbrir, despues, plants));
+        } catch (err) {
+          setErrorAlcance(`No se guardó la planta: ${mensajeDeError(err)}`);
+          return;
+        } finally {
+          setGuardando(false);
+        }
       }
       if (user.departamentoId !== depto) {
         updateDepartamento(user.id, depto);
@@ -100,20 +121,33 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
       }
       mostrarToast({ tipo: 'exito', mensaje: `${user.nombre} actualizado`, descripcion: 'Los cambios quedaron en su historial.' });
     } else {
-      const nuevo = inviteUser({
-        tenantId,
-        nombre: nombre.trim(),
-        email: email.trim(),
-        role,
-        plantIds,
-        departamentoId: depto,
-      });
-      registrar(eventoUsuarioInvitado(nuevo));
-      mostrarToast({
-        tipo: 'exito',
-        mensaje: `Invitación creada para ${nuevo.nombre}`,
-        descripcion: 'Aparecerá como "Invitado" hasta que ingrese por primera vez.',
-      });
+      if (!tenantId) {
+        setErrors({ envio: 'No hay una empresa seleccionada a la que invitar.' });
+        return;
+      }
+      setGuardando(true);
+      try {
+        const nuevo = await inviteUser({
+          tenantId,
+          nombre: nombre.trim(),
+          email: email.trim(),
+          role,
+          departamentoId: depto,
+        });
+        registrar(eventoUsuarioInvitado(nuevo));
+        mostrarToast({
+          tipo: 'exito',
+          mensaje: `Invitación enviada a ${nuevo.email}`,
+          descripcion: 'Aparecerá como "Invitado" hasta que cree su cuenta desde el correo.',
+        });
+      } catch (err) {
+        // El formulario queda abierto con lo escrito: la API no dejó nada, así
+        // que reintentar es volver a enviar.
+        setErrors({ envio: `No se envió la invitación: ${mensajeDeError(err)}` });
+        return;
+      } finally {
+        setGuardando(false);
+      }
     }
     onOpenChange(false);
   }
@@ -159,33 +193,42 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
               </select>
             </FormField>
 
-            {/* El cargo es distinto del rol: el rol define qué puede hacer en
-                el sistema, el cargo qué responsabilidades tiene en la empresa.
-                Es lo que se revisa en una auditoría de competencia (ISO 9001 §7.2). */}
-            <FormField
-              label="Cargo en la empresa"
-              htmlFor={`${formId}-cargo`}
-              hint="Distinto del rol del sistema. Se usa en auditorías de competencia."
-            >
-              <Input
-                id={`${formId}-cargo`}
-                value={cargo}
-                onChange={(e) => setCargo(e.target.value)}
-                placeholder="Ej: Jefe de Medio Ambiente"
-              />
-            </FormField>
+            {/* "Cargo en la empresa" se quitó el 13-sep: `UserUpdate` no tiene
+                dónde guardarlo y se perdía al recargar. */}
 
-            <fieldset className="flex flex-col gap-2">
-              <legend className="text-sm font-medium text-slate-700">Plantas asignadas</legend>
-              {plants.map((p) => (
-                <label key={p.id} className="flex items-center gap-2 text-sm text-slate-700">
-                  <input type="checkbox" checked={plantIds.includes(p.id)} onChange={() => togglePlant(p.id)} className="h-4 w-4" />
-                  {p.nombre}
-                </label>
-              ))}
-            </fieldset>
+            {esEdicion && (
+              <FormField
+                label="Planta"
+                htmlFor={`${formId}-planta`}
+                error={errorAlcance ?? undefined}
+                hint="Acota lo que esta persona puede ver y editar. Se guarda en sus roles de permisos."
+              >
+                {alcanceAlAbrir === null && !errorAlcance ? (
+                  <p className="text-sm text-slate-500">Cargando…</p>
+                ) : alcanceAlAbrir !== null && alcanceAlAbrir.length > 1 ? (
+                  <p className="text-sm text-slate-600">
+                    Acotada a {alcanceAlAbrir.length} plantas, asignadas fuera de esta pantalla. Aquí solo se puede elegir una o todas.
+                  </p>
+                ) : (
+                  <select
+                    id={`${formId}-planta`}
+                    className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                    value={planta}
+                    disabled={alcanceAlAbrir === null}
+                    onChange={(e) => setPlanta(e.target.value)}
+                  >
+                    <option value="">Todas las plantas</option>
+                    {plants.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </FormField>
+            )}
 
-            {role === 'usuario_interno' && (
+            {role !== 'admin_empresa' && (
               <FormField label="Departamento" htmlFor={`${formId}-depto`} required error={errors.departamentoId}>
                 <select
                   id={`${formId}-depto`}
@@ -203,11 +246,17 @@ export function UserFormModal({ open, onOpenChange, user, tenantId, esGestorTena
               </FormField>
             )}
 
+            {errors.envio && (
+              <p role="alert" className="text-sm text-semaforo-no-cumple">
+                {errors.envio}
+              </p>
+            )}
+
             <div className="mt-2 flex justify-end gap-2">
               <Dialog.Close asChild>
                 <Button type="button" variant="secondary">Cancelar</Button>
               </Dialog.Close>
-              <Button type="submit">{esEdicion ? 'Guardar cambios' : 'Enviar invitación'}</Button>
+              <Button type="submit" disabled={guardando}>{esEdicion ? (guardando ? 'Guardando…' : 'Guardar cambios') : (guardando ? 'Enviando…' : 'Enviar invitación')}</Button>
             </div>
           </form>
         </Dialog.Content>

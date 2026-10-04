@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select, text
@@ -59,7 +59,12 @@ from ..config import get_settings
 from ..db import AdminSessionLocal
 from ..models.catalog import LegalArticle, LegalNorm
 from ..models.compliance import ArticleCompliance, TenantLegalMatrix
-from ..models.iso14001 import EnvironmentalAspect, RegulatedEquipment
+from ..models.iso14001 import (
+    EnvironmentalAspect,
+    EquipmentOperator,
+    RegulatedEquipment,
+    RiskOpportunity,
+)
 from ..models.organization import Facility, Tenant, User
 from ..services import iso14001, normativa_aplicable, sincronizar_matriz
 
@@ -371,8 +376,223 @@ def _matrices_iso(db: Session, empresa: Tenant) -> list[str]:
             f"({vencidos} vencido, el resto por vencer)"
         )
 
+    hecho.extend(_para_ver_los_paneles(db, empresa, hoy))
+
     db.flush()
     return hecho
+
+
+#: Los dos equipos que hacen demostrable el panel de incumplimiento (#48, #50).
+#:
+#: Van con nombre propio y prefijo `[QA]` para poder distinguirlos de un vistazo
+#: de los dos equipos reales del seed, y para que la siembra sea idempotente sin
+#: llevar una tabla aparte.
+#:
+#: **Son dos y no uno porque son dos motivos distintos**, y el panel los muestra
+#: distinto: `sin_operador` se arregla asignando a alguien, `certificacion_vencida`
+#: renovando. Con un solo caso la pantalla no puede enseñar la diferencia, que es
+#: justo lo que hay que revisar en QA.
+EQUIPOS_DE_QA: list[tuple[str, str, str]] = [
+    ("[QA] Compresor sin operador", "compresor", "sin_operador"),
+    ("[QA] Grúa horquilla con certificación vencida", "grua", "certificacion_vencida"),
+]
+
+
+def _para_ver_los_paneles(db: Session, empresa: Tenant, hoy: date) -> list[str]:
+    """Deja las tres vistas derivadas mostrando algo **y su contrario**.
+
+    ## Por que hace falta
+
+    La semilla ya dejaba el modulo con datos, pero los tres paneles salian
+    siempre en el mismo estado, asi que QA no podia revisarlos:
+
+    | panel | lo que se veia | lo que faltaba |
+    |---|---|---|
+    | Significativos sin tratar | los 3 aspectos, ninguno enlazado | un aspecto **si** tratado |
+    | Sin operador habilitado | siempre vacio | los dos motivos |
+    | Por vencer | ya funcionaba | — |
+
+    Un panel que solo se sabe ver vacio no esta revisado: el estado vacio y el
+    estado con datos se dibujan por caminos distintos, y en este proyecto **el
+    error siempre estuvo en el vacio**.
+
+    ## Lo que NO hace
+
+    No inventa puntajes ni significancias — eso lo decide `evaluar_aspecto()`
+    con la regla real, y sigue igual. Lo que agrega son **filas de ejemplo
+    marcadas como tales**: dos equipos con prefijo `[QA]` y un enlace entre un
+    aspecto y un riesgo que ya existian.
+
+    Idempotente: se reconoce por el nombre, asi que correrla dos veces no
+    duplica nada.
+    """
+    hecho: list[str] = []
+
+    # ── 1. Un aspecto significativo SI tratado (#49) ────────────────────
+    #
+    # Los dos riesgos del seed no apuntan a ningun aspecto, asi que los tres
+    # significativos salian en el panel y no habia forma de ver el caso
+    # contrario. Se enlaza **uno**: el panel baja a dos y la cadena
+    # §6.1.2 → §6.1.4 queda visible en los dos sentidos.
+    significativos = list(
+        db.scalars(
+            select(EnvironmentalAspect)
+            .where(
+                EnvironmentalAspect.tenant_id == empresa.id,
+                EnvironmentalAspect.significance == "significant",
+                EnvironmentalAspect.deleted_at.is_(None),
+            )
+            .order_by(EnvironmentalAspect.created_at)
+        ).all()
+    )
+    riesgo_suelto = db.scalars(
+        select(RiskOpportunity)
+        .where(
+            RiskOpportunity.tenant_id == empresa.id,
+            RiskOpportunity.environmental_aspect_id.is_(None),
+            RiskOpportunity.deleted_at.is_(None),
+        )
+        .order_by(RiskOpportunity.created_at)
+    ).first()
+
+    if significativos and riesgo_suelto is not None:
+        riesgo_suelto.environmental_aspect_id = significativos[0].id
+        # `origin` tiene que decir de donde salio: un riesgo que apunta a un
+        # aspecto y declara origen `context` se contradice a si mismo, y la
+        # trazabilidad que ISO pide es justamente esa.
+        riesgo_suelto.origin = "environmental_aspect"
+        db.flush()
+        hecho.append(
+            f"vinculo §6.1.2→§6.1.4: 1 aspecto tratado, "
+            f"{len(significativos) - 1} significativos sin tratar"
+        )
+    elif significativos:
+        hecho.append(
+            f"vinculo §6.1.2→§6.1.4: sin riesgos libres que enlazar; "
+            f"{len(significativos)} significativos sin tratar"
+        )
+
+    # ── 2. Los dos motivos de "nadie puede operarlo hoy" (#48) ──────────
+    planta = db.scalars(
+        select(Facility)
+        .where(Facility.tenant_id == empresa.id, Facility.deleted_at.is_(None))
+        .order_by(Facility.created_at)
+    ).first()
+    persona = db.scalars(
+        select(User)
+        .where(User.tenant_id == empresa.id, User.deleted_at.is_(None))
+        .order_by(User.created_at)
+    ).first()
+
+    creados = 0
+    for nombre, tipo, motivo in EQUIPOS_DE_QA:
+        if planta is None:
+            break
+        ya_esta = db.scalars(
+            select(RegulatedEquipment).where(
+                RegulatedEquipment.tenant_id == empresa.id,
+                RegulatedEquipment.name == nombre,
+                RegulatedEquipment.deleted_at.is_(None),
+            )
+        ).first()
+        if ya_esta is not None:
+            continue
+
+        equipo = RegulatedEquipment(
+            tenant_id=empresa.id,
+            facility_id=planta.id,
+            name=nombre,
+            equipment_type=tipo,
+            # **En operacion, o no cuenta.** El panel deja fuera lo detenido a
+            # proposito: una maquina dada de baja no necesita operador
+            # habilitado, y contarla llenaria la lista de cosas que nadie usa.
+            status="operational",
+            registration_expires_at=hoy + timedelta(days=300),
+        )
+        db.add(equipo)
+        db.flush()
+        creados += 1
+
+        if motivo == "certificacion_vencida" and persona is not None:
+            # Un operador asignado **y con la certificacion caducada**. Es el
+            # caso que mas se parece a estar en regla y no lo esta: hay alguien
+            # a cargo, y legalmente no puede operar.
+            db.add(
+                EquipmentOperator(
+                    tenant_id=empresa.id,
+                    equipment_id=equipo.id,
+                    user_id=persona.id,
+                    certification_class="Clase B",
+                    certification_number="[QA] vencida",
+                    certification_expires_at=hoy - timedelta(days=60),
+                )
+            )
+            db.flush()
+
+    if creados:
+        hecho.append(
+            f"equipos de QA: {creados} creados para que el panel de "
+            "incumplimiento muestre sus dos motivos"
+        )
+    else:
+        hecho.append("equipos de QA: ya estaban")
+
+    return hecho
+
+
+#: Donde queda cada obligacion sembrada, en dias desde hoy, y con que estado.
+#:
+#: Los desfases conservan las distancias que las cinco tenian entre si en
+#: `db/02_seed.sql`: el ancla se pone a 15 dias y el resto guarda su separacion
+#: original. Lo unico que se mueve es "hoy".
+#:
+#: La de 15 dias entra hoy en la primera ventana de aviso y va bajando a 7, 3 y
+#: 1 los dias siguientes, asi que la demostracion produce avisos nuevos varias
+#: veces en vez de uno solo el primer dia.
+VENCIMIENTOS_DE_LA_DEMO: list[tuple[str, int, str]] = [
+    ("OBL-SIDREP-2026S1", -62, "submitted"),
+    ("OBL-REP-NFU-2026", 15, "open"),
+    ("OBL-DS90-2026Q3", 30, "open"),
+    ("OBL-SIDREP-2026S2", 122, "draft"),
+    ("OBL-RETC-2026", 197, "in_progress"),
+]
+
+
+def _reanclar_vencimientos(db: Session, empresa: Tenant) -> str:
+    """Pone los vencimientos sembrados a una distancia fija de hoy.
+
+    **Sin esto el cron de avisos corre y no genera nada.** Medido el 4-sep sobre
+    una base creada semanas antes: el vencimiento mas cercano estaba a 27 dias,
+    fuera de las cuatro ventanas (15/7/3/1). La corrida informaba "0 avisos
+    nuevos", que es identico a lo que informa un dia en que de verdad no vence
+    nada — y por eso no se ve como un problema de datos.
+
+    `db/02_seed.sql` ya siembra fechas relativas, pero corre **una sola vez, al
+    crear el volumen**. Una base que ya existe no vuelve a pasar por ahi, asi
+    que esto es lo que la deja demostrable sin recrearla.
+
+    Solo toca las obligaciones sembradas, por codigo: lo que haya creado alguien
+    probando el sistema se queda donde esta.
+    """
+    movidas = 0
+    for codigo, dias, estado in VENCIMIENTOS_DE_LA_DEMO:
+        resultado = db.execute(
+            text(
+                "UPDATE obligations SET "
+                "  due_at = ((CURRENT_DATE + :dias) + TIME '23:59') "
+                "           AT TIME ZONE 'America/Santiago', "
+                "  status = :estado "
+                "WHERE tenant_id = :t AND code = :c AND deleted_at IS NULL"
+            ),
+            {"dias": dias, "estado": estado, "t": empresa.id, "c": codigo},
+        )
+        movidas += resultado.rowcount
+
+    proximo = min(d for _, d, _ in VENCIMIENTOS_DE_LA_DEMO if d >= 0)
+    return (
+        f"vencimientos: {movidas} obligaciones reancladas; la mas cercana vence "
+        f"en {proximo} dias, dentro de la primera ventana de aviso"
+    )
 
 
 def sembrar(db: Session) -> list[str]:
@@ -431,6 +651,7 @@ def sembrar(db: Session) -> list[str]:
     )
 
     hecho.extend(_matrices_iso(db, empresa))
+    hecho.append(_reanclar_vencimientos(db, empresa))
 
     return hecho
 

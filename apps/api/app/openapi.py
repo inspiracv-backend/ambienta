@@ -216,6 +216,34 @@ TAGS_METADATA: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "gestor",
+        "description": (
+            "La cartera de un **Gestor**: las empresas que administra por "
+            "contrato (RF-65 a RF-67).\n\n"
+            "Para leer o escribir los datos de una de ellas se manda la "
+            "cabecera **`X-Cliente-Id`** con su identificador, en cualquier "
+            "endpoint de la API. La peticion corre entonces como esa "
+            "empresa: **no es una vista combinada**, el gestor deja de ver "
+            "lo suyo mientras actua por su cliente.\n\n"
+            "La llave es un contrato `active` y dentro de sus fechas, y "
+            "**se comprueba en cada peticion**: suspenderlo o terminarlo "
+            "corta el acceso de inmediato, sin esperar a que expire "
+            "ninguna sesion."
+        ),
+    },
+    {
+        "name": "catalogos-de-mejora",
+        "description": (
+            "Los catalogos con que **cada empresa** clasifica sus hallazgos "
+            "(RF-100): la escala de severidad, con su etiqueta, su orden y los "
+            "dias para cerrar, y las metodologias de analisis de causa. "
+            "La escala era un CHECK igual para todos y solo en ingles; el "
+            "catalogo se monta encima, no lo reemplaza. `days_to_close` en "
+            "`null` significa que la empresa **no declaro plazo**, y entonces "
+            "nadie calcula la fecha limite del hallazgo."
+        ),
+    },
+    {
         "name": "action-plans",
         "description": (
             "Planes de accion. Nacen de una no conformidad o de un hallazgo "
@@ -256,6 +284,33 @@ TAGS_METADATA: list[dict[str, Any]] = [
         "description": (
             "Documentos y evidencia, con versionado. La evidencia se asocia "
             "a la entidad que la respalda, no al reves."
+        ),
+    },
+    {
+        "name": "buscador",
+        "description": (
+            "Busqueda transversal sobre documentos, comentarios y registros "
+            "(RF-114). Usa la configuracion de texto `spanish`, asi que "
+            "**ignora los acentos**: `emision` encuentra `EMISION` con tilde. "
+            "Solo devuelve lo que quien busca puede leer."
+        ),
+    },
+    {
+        "name": "historial",
+        "description": (
+            "La historia de un registro (RF-113): su actividad, su "
+            "conversacion y sus adjuntos en una sola secuencia. Declara que "
+            "fuentes la componen y cuales faltan — hoy falta el correo, que "
+            "todavia no se captura."
+        ),
+    },
+    {
+        "name": "comentarios",
+        "description": (
+            "La conversacion sobre cualquier registro (RF-111, RF-112). Un "
+            "solo camino para las trece entidades comentables: `entity_type` "
+            "dice sobre que se comenta, y el permiso que exige sale de ahi. "
+            "Los hilos son de un nivel y las menciones notifican."
         ),
     },
     {
@@ -370,6 +425,11 @@ _RESPUESTA_422 = {
 # frase — eso se deriva del metodo y de la forma de la ruta.
 _RECURSOS: dict[str, tuple[str, str]] = {
     "action-plans": ("el plan de accion", "los planes de accion"),
+    "gestor": ("la cartera del gestor", "la cartera del gestor"),
+    "catalogos-de-mejora": (
+        "el catalogo del registro de mejora",
+        "los catalogos del registro de mejora",
+    ),
     "article-compliance": ("el cumplimiento del articulo", "el cumplimiento por articulo"),
     "articles": ("el articulo", "los articulos"),
     "aspects": ("el aspecto ambiental", "los aspectos ambientales"),
@@ -659,6 +719,85 @@ def _describir(ruta: str, metodo: str) -> tuple[str, str] | None:
     return titulo[0].upper() + titulo[1:], detalle
 
 
+#: Las cabeceras que emite `routers/_paginacion.py::recortar`.
+#:
+#: **Se derivan, no se escriben endpoint por endpoint.** Son unas 60 rutas
+#: paginadas: declararlas a mano es una decision que se puede olvidar, y
+#: olvidarla no falla — solo deja el contrato mintiendo sobre como paginar.
+#: Mismo criterio que las respuestas de error.
+CABECERAS_DE_PAGINA = {
+    "X-Has-More": {
+        "description": (
+            "`true` si quedaron filas fuera de esta pagina. Es lo que permite "
+            "saber si hay que pedir la siguiente **sin adivinar** comparando "
+            "el largo del arreglo contra el limite."
+        ),
+        "schema": {"type": "string", "enum": ["true", "false"]},
+    },
+    "X-Page-Limit": {
+        "description": (
+            "El tope que se aplico de verdad. No siempre es el `limit` que se "
+            "pidio: la API lo acota, y sin esta cabecera un cliente que pida "
+            "1000 y reciba 200 no puede distinguir 'se acabaron las filas' de "
+            "'me recortaron la pagina'."
+        ),
+        "schema": {"type": "integer"},
+    },
+}
+
+
+def _declarar_cabeceras_de_pagina(operacion: dict, respuestas: dict) -> None:
+    """Declara `X-Has-More` y `X-Page-Limit` donde la operacion pagina.
+
+    Se detecta por los parametros `skip`/`limit`, que es lo que pone
+    `Depends(paginacion)`: preguntar por la ruta seria una lista que mantener.
+    """
+    nombres = {
+        param.get("name")
+        for param in operacion.get("parameters", [])
+        if isinstance(param, dict)
+    }
+    if not {"skip", "limit"} <= nombres:
+        return
+    exitosa = respuestas.get("200")
+    if not isinstance(exitosa, dict):
+        return
+    exitosa.setdefault("headers", {}).update(CABECERAS_DE_PAGINA)
+
+
+#: Lo que el contrato NO decia sobre `X-Tenant-Id`.
+#:
+#: Aparecia como un header opcional mas, y con Clerk configurado **se ignora
+#: por completo**: un token de una empresa con `X-Tenant-Id` de otra sigue
+#: devolviendo los datos de la primera. Un integrador podia creer
+#: razonablemente que era el selector de empresa.
+#:
+#: No cambia ningun comportamiento — hace que el contrato diga lo que el
+#: sistema ya hace.
+NOTA_TENANT = (
+    "**Respaldo de desarrollo, no el mecanismo de produccion.** Solo se lee "
+    "cuando la API arranca SIN `CLERK_JWKS_URL`. Con Clerk configurado esta "
+    "cabecera se ignora por completo y la empresa sale del claim `tenant_id` "
+    "del JWT firmado: un token de una empresa con `X-Tenant-Id` de otra "
+    "devuelve los datos de la primera."
+)
+
+
+def _aclarar_cabecera_de_empresa(esquema: dict) -> None:
+    """Reescribe la descripcion de `X-Tenant-Id` en cada operacion que la declare."""
+    for metodos in esquema.get("paths", {}).values():
+        for operacion in metodos.values():
+            if not isinstance(operacion, dict):
+                continue
+            for param in operacion.get("parameters", []):
+                if not isinstance(param, dict):
+                    continue
+                if param.get("in") == "header" and str(
+                    param.get("name", "")
+                ).lower() == "x-tenant-id":
+                    param["description"] = NOTA_TENANT
+
+
 def construir_esquema(app: FastAPI) -> dict:
     """Genera el OpenAPI y le agrega lo que FastAPI no puede inferir.
 
@@ -688,6 +827,8 @@ def construir_esquema(app: FastAPI) -> dict:
         "DetalleError"
     ] = _ESQUEMA_ERROR
 
+    _aclarar_cabecera_de_empresa(esquema)
+
     por_defecto = _summaries_por_defecto(app)
 
     for ruta, metodos in esquema["paths"].items():
@@ -701,6 +842,7 @@ def construir_esquema(app: FastAPI) -> dict:
                 respuestas.setdefault("404", _RESPUESTA_404)
             if operacion.get("requestBody"):
                 respuestas["422"] = _RESPUESTA_422
+            _declarar_cabeceras_de_pagina(operacion, respuestas)
 
             # El texto derivado no pisa al escrito a mano: si alguien se tomo
             # el trabajo de explicar un endpoint, sabe mas que esta regla.

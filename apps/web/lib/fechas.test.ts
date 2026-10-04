@@ -55,3 +55,30 @@ describe('lo que falta', () => {
     expect(fecha('')).toBe('—');
   });
 });
+
+describe('el dia de calendario de un dato (filtros desde / hasta)', () => {
+  // Las pruebas corren en hora de Chile (vitest.config.ts).
+  it('un instante de la noche en Chile es de ese dia, aunque en UTC ya sea el siguiente', async () => {
+    const { diaDeCalendario, enRangoDeDias } = await import('./fechas');
+    // 22:30 del 20 en Chile = 02:30 del 21 en UTC.
+    expect(diaDeCalendario('2026-09-21T02:30:00Z')).toBe('2026-09-20');
+    expect(enRangoDeDias('2026-09-21T02:30:00Z', '2026-09-20', '2026-09-20')).toBe(true);
+  });
+
+  it('y uno de la noche anterior no entra', async () => {
+    const { enRangoDeDias } = await import('./fechas');
+    // 22:00 del 19 en Chile = 02:00 del 20 en UTC.
+    expect(enRangoDeDias('2026-09-20T02:00:00Z', '2026-09-20', '2026-09-20')).toBe(false);
+  });
+
+  it('una fecha sin hora ya es un dia: no se corre', async () => {
+    const { diaDeCalendario, enRangoDeDias } = await import('./fechas');
+    expect(diaDeCalendario('2026-06-30')).toBe('2026-06-30');
+    expect(enRangoDeDias('2026-06-30', '2026-06-01', '2026-06-30')).toBe(true);
+  });
+
+  it('sin limites entra todo', async () => {
+    const { enRangoDeDias } = await import('./fechas');
+    expect(enRangoDeDias('2020-01-01T00:00:00Z', '', '')).toBe(true);
+  });
+});

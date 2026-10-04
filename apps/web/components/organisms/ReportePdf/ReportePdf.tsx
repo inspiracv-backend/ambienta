@@ -74,7 +74,9 @@ export function ReportePdf({
       {/* ── Pie ────────────────────────────────────────────────────────── */}
       <footer className="mt-8 border-t border-slate-200 pt-3 text-[10px] leading-relaxed text-slate-400">
         <p>
-          Documento generado por Ambienta el {ahora.toLocaleString('es-CL')}. La información refleja el estado del
+          {/* Reloj de 24 horas: en `es-CL` la hora de 12 termina en «p. m.» y
+              el punto de la frase salia doble («p. m..»). */}
+          Documento generado por Ambienta el {ahora.toLocaleString('es-CL', { hour12: false })}. La información refleja el estado del
           sistema en ese momento.
         </p>
         {!tenant.logoUrl && (

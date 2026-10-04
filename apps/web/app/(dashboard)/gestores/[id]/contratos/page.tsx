@@ -1,15 +1,14 @@
 'use client';
 
-import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { ContractsListView } from '@/components/organisms';
+import { ContractsListView, FichaNoDisponible } from '@/components/organisms';
 import { useGestores } from '@/lib/gestores-store';
 
 export default function ContratosPage({ params }: { params: { id: string } }) {
-  const { subTenants } = useGestores();
+  const { subTenants, loading: cargandoClientes } = useGestores();
   const subTenant = subTenants.find((s) => s.id === params.id);
 
-  if (!subTenant) return notFound();
+  if (!subTenant) return <FichaNoDisponible cargando={cargandoClientes} que="este cliente" volverA="/gestores" volverEtiqueta="Volver a gestores" />;
 
   return (
     <div className="flex flex-col gap-4">

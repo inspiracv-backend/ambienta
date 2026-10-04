@@ -24,7 +24,9 @@ vi.mock('@/lib/plan-accion-store', () => ({
   usePlanAccion: () => ({ createPlan: vi.fn(), findByOrigen: () => undefined }),
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock('@/lib/get-user-name', () => ({ getUserName: () => 'Sin asignar' }));
+// Tiene sus propias pruebas y hace su propia peticion.
+vi.mock('@/components/organisms/RelacionesDeNorma', () => ({ RelacionesDeNorma: () => null }));
+vi.mock('@/lib/get-user-name', () => ({ useNombreDeUsuario: () => () => 'Sin asignar' }));
 
 function articulo(over: Partial<Articulo> = {}): Articulo {
   return {

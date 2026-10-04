@@ -6,7 +6,7 @@ import { Inbox, Plus } from 'lucide-react';
 import { Button, StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
 import { CreateObligationModal } from '@/components/organisms/CreateObligationModal';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import type { ObligationsListTableProps } from './ObligationsListTable.types';
 
 const SISTEMAS = ['RETC', 'Ley REP', 'SINADER', 'SIDREP', 'DAE'] as const;
@@ -17,6 +17,8 @@ function formatFecha(iso: string) {
 
 /** S-13 Listado de Obligaciones/Declaraciones (megaproyectos). */
 export function ObligationsListTable({ obligations, plants }: ObligationsListTableProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [sistemaFiltro, setSistemaFiltro] = useState('todos');
   const [estadoFiltro, setEstadoFiltro] = useState('todos');

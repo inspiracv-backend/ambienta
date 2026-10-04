@@ -65,6 +65,13 @@ export const ArticuloSchema = z.object({
   responsableId: z.string().optional(),
   evidenciaUrl: z.string().optional(),
   incluidoEnCalculo: z.boolean().default(true),
+  /**
+   * El id de la evaluación de la empresa sobre este artículo
+   * (`article_compliance.id`). Ausente = nadie lo evaluó. Es lo que se enlaza
+   * desde un aspecto ambiental: el requisito legal **de esta empresa**, no el
+   * texto de la ley, que es igual para todos.
+   */
+  evaluacionId: z.string().optional(),
 
   // --- Campos de `matrices-ambientales-iso-14001` (flag `matricesIso`) ---
   // Opcionales a proposito: la matriz legal actual valida igual sin ellos.
@@ -114,7 +121,9 @@ export type SubtipoRequisito = z.infer<typeof SubtipoRequisitoSchema>;
 
 /** Una norma derogada sigue importando: hay que saber que dejo de aplicar y desde cuando. */
 export const VigenciaNormaSchema = z.object({
-  estado: z.enum(['vigente', 'derogada', 'modificada', 'proyecto']),
+  // Los de `legal_norms.status` (manda la base): `parcialmente_vigente` y
+  // `desconocida` existen alli y faltaban aca.
+  estado: z.enum(['vigente', 'derogada', 'modificada', 'proyecto', 'parcialmente_vigente', 'desconocida']),
   desde: z.string().optional(),
   hasta: z.string().optional(),
   reemplazaANormaId: z.string().optional(),
@@ -132,6 +141,12 @@ export type VigenciaNorma = z.infer<typeof VigenciaNormaSchema>;
  */
 export const AplicabilidadSchema = z.object({
   determinadaPor: z.enum(['automatica', 'manual']).default('manual'),
+  /**
+   * Lo que dice la matriz de la empresa (`matrix_norms.applicability`). Una
+   * norma que dejo de aplicar **se conserva** con sus evaluaciones: por eso
+   * sigue en la lista, y por eso hay que decir que no aplica.
+   */
+  estado: z.enum(['aplica', 'no_aplica', 'por_analizar']).optional(),
   /** Codigos CIIU de las actividades a las que aplica. */
   actividadesEconomicas: z.array(z.string()).default([]),
   criterio: z.string().optional(),

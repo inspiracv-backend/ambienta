@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .auth import CurrentUser, verify_token
 from .config import get_settings
 from .db import AdminSessionLocal, SessionLocal
-from .models.organization import User
+from .models.organization import Tenant, User
 from .services.auditoria_automatica import CONTEXTO as CONTEXTO_DE_AUDITORIA
 from .services.invitado import credencial_vigente
 from .services.perfil_empresa import estado as estado_del_perfil
@@ -21,12 +21,42 @@ _bearer = HTTPBearer(auto_error=False, description="JWT emitido por Clerk")
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Sesion con el rol de la aplicacion, sin tenant declarado.
+    """Sesion con el rol de la aplicacion. **El tenant depende del router.**
 
     Row Level Security **si** se aplica: el rol no puede saltarsela. Sirve para
     el catalogo global y para `tenants`, que no llevan `tenant_id` y por eso no
     tienen policies. Si se usa sobre una tabla de empresa devuelve cero filas —
     falla cerrado, no abierto.
+
+    ## Ojo: "sin tenant declarado" NO es cierto en todos los routers
+
+    Esta linea decia justamente eso y **se midio falsa el 10-sep**.
+    `get_tenant_db` recibe su sesion de esta misma funcion
+    (`db: Session = Depends(get_db)`) y le llama `declarar()`. Como FastAPI
+    **cachea cada dependencia una vez por request**, las dos devuelven el
+    **mismo objeto** dentro de un request.
+
+    Consecuencia: en todo router montado con `exigir_permiso_de_la_ruta` —que
+    pide `get_tenant_db`— un endpoint que pida `get_db` recibe la sesion **con
+    la empresa ya declarada**. Medido sobre `/catalog/norms/{id}/articles`, que
+    pide `get_db`, contra una norma propia de la empresa A:
+
+    | quien pregunta | respuesta |
+    |---|---|
+    | la empresa dueña | **200, con el articulado** |
+    | otra empresa | 404 |
+    | `SessionLocal()` fuera de un request | 0 filas |
+
+    Hoy eso no abre nada: la empresa ve lo publico mas lo suyo, que es menos de
+    lo que este docstring prometia. **El riesgo es al reves**: un endpoint nuevo
+    que use `get_db` para ver filas de todas las empresas —un conteo global, un
+    informe de Admin Global— va a ver solo las de quien llama, sin ningun error.
+    Y si algun dia el catalogo deja de llevar la guarda, las lecturas que hoy
+    andan pasan a 404.
+
+    La regla practica: **el alcance no se deduce de que dependencia se pide,
+    sino de que dependencias corren en ese request.** Para cruzar empresas a
+    proposito existe `get_admin_db`, que lo dice en el nombre.
     """
     db = SessionLocal()
     try:
@@ -165,9 +195,39 @@ def olvidar(db: Session) -> None:
     Solo hace falta despues de `declarar(..., toda_la_sesion=True)`. Sin esto,
     la conexion vuelve al pool con una empresa pegada y la siguiente consulta
     que no declare contexto —el catalogo global, un health check— la hereda.
+
+    ## El `commit` no es opcional, y sin el esta funcion no hacia nada
+
+    Medido el 10-sep sobre el pool real, que es donde corre:
+
+    | secuencia | lo que ve la conexion siguiente |
+    |---|---|
+    | `declarar(toda_la_sesion)` -> `commit` -> `olvidar()` | **la empresa** |
+    | idem, con `commit` despues de `olvidar()` | `None` |
+    | **sin llamar a `olvidar()`** | **la empresa** |
+
+    La primera y la tercera daban lo mismo: **la llamada no cambiaba nada.**
+
+    La causa es que `set_config(..., false)` es de sesion pero se ejecuta dentro
+    de una transaccion, y SQLAlchemy hace `ROLLBACK` al devolver la conexion al
+    pool: eso revierte el `olvidar`. El `declarar` anterior, en cambio, ya habia
+    quedado firme por el `commit` del despachador — que es exactamente el motivo
+    por el que hace falta `toda_la_sesion=True`.
+
+    O sea que las dos mitades del mecanismo se anulaban: la que ensucia
+    sobrevivia al commit y la que limpia no.
+
+    **Por que la prueba que lo cubria pasaba:** `test_olvidar_deja_la_conexion_
+    limpia` usa un engine propio y una conexion dedicada, asi que no hay
+    devolucion al pool ni rollback. Comprobaba el SQL, no el unico escenario en
+    el que esto importa. La prueba nueva va contra `SessionLocal`.
+
+    **Llamarla al final de la unidad de trabajo**, no en medio: el `commit`
+    confirma tambien lo que quede pendiente en la sesion.
     """
     db.execute(text("SELECT set_config('ambienta.tenant_id', '', false)"))
     db.execute(text("RESET ROLE"))
+    db.commit()
 
 def volver_a_declarar(db: Session) -> None:
     """Re-declara el tenant despues de un `commit`, para poder seguir leyendo.
@@ -200,9 +260,107 @@ def volver_a_declarar(db: Session) -> None:
     declarar(db, contexto["tenant_id"])
 
 
-def get_tenant_db(
+#: Cabecera con la que un Gestor pide correr como uno de sus clientes (#59, #65).
+#:
+#: **No es una preferencia: es una peticion que se verifica.** Sin contrato
+#: activo, la peticion se rechaza; no se cae de vuelta al tenant propio. Caer
+#: hacia atras en silencio seria lo peor de los dos mundos — quien creyo estar
+#: mirando a su cliente estaria mirando sus propios datos, y las dos pantallas
+#: se ven iguales.
+CABECERA_DE_CLIENTE = "X-Cliente-Id"
+
+
+def tenant_efectivo(
     request: Request,
     tenant_id: UUID = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+) -> UUID:
+    """El tenant bajo el que corre esta peticion.
+
+    Normalmente el de la sesion. Si viene `X-Cliente-Id` **y** hay un contrato
+    activo que lo habilite, el del cliente.
+
+    ## Por que aca y no ampliando RLS
+
+    La politica de las 38 tablas es `tenant_id = current_tenant_id()`, y RLS no
+    es la segunda barrera sino la unica (CLAUDE.md §4). Ampliarla a "o el tenant
+    es cliente de mi gestor" seria una condicion mas que mantener correcta en 38
+    lugares, y un error ahi no da una pantalla vacia: da una fuga.
+
+    Asi la barrera se queda **exactamente** donde estaba. Lo que se agrega es una
+    puerta con llave delante: el gestor declara otro tenant, y para eso hay que
+    comprobar el contrato.
+
+    ## Actuando por un cliente, el gestor NO ve lo suyo
+
+    No es una vista combinada, y no debe serlo: una consulta que mezclara dos
+    empresas es justo lo que RLS existe para impedir. El gestor corre como su
+    cliente, entero, o como el mismo.
+
+    ## Se comprueba en cada peticion
+
+    Un contrato se suspende, vence o se termina. Si esto se resolviera al entrar
+    y viajara en el token, revocar el acceso no haria nada hasta que el token
+    expire. Misma leccion que el acceso de invitado.
+    """
+    crudo = request.headers.get(CABECERA_DE_CLIENTE)
+    if not crudo:
+        return tenant_id
+
+    try:
+        cliente_id = UUID(crudo)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{CABECERA_DE_CLIENTE} no es un identificador valido.",
+        ) from None
+
+    if cliente_id == tenant_id:
+        # Pedir actuar por uno mismo no es un error: es un no-op, y tratarlo
+        # como error obligaria al frontend a limpiar la cabecera al volver a su
+        # propia cuenta.
+        return tenant_id
+
+    from .services import gestor as svc_gestor
+
+    # **Hay que declarar el tenant del gestor antes de leer `contracts`.**
+    #
+    # `get_db` tiene la barrera —usa `ambienta_app`— pero no declara empresa, y
+    # `contracts` lleva `tenant_id` y RLS: sin declarar, la consulta devuelve
+    # **cero filas** y la comprobacion concluye "no hay contrato vigente". Falla
+    # cerrado, que es lo correcto, y **falla en silencio**: el gestor recibe un
+    # 403 identico al de un contrato revocado y nada dice que el problema era
+    # que nadie declaro la empresa. Es exactamente la trampa de CLAUDE.md §4, y
+    # costo una corrida de pruebas.
+    #
+    # Se declara el del **gestor**, no el del cliente: la llave es su contrato,
+    # y leerlo con el contexto del cliente seria pedirle permiso al cliente para
+    # entrar a su propia casa.
+    declarar(db, tenant_id)
+
+    try:
+        svc_gestor.comprobar_puede_actuar(db, tenant_id, cliente_id)
+    except svc_gestor.NoEsGestor as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from None
+    except svc_gestor.SinContratoVigente as exc:
+        # 403 y no 404: el mismo codigo y el mismo mensaje que si el contrato no
+        # existiera. Distinguirlos convertiria esta cabecera en un oraculo para
+        # averiguar con quien trabaja otro gestor.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from None
+
+    # Queda anotado para el registro de actividades: sin esto, una accion que
+    # el gestor hace sobre su cliente es indistinguible de una del cliente.
+    request.state.gestor_id = str(tenant_id)
+    return cliente_id
+
+
+def get_tenant_db(
+    request: Request,
+    tenant_id: UUID = Depends(tenant_efectivo),
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Generator[Session, None, None]:
@@ -230,6 +388,10 @@ def get_tenant_db(
         "clerk_id": user.user_id or None,
         "ip": request.client.host if request.client else None,
         "ruta": f"{request.method} {request.url.path}",
+        # **Quien actuo por cuenta de quien.** Sin esto, una accion que el
+        # gestor hace sobre su cliente queda en el registro indistinguible de
+        # una del propio cliente, y es exactamente lo que un auditor pregunta.
+        "actuado_por": getattr(request.state, "gestor_id", None),
     }
     try:
         yield db
@@ -409,6 +571,58 @@ def exigir_admin_global(
 
 CODIGO_SIN_PERMISO = "permiso_insuficiente"
 
+#: El rechazo al Admin Global que intenta editar contenido de una empresa.
+#:
+#: **Codigo propio y no `permiso_insuficiente`.** No le falta un permiso que
+#: alguien pueda concederle: es que ese rol no hace eso. Con el mismo codigo, la
+#: pantalla mandaria a pedirle un permiso a un administrador que no lo va a
+#: destrabar.
+CODIGO_PLATAFORMA_NO_EDITA = "plataforma_no_edita_contenido"
+
+#: En estos estados una empresa **lee y exporta, pero no escribe** (spec de RBAC,
+#: decision del 21-sep). Un solo lugar: lo usan esta guarda y el cron de avisos,
+#: y dos listas separadas se desincronizan sin que nada falle.
+ESTADOS_SOLO_LECTURA = frozenset({"suspended", "closed"})
+
+#: El rechazo de una escritura en una empresa en solo lectura. **Codigo propio**
+#: por la misma razon que el de arriba: no le falta un permiso que alguien de la
+#: empresa pueda concederle.
+CODIGO_EMPRESA_SOLO_LECTURA = "empresa_en_solo_lectura"
+
+_ESCRITURAS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+#: Raices cuyas escrituras **no son datos de la empresa** y por eso siguen en
+#: solo lectura. Hoy una: anotar que se emitio un documento. Una empresa
+#: suspendida puede exportar (spec de RBAC), y que su emision no quedara anotada
+#: seria perder justo el rastro que RNF-26 pide.
+RAICES_QUE_ANOTAN_EN_SOLO_LECTURA = frozenset({"emisiones"})
+
+
+def exigir_empresa_que_escribe(db: Session, empresas: set[UUID]) -> None:
+    """403 si cualquiera de estas empresas esta en solo lectura.
+
+    Se le pasan **la efectiva y la de la sesion**: si un gestor actua por un
+    cliente, las dos cuentan. Mirar solo la efectiva dejaria escribir a un
+    gestor suspendido a traves de sus clientes (ver el design del cambio).
+    """
+    filas = db.execute(select(Tenant.status).where(Tenant.id.in_(empresas))).all()
+    for (estado,) in filas:
+        if estado in ESTADOS_SOLO_LECTURA:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "codigo": CODIGO_EMPRESA_SOLO_LECTURA,
+                    "mensaje": (
+                        "La empresa esta suspendida: se puede consultar y exportar, "
+                        "pero no modificar. Para reactivarla, contacta a Ambienta."
+                        if estado == "suspended"
+                        else "La empresa esta cerrada: se puede consultar y exportar, "
+                        "pero no modificar."
+                    ),
+                    "estado": estado,
+                },
+            )
+
 
 def exigir_permiso(codigo: str):
     """Guarda de permiso para un endpoint (RF-08).
@@ -477,10 +691,39 @@ def exigir_permiso(codigo: str):
     return verificar
 
 
+def exigir_escritura_en_empresa_activa(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(tenant_efectivo),
+) -> None:
+    """Solo lectura para las empresas suspendidas o cerradas, en toda escritura.
+
+    Separada de `exigir_permiso_de_la_ruta` porque hay routers que no pasan por
+    esa guarda —los que deciden el permiso en el handler, como `comentarios`— y
+    comentar **tambien es escribir**. La usan los dos caminos.
+    """
+    if request.method.upper() not in _ESCRITURAS:
+        return
+    ruta = request.scope.get("route")
+    camino = getattr(ruta, "path", None) or request.url.path
+    partes = [p for p in camino.split("/") if p]
+    raiz = partes[2] if len(partes) > 2 and partes[:2] == ["api", "v1"] else None
+    if raiz in RAICES_QUE_ANOTAN_EN_SOLO_LECTURA:
+        return
+    empresas = {tenant_id}
+    try:
+        empresas.add(UUID(str(user.tenant_id)))
+    except (TypeError, ValueError):
+        pass
+    exigir_empresa_que_escribe(db, empresas)
+
+
 def exigir_permiso_de_la_ruta(
     request: Request,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(tenant_efectivo),
 ) -> CurrentUser:
     """Guarda de permisos derivada de la ruta, para todos los endpoints.
 
@@ -504,6 +747,12 @@ def exigir_permiso_de_la_ruta(
     aislamiento entre empresas lo sigue garantizando Row Level Security, que es
     la unica barrera (CLAUDE.md §4).
     """
+    # **La empresa en solo lectura va antes del corte sin Clerk.** Las guardas de
+    # abajo dependen de quien es la persona, y sin Clerk no hay de donde sacarlo;
+    # esta depende del estado de la empresa, que se conoce igual. Puesta despues,
+    # quedaria escrita, en verde y sin ejecutarse en toda la suite.
+    exigir_escritura_en_empresa_activa(request, user, db, tenant_id)
+
     if not get_settings().clerk_configured:
         return user
 
@@ -515,9 +764,63 @@ def exigir_permiso_de_la_ruta(
     if codigo is None:
         return user
 
+    # **La persona y sus permisos se leen en SU empresa, no en la efectiva.**
+    # Si un gestor actua por un cliente (`X-Cliente-Id`), la sesion `db` esta
+    # declarada con la empresa del cliente, y RLS le esconde la fila del gestor
+    # y sus roles, que son de otra empresa. Hasta el 21-sep eso daba
+    # `permiso_insuficiente` en **todo**: el gestor podia leer lo suyo y no
+    # podia hacer nada por sus clientes, que es para lo que existe. Solo se veia
+    # con Clerk; en desarrollo esta guarda no corre.
+    try:
+        hogar = UUID(str(user.tenant_id))
+    except (TypeError, ValueError):
+        hogar = tenant_id
+    propia = db
+    if hogar != tenant_id:
+        propia = SessionLocal()
+        declarar(propia, hogar)
+    try:
+        return _decidir_permiso(propia, user, camino, request.method, codigo)
+    finally:
+        if propia is not db:
+            propia.close()
+
+
+def _decidir_permiso(
+    db: Session, user: CurrentUser, camino: str, metodo: str, codigo: str
+) -> CurrentUser:
+    """El Admin Global y el permiso, con la sesion de la empresa de la persona."""
+    from .permisos_de_rutas import escritura_vedada_al_admin_global
     from .services.permisos import tiene_permiso
 
     fila = db.scalar(select(User).where(User.clerk_id == user.user_id))
+
+    # **El Admin Global mira y no toca** (CLAUDE.md §4). La regla estaba escrita
+    # ahi y en el spec de RBAC, y no la aplicaba nadie: `users.tenant_id` es NOT
+    # NULL, asi que un `platform_admin` pertenece a una empresa y su sesion la
+    # declara — RLS lo deja escribir como a cualquiera.
+    #
+    # Va **antes** de comprobar el permiso porque no es lo mismo: no le falta un
+    # permiso que alguien pueda concederle, es que ese rol no edita contenido de
+    # un cliente. El mensaje lo dice, en vez de mandarlo a pedir un permiso que
+    # no lo va a destrabar.
+    if (
+        fila is not None
+        and fila.user_type == "platform_admin"
+        and escritura_vedada_al_admin_global(camino, metodo)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "codigo": CODIGO_PLATAFORMA_NO_EDITA,
+                "mensaje": (
+                    "El Admin Global administra empresas y cuentas; no edita el "
+                    "contenido de una empresa."
+                ),
+                "permiso": codigo,
+            },
+        )
+
     if fila is None or not tiene_permiso(db, fila.id, codigo):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

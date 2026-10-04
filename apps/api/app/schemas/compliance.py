@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -50,6 +50,24 @@ class MatrixNormCreate(BaseModel):
     next_review_date: datetime | None = None
 
 
+class RevisionPeriodicaRead(BaseModel):
+    """Cuando toca volver a evaluar una norma de la matriz (ISO 14001 §9.1.2)."""
+
+    matrix_norm_id: UUID
+    norm_id: UUID
+    titulo: str
+    frecuencia: str
+    #: El dia, en el huso de la empresa, de la evaluacion mas reciente.
+    ultima_evaluacion: date | None
+    proxima_revision: date | None
+    #: `declarada` (la puso la empresa) o `calculada` (ultima + frecuencia).
+    origen: str | None
+    #: Por que no hay fecha: `nunca_evaluada`, `evaluada_sin_fecha` o
+    #: `por_evento`. Una fila sin fecha y sin motivo se leeria como "nada que hacer".
+    motivo_sin_fecha: str | None
+    vencida: bool
+
+
 class MatrixNormRead(OrmBase):
     id: UUID
     tenant_id: UUID
@@ -59,6 +77,9 @@ class MatrixNormRead(OrmBase):
     sector_id: int | None
     applicability: str
     applicability_reason: str | None
+    #: `automatic` = la agrego la sincronizacion por sector; `manual` = una
+    #: persona. Se escribia y no salia en ninguna respuesta (21-sep).
+    inclusion_source: str | None = None
     owner_user_id: UUID | None
     review_frequency: str
     next_review_date: datetime | None
@@ -88,6 +109,11 @@ class ArticleComplianceCreate(BaseModel):
     assessment_reason: str | None = None
     risk_level: str | None = None
     responsible_user_id: UUID | None = None
+    #: **Faltaba hasta el 21-sep, y se descartaba en silencio.** Excluir del
+    #: calculo (RF-24) un articulo que nadie evaluo crea la evaluacion con
+    #: `{"incluidoEnCalculo": false}`; sin este campo Pydantic lo tiraba, la
+    #: respuesta era 201 y al recargar el articulo volvia a contar.
+    attributes: dict = Field(default_factory=dict)
 
 
 class ArticleComplianceRead(OrmBase):

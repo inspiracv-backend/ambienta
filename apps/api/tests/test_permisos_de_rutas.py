@@ -130,6 +130,15 @@ class TestDerivacion:
             permiso_requerido("/api/v1/users/{id}/permissions/{c}", "PUT") == "role.manage"
         )
 
+    def test_invitar_exige_administrar_roles_y_no_editar_usuarios(self) -> None:
+        """`/users/invitaciones` crea a la persona **con un rol**.
+
+        Con `user.write` —la familia de la raiz— quien puede corregir el nombre
+        de alguien podria dar de alta administradores. Es el escenario 4 del
+        requisito de invitacion: alguien sin ese permiso no invita.
+        """
+        assert permiso_requerido("/api/v1/users/invitaciones", "POST") == "role.manage"
+
     def test_las_rutas_exentas_no_exigen_nada(self) -> None:
         for camino in (
             "/api/v1/catalog/norms",

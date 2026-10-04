@@ -41,11 +41,26 @@ class _SesionFalsa:
         entidad = stmt.column_descriptions[0]["entity"]
         return self._usuario if entidad is User else self._empresa
 
+    def execute(self, *args, **kwargs) -> None:
+        """`declarar` fija la empresa de la sesion; aca no hay base que fijar."""
+
     def flush(self) -> None:
+        pass
+
+    def refresh(self, obj) -> None:
         pass
 
     def commit(self) -> None:
         self.escrituras += 1
+
+
+class _EmpresaFalsa:
+    """La fila guardada. Desde el 14-sep la regla compara contra ella: se rechaza
+    **cambiar** el RUT, no mandarlo — la pantalla reenvia el que ya tiene."""
+
+    rut_tax_id = "76.111.111-1"
+    status = "active"
+    settings: dict = {}
 
 
 class _UsuarioFalso:
@@ -70,7 +85,7 @@ def con_clerk(monkeypatch):
 
 
 def test_admin_empresa_no_puede_cambiar_el_rut(con_clerk):
-    db = _SesionFalsa(_UsuarioFalso("tenant_admin"))
+    db = _SesionFalsa(_UsuarioFalso("tenant_admin"), _EmpresaFalsa())
 
     with pytest.raises(HTTPException) as exc:
         router_tenants.update_tenant(
@@ -107,8 +122,14 @@ def test_el_admin_empresa_si_puede_editar_el_resto(con_clerk):
 
 
 def test_una_empresa_ajena_sigue_dando_404_no_403(con_clerk):
-    """El 404 va primero: no se confirma que la empresa exista."""
-    db = _SesionFalsa(_UsuarioFalso("platform_admin"))
+    """El 404 va primero: no se confirma que la empresa exista.
+
+    Con un Admin **Empresa**. Hasta el 14-sep esta prueba usaba un Admin Global,
+    y fijaba justo el defecto: con Clerk no podia administrar ninguna empresa
+    que no fuera la suya. Lo que si puede hacer sobre otra la prueba
+    `test_cartera_del_admin_global.py`.
+    """
+    db = _SesionFalsa(_UsuarioFalso("tenant_admin"))
 
     with pytest.raises(HTTPException) as exc:
         router_tenants.update_tenant(
@@ -138,6 +159,20 @@ def test_sin_proveedor_configurado_no_se_bloquea():
         )
 
     assert exc.value.status_code == 404  # llego a buscar la fila, no fue 403
+
+
+def test_mandar_el_mismo_rut_no_es_cambiarlo(con_clerk):
+    """La pantalla de Perfil Empresa reenvia el RUT que ya tiene al guardar."""
+    db = _SesionFalsa(_UsuarioFalso("tenant_admin"), _EmpresaFalsa())
+
+    router_tenants.update_tenant(
+        tenant_id=TENANT,
+        data=TenantUpdate(rut_tax_id=_EmpresaFalsa.rut_tax_id),
+        user=_usuario_de_sesion(),
+        db=db,
+    )
+
+    assert db.escrituras == 1
 
 
 def test_el_rut_esta_en_el_contrato():

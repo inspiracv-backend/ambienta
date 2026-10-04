@@ -14,6 +14,7 @@ from ._comun import CRUDAsociacion, borrar_o_404, obtener_o_404, validar_visible
 from ..services import iso14001 as svc
 from ..schemas.iso14001 import (
     AspectoSinTratar,
+    EquipoSinOperador,
     Vencimientos,
     EvaluarSignificancia,
     ResultadoDeSignificancia,
@@ -157,6 +158,36 @@ def update_risk(risk_id: UUID, data: RiskOpportunityUpdate, db: Session = Depend
 @router.get("/equipment", response_model=list[RegulatedEquipmentRead])
 def list_equipment(respuesta: Response, pagina: Pagina = Depends(paginacion), db: Session = Depends(get_tenant_db)):
     return recortar(respuesta, crud_regulated_equipment.get_multi(db, skip=pagina.skip, limit=pagina.pedir), pagina)
+
+
+# Antes que `/equipment/{equipment_id}`, por lo mismo que `expiring`: FastAPI
+# resuelve por orden de declaracion, y al reves esta ruta responderia 422
+# intentando leer "sin-operador" como UUID.
+@router.get(
+    "/equipment/sin-operador",
+    response_model=list[EquipoSinOperador],
+    tags=["business-logic"],
+    summary="Equipos que hoy nadie puede operar legalmente",
+    description=(
+        "Equipos **en operacion** sin ninguna persona habilitada para "
+        "operarlos hoy (#48). Es un estado de incumplimiento, no una lista de "
+        "tareas pendientes: la maquina esta funcionando y quien la maneja no "
+        "esta certificado para hacerlo.\n\n"
+        "**El motivo viene en cada fila y son dos problemas distintos.** "
+        "`sin_operador` se arregla asignando a alguien; `certificacion_vencida` "
+        "renovando la que caduco — ahi si hay gente asignada, pero a toda se le "
+        "vencio. Deducirlo obligaria a abrir cada equipo.\n\n"
+        "**Solo los equipos en operacion.** Uno detenido o dado de baja no "
+        "necesita operador habilitado, y contarlo llenaria la lista de "
+        "maquinas que nadie esta usando: la forma mas rapida de que se deje de "
+        "mirar."
+    ),
+)
+def equipos_sin_operador(
+    db: Session = Depends(get_tenant_db),
+    tenant_id: UUID = Depends(get_tenant_id),
+):
+    return svc.equipos_sin_operador_habilitado(db, tenant_id)
 
 
 # Antes que `/equipment/{equipment_id}`, por lo mismo que
@@ -337,8 +368,17 @@ def evaluar_significancia(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from None
-    db.commit()
+    # **Se lee ANTES de confirmar.** El `commit` cierra la transaccion y con ella
+    # se va la empresa declarada, asi que `db.refresh` ve cero filas y revienta
+    # con "Could not refresh instance": el endpoint respondia **500**. No lo
+    # detecto nadie porque ninguna pantalla lo llamaba —el mismo patron que ya
+    # aparecio con `fulfill` y con el checklist—, y las pruebas eran del
+    # servicio, no del endpoint. Encontrado en el navegador el 20-sep.
+    #
+    # El `refresh` va **antes** del commit, que es donde todavia funciona: trae
+    # el `updated_at` que escribe el trigger `set_updated_at`. Sin el, la
+    # respuesta llevaba la marca anterior y no coincidia con la base.
     db.refresh(aspecto)
-    return ResultadoDeSignificancia(
-        aspect=EnvironmentalAspectRead.model_validate(aspecto), motivos=motivos
-    )
+    leido = EnvironmentalAspectRead.model_validate(aspecto)
+    db.commit()
+    return ResultadoDeSignificancia(aspect=leido, motivos=motivos)

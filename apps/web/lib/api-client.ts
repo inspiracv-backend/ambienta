@@ -1,3 +1,4 @@
+import { esSinEmpresa, marcarSesionSinEmpresa } from './sesion-sin-empresa';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
@@ -21,15 +22,48 @@ export class ApiError extends Error {
  * cuando la rechaza la validacion de Pydantic. Leer solo la primera deja los
  * 422 —los mas frecuentes al conectar una pantalla— mostrando `[object Object]`.
  */
+/**
+ * El motivo estable de un rechazo, para ramificar sin leer el texto.
+ *
+ * `null` cuando no llegó a la API o cuando la respuesta no trae código (los
+ * rechazos de un router traen solo `detail`). El texto de `detail` es para
+ * personas: se reescribe, y una pantalla que ramifica sobre él se rompe la
+ * primera vez que alguien mejora la redacción.
+ */
+export function codigoDeError(error: unknown): string | null {
+  if (!(error instanceof ApiError)) return null;
+  const codigo = (error.body as { codigo?: unknown } | null)?.codigo;
+  return typeof codigo === 'string' ? codigo : null;
+}
+
 export function mensajeDeError(error: unknown): string {
   if (!(error instanceof ApiError)) {
     // Ni siquiera llegamos a la API: DNS, red caida, CORS.
     return 'No se pudo contactar al servidor. Revisa tu conexion.';
   }
 
-  const detail = (error.body as { detail?: unknown } | null)?.detail;
+  const cuerpo = error.body as { detail?: unknown; codigo?: unknown; campos?: unknown } | null;
+  const detail = cuerpo?.detail;
+
+  // **El código primero, y el texto solo como respaldo.** Desde el 14-sep los
+  // rechazos de la base traen `codigo` y `campos`; nombrar el campo le dice a
+  // la persona qué corregir, y no depende de cómo esté redactado `detail`.
+  const campos = Array.isArray(cuerpo?.campos) ? (cuerpo!.campos as unknown[]).map(String) : [];
+  if (campos.length > 0) {
+    const lista = campos.join(', ');
+    if (cuerpo?.codigo === 'valor_duplicado') return `Ya existe un registro con ese valor en: ${lista}.`;
+    if (cuerpo?.codigo === 'referencia_inexistente') return `Lo elegido en ${lista} no existe o no es de tu empresa.`;
+    if (cuerpo?.codigo === 'campo_obligatorio') return `Falta completar: ${lista}.`;
+    if (cuerpo?.codigo === 'valor_no_permitido') return `Hay un valor no permitido en: ${lista}.`;
+  }
 
   if (typeof detail === 'string') return detail;
+  // Algunos rechazos de la API mandan `detail` como objeto `{codigo, mensaje}`
+  // (el de sesión sin empresa, por ejemplo). Leer solo la cadena los dejaba en
+  // "El servidor rechazó la operación".
+  if (detail && typeof detail === 'object' && typeof (detail as { mensaje?: unknown }).mensaje === 'string') {
+    return (detail as { mensaje: string }).mensaje;
+  }
 
   if (Array.isArray(detail)) {
     const campos = detail
@@ -166,6 +200,10 @@ async function requestConRespuesta(
     // Clerk ya renueva por su cuenta dentro de `getToken()`.
     if (res.status === 401) alPerderLaSesion?.();
     const detail = await res.json().catch(() => null);
+    // **Una sesión válida sin empresa no es un 403 cualquiera.** Se avisa para
+    // que la aplicación muestre su pantalla en vez de un error por cada
+    // petición. Se decide por el código, no por el mensaje.
+    if (esSinEmpresa(res.status, detail)) marcarSesionSinEmpresa(true);
     throw new ApiError(res.status, res.statusText, detail);
   }
 
@@ -188,9 +226,64 @@ export interface Pagina<T> {
   hayMas: boolean;
 }
 
+/** El `TOPE_DE_PAGINA` de `apps/api/app/routers/_paginacion.py`. */
+export const TOPE_DE_PAGINA = 500;
+/** 20.000 filas. Más que eso no se carga entero en el navegador. */
+const MAX_PAGINAS = 40;
+
+/** La ruta ya pide un tamaño de página: quien la escribió decidió cortar. */
+const PIDE_LIMITE = /[?&]limit=/;
+
+/**
+ * El resto de un listado a partir de la fila `desde`, en páginas del tope.
+ *
+ * **Si pasa de `MAX_PAGINAS` falla en vez de devolver lo que alcanzó**: una
+ * lista incompleta que se presenta como completa es justo lo que esto existe
+ * para impedir. Una lista de ese tamaño necesita paginar en la pantalla, no en
+ * memoria.
+ */
+async function paginasDesde<T>(path: string, opts: RequestOptions | undefined, desde: number): Promise<T[]> {
+  const separador = path.includes('?') ? '&' : '?';
+  const filas: T[] = [];
+  for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+    const { datos, hayMas } = await api.getPagina<T>(
+      `${path}${separador}limit=${TOPE_DE_PAGINA}&skip=${desde + pagina * TOPE_DE_PAGINA}`,
+      opts,
+    );
+    filas.push(...datos);
+    if (!hayMas) return filas;
+  }
+  throw new Error(
+    `La lista ${path} tiene más de ${MAX_PAGINAS * TOPE_DE_PAGINA} filas y no se puede cargar entera.`,
+  );
+}
+
 export const api = {
-  get<T>(path: string, opts?: RequestOptions) {
-    return request<T>('GET', path, undefined, opts);
+  /**
+   * Un recurso, o **un listado entero**.
+   *
+   * La API corta cada listado en 100 si no se le pide otra cosa (#167) y lo
+   * avisa con `X-Has-More`. Hasta el 21-sep esta función no miraba la cabecera,
+   * así que cada `get` de un listado devolvía las primeras 100 filas como si
+   * fueran todas: la Matriz Legal mostraba **164 de 264 evaluaciones como "sin
+   * evaluar"**, y había otros quince listados leídos igual, esperando a pasar
+   * de cien (las obligaciones iban en 81).
+   *
+   * Ahora, si la API cortó una lista **que nadie pidió cortar**, se pide el
+   * resto. Quien pone `limit=` en la ruta decidió el tamaño y recibe esa
+   * página; quien necesita saber si hubo más usa `getPagina`.
+   */
+  async get<T>(path: string, opts?: RequestOptions): Promise<T> {
+    const res = await requestConRespuesta('GET', path, undefined, opts);
+    // Sin cuerpo: ver `request`.
+    if (res.status === 204 || res.status === 205) return null as T;
+    const cuerpo = (await res.json()) as unknown;
+    const cortada = res.headers?.get?.('X-Has-More') === 'true';
+    if (Array.isArray(cuerpo) && cortada && !PIDE_LIMITE.test(path)) {
+      const resto = await paginasDesde<unknown>(path, opts, cuerpo.length);
+      return [...cuerpo, ...resto] as T;
+    }
+    return cuerpo as T;
   },
   /**
    * Como `get`, pero conserva si la lista vino cortada.
@@ -203,6 +296,23 @@ export const api = {
     const res = await requestConRespuesta('GET', path, undefined, opts);
     const datos = (res.status === 204 ? [] : await res.json()) as T[];
     return { datos, hayMas: res.headers.get('X-Has-More') === 'true' };
+  },
+  /**
+   * **Todas** las filas de un listado, pidiendo página tras página.
+   *
+   * Para las listas que tienen que estar completas para decir la verdad: la
+   * API corta cada listado en 100 si no se le pide otra cosa (#167), y un
+   * `get` pelado no se entera. Medido el 21-sep: la Matriz Legal recibía 100 de
+   * las 264 evaluaciones de la empresa y mostraba las otras 164 como **"sin
+   * evaluar"** — un artículo evaluado que la pantalla dice que nadie miró.
+   *
+   * Se piden páginas del tope de la API (500) hasta que deja de avisar que hay
+   * más. Hace lo mismo que `get` sobre un listado, pero **lo dice en la
+   * llamada**: donde una lista incompleta falsea lo que se muestra, que se lea
+   * como tal.
+   */
+  getTodas<T>(path: string, opts?: RequestOptions): Promise<T[]> {
+    return paginasDesde<T>(path, opts, 0);
   },
   post<T>(path: string, body: unknown, opts?: RequestOptions) {
     return request<T>('POST', path, body, opts);

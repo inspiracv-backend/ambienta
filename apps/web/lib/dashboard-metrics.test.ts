@@ -163,6 +163,23 @@ function apiResponse(over: Partial<ApiDashboardMetrics> = {}): ApiDashboardMetri
 }
 
 describe('fromApiMetrics', () => {
+  it('la cobertura llega como fraccion, igual que el cumplimiento', () => {
+    const vm = fromApiMetrics(
+      apiResponse({
+        global: { ...apiResponse().global, coverage_percentage: 30, articles_pending: 7 },
+      }),
+    );
+    expect(vm.cobertura).toBeCloseTo(0.3);
+    expect(vm.porEvaluar).toBe(7);
+  });
+
+  it('una API que no manda la cobertura no la convierte en cero', () => {
+    // Anterior al 21-sep: "no se sabe" y no "cero evaluado".
+    const vm = fromApiMetrics(apiResponse());
+    expect(vm.cobertura).toBeNull();
+    expect(vm.porEvaluar).toBeNull();
+  });
+
   it('convierte el porcentaje de la API (0-100) a la fracción que usa la UI (0-1)', () => {
     const vm = fromApiMetrics(
       apiResponse({ global: { ...apiResponse().global, compliance_percentage: 75.3 } }),

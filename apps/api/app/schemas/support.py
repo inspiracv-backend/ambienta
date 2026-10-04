@@ -92,11 +92,32 @@ class ChatbotConversationRead(OrmBase):
 # ── ChatbotMessage ────────────────────────────────────────────────────────
 
 class ChatbotMessageCreate(BaseModel):
+    """Un mensaje de la conversacion con el asistente.
+
+    ## Las citas se declaran aca, y hasta el 8-sep no estaban
+
+    `chatbot_messages` tiene `citations` y `cited_norm_ids` desde el principio,
+    y **este esquema no las declaraba**: Pydantic descarta en silencio lo que no
+    declara, asi que el AI Service podia mandar sus citas, recibir **201**, y la
+    fila quedaba con `[]`. Sin ningun error.
+
+    Es el mismo defecto que este repositorio ya sufrio con `planned_start_date`
+    y con `process_id`, y aca pega en lo que el asistente existe para dar: una
+    respuesta **con de donde la saco**. Una respuesta normativa sin cita no se
+    puede verificar, y en cumplimiento eso es todo lo que importa.
+    """
+
     model_config = ConfigDict(protected_namespaces=())
 
     conversation_id: UUID
     role: str
     content: str
+    #: De donde salio la respuesta. Forma libre —cada motor cita distinto— pero
+    #: **es una lista**, igual que la columna y que la lectura.
+    citations: list = Field(default_factory=list)
+    #: Los identificadores de las normas citadas, aparte del texto de la cita.
+    #: Sirve para responder "que normas menciono el asistente" sin parsear.
+    cited_norm_ids: list = Field(default_factory=list)
     model_name: str | None = None
     token_usage: dict = Field(default_factory=dict)
 
@@ -110,6 +131,10 @@ class ChatbotMessageRead(OrmBase):
     role: str
     content: str
     citations: list
+    #: Estaba en la tabla y **no salia en ninguna respuesta**: se podia escribir
+    #: y no leer. Es el detector de "columnas que ninguna respuesta expone",
+    #: aplicado al dato que sostiene una respuesta normativa.
+    cited_norm_ids: list = []
     model_name: str | None
     token_usage: dict
     feedback: dict
@@ -132,6 +157,13 @@ class ChatbotConversationUpdate(BaseModel):
 
 
 class ChatbotMessageUpdate(BaseModel):
-    """Solo las citas: el contenido del mensaje es lo que se dijo."""
+    """Solo las citas: el contenido del mensaje es lo que se dijo.
 
-    citations: dict | None = None
+    **`list` y no `dict`.** Decia `dict | None` mientras la columna es JSONB con
+    `[]` por defecto y `ChatbotMessageRead` la declara `list`: un PATCH con un
+    diccionario se escribia y despues la lectura no validaba contra su propio
+    contrato. Dos esquemas del mismo campo diciendo tipos distintos.
+    """
+
+    citations: list | None = None
+    cited_norm_ids: list | None = None

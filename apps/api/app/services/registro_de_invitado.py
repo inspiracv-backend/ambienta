@@ -125,8 +125,9 @@ def registrar_permanente(
     absurdo.
 
     `department_id` **no** es opcional: `ck_users_interno_con_departamento`
-    exige departamento a los tipos `internal` y `tenant_admin`, asi que sin el
-    la fila la rechaza Postgres con un error que no se lee como lo que es.
+    exige departamento a `internal`, y un invitado que se registra no es quien
+    crea los departamentos de la empresa. Sin el, un interno lo rechaza
+    Postgres con un error que no se lee como lo que es.
     """
     cred = credencial(db, tenant_id, credencial_id)
     if cred is None:

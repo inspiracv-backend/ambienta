@@ -18,6 +18,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/mocks/catalog', () => ({ mockLegalNorms: [] }));
 
 const get = vi.fn();
+const getTodas = vi.fn();
 const post = vi.fn();
 const patch = vi.fn();
 
@@ -27,6 +28,8 @@ vi.mock('./api-client', async (importarReal) => {
     ...real,
     api: {
       get: (...a: unknown[]) => get(...a),
+      // Los listados completos se leen con `getTodas`; aca responde lo mismo que `get`.
+      getTodas: (...a: unknown[]) => getTodas(...a),
       patch: (...a: unknown[]) => patch(...a),
       post: (...a: unknown[]) => post(...a),
       delete: vi.fn(),
@@ -100,9 +103,78 @@ const articuloApi = (extra: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Por defecto responde lo mismo que `get`; las pruebas de listados completos lo separan.
+  getTodas.mockImplementation((...a: unknown[]) => get(...a));
   post.mockResolvedValue({ id: AC });
   patch.mockResolvedValue({});
   window.localStorage.clear();
+});
+
+describe('las evaluaciones llegan todas', () => {
+  it('una evaluacion que no viene en la primera pagina se ve evaluada', async () => {
+    // La API corta en 100 si no se le pide otra cosa. Con `get`, la evaluacion
+    // numero 101 no llegaba y el articulo se mostraba "sin evaluar" (21-sep:
+    // 164 de 264 en la empresa de prueba). `get` responde aca como la primera
+    // pagina de la API: sin esta evaluacion.
+    const evaluacion = { id: AC, article_id: ARTICULO, compliance_status: 'compliant', attributes: {} };
+    const original = getTodas.getMockImplementation()!;
+    getTodas.mockImplementation((ruta: string, ...resto: unknown[]) =>
+      ruta.startsWith('/compliance/article-compliance') ? Promise.resolve([evaluacion]) : original(ruta, ...resto),
+    );
+
+    const { result } = await montar([articuloApi()], []);
+
+    expect(result.current.norms[0]!.articulos[0]!.respuesta).toBe('SI');
+    // Y el id de la evaluacion, que es lo que se enlaza desde un aspecto ambiental.
+    expect(result.current.norms[0]!.articulos[0]!.evaluacionId).toBe(AC);
+  });
+
+  it('si no se pudieron leer, lo dice en vez de mostrar la matriz entera sin evaluar', async () => {
+    // El respaldo vacio de antes pintaba cada articulo como "nadie lo miro".
+    const original = getTodas.getMockImplementation()!;
+    getTodas.mockImplementation((ruta: string, ...resto: unknown[]) =>
+      ruta.startsWith('/compliance/article-compliance')
+        ? Promise.reject(new ApiError(500, 'Internal Server Error', null))
+        : original(ruta, ...resto),
+    );
+    iniciarSesionComo('admin_empresa');
+    responder([articuloApi()]);
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+
+    await waitFor(() => expect(result.current.errorDeCarga).toBeTruthy());
+    expect(result.current.norms.flatMap((n) => n.articulos).some((a) => a.respuesta === 'N_E')).toBe(false);
+  });
+});
+
+describe('vigencia y aplicabilidad', () => {
+  it('lee de la base si la norma rige y si le aplica a la empresa', async () => {
+    iniciarSesionComo('admin_empresa');
+    responder([articuloApi()], [], [
+      {
+        id: MATRIX_NORM,
+        norm_id: NORMA,
+        applicability: 'not_applicable',
+        applicability_reason: 'El calculo por sector dejo de incluirla.',
+        inclusion_source: 'automatic',
+      },
+    ]);
+    const original = get.getMockImplementation()!;
+    get.mockImplementation((ruta: string, ...resto: unknown[]) =>
+      ruta === '/catalog/norms'
+        ? Promise.resolve([{ id: NORMA, title: 'Ley 20.920', norm_type: 'ley', source_id: 1, status: 'derogada' }])
+        : original(ruta, ...resto),
+    );
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+    await waitFor(() => expect(result.current.norms).toHaveLength(1));
+
+    const n = result.current.norms[0]!;
+    expect(n.vigencia?.estado).toBe('derogada');
+    expect(n.aplicabilidad?.estado).toBe('no_aplica');
+    expect(n.aplicabilidad?.criterio).toBe('El calculo por sector dejo de incluirla.');
+    expect(n.aplicabilidad?.determinadaPor).toBe('automatica');
+  });
 });
 
 describe('carga del articulado', () => {
@@ -118,7 +190,19 @@ describe('carga del articulado', () => {
 
   it('los pide al endpoint del articulado de esa norma', async () => {
     await montar([articuloApi()]);
-    expect(get).toHaveBeenCalledWith(`/catalog/norms/${NORMA}/articles`);
+    expect(get).toHaveBeenCalledWith(`/catalog/norms/${NORMA}/articles`, {
+      tenantId: expect.any(String),
+    });
+  });
+
+  it('el catalogo se pide con la empresa de la sesion', async () => {
+    // Sin ella, en modo desarrollo respondia 401 y la matriz no cargaba. No
+    // duplica las normas propias: la API filtra el catalogo a lo publico.
+    await montar([articuloApi()]);
+    const tenantId = (get.mock.calls.find((c) => c[0] === '/catalog/norms')?.[1] as { tenantId?: string } | undefined)
+      ?.tenantId;
+    expect(tenantId).toBeTruthy();
+    expect(get).toHaveBeenCalledWith('/catalog/sources', { tenantId });
   });
 
   it('entra sin evaluar, no como incumplido', async () => {
@@ -392,5 +476,179 @@ describe('generar una obligacion desde un articulo (RF-09, #110)', () => {
     await expect(
       result.current.generarObligacion(NORMA, ARTICULO, 'Declaracion anual'),
     ).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+/**
+ * La normativa propia de la empresa (RF-10, S-12).
+ *
+ * Hasta el 10-sep `addNorm` **no llamaba a la API**: agregaba la norma al
+ * arreglo en memoria y ahí quedaba. La pantalla decía "RCA · 0 artículo(s)" y
+ * al recargar no estaba, que en un módulo de cumplimiento significa que alguien
+ * cree tener registrada una resolución que el sistema no tiene.
+ *
+ * El bloqueo era real y dejó de serlo: `db/29` le dio `tenant_id` al catálogo
+ * y `/compliance/normativa-propia` es el camino. La nota del código se quedó
+ * vieja.
+ */
+const RCA = 'e0000000-0000-0000-0000-0000000000aa';
+
+/** Como `responder`, pero con una RCA propia además del catálogo público. */
+function responderConPropia(propias: Record<string, unknown>[] = []) {
+  get.mockImplementation((ruta: string) => {
+    if (ruta === '/compliance/normativa-propia/') return Promise.resolve(propias);
+    if (ruta.startsWith('/compliance/normativa-propia/')) {
+      return Promise.resolve([
+        {
+          id: 'f0000000-0000-0000-0000-0000000000aa',
+          article_number: '5.2',
+          heading: 'Caudal maximo',
+          content: 'No podra captar mas de 30 l/s.',
+          display_order: 1,
+        },
+      ]);
+    }
+    if (ruta.includes('/articles')) return Promise.resolve([]);
+    if (ruta.startsWith('/compliance/article-compliance')) return Promise.resolve([]);
+    if (ruta.startsWith('/compliance/matrix-norms')) return Promise.resolve([]);
+    if (ruta === '/catalog/norms') {
+      return Promise.resolve([{ id: NORMA, title: 'Ley 19.300', norm_type: 'ley', source_id: 1 }]);
+    }
+    if (ruta === '/catalog/sources') {
+      return Promise.resolve([
+        { id: 1, code: 'BCN_LEYCHILE' },
+        { id: 3, code: 'RCA' },
+      ]);
+    }
+    return Promise.resolve([]);
+  });
+}
+
+describe('normativa propia de la empresa', () => {
+  it('registra la RCA en la API y no solo en la pantalla', async () => {
+    iniciarSesionComo('admin_empresa');
+    responderConPropia();
+    post.mockResolvedValue({ id: RCA, title: 'RCA 123/2024', norm_type: 'resolucion' });
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // `loading` baja antes de que haya sesion: sin esperar la carga real, el
+    // alta llegaba primero y la carga inicial la pisaba (rojo en CI el 19-sep).
+    await waitFor(() => expect(result.current.norms.some((n) => n.id === NORMA)).toBe(true));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.addNorm({
+        nombre: 'RCA 123/2024',
+        tipoDocumento: 'Resolucion',
+        fuente: 'RCA',
+        tenantId: 'a0000000-0000-0000-0000-000000000001',
+        plantIds: [],
+      });
+    });
+
+    expect(ok).toBe(true);
+    expect(post).toHaveBeenCalledWith(
+      '/compliance/normativa-propia/',
+      expect.objectContaining({ fuente: 'RCA', title: 'RCA 123/2024', norm_type: 'resolucion' }),
+      expect.objectContaining({ tenantId: 'a0000000-0000-0000-0000-000000000001' }),
+    );
+    expect(result.current.norms.some((n) => n.id === RCA)).toBe(true);
+  });
+
+  it('NO va al catalogo publico: escribirla ahi la publicaria a todas las empresas', async () => {
+    iniciarSesionComo('admin_empresa');
+    responderConPropia();
+    post.mockResolvedValue({ id: RCA });
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // `loading` baja antes de que haya sesion: sin esperar la carga real, el
+    // alta llegaba primero y la carga inicial la pisaba (rojo en CI el 19-sep).
+    await waitFor(() => expect(result.current.norms.some((n) => n.id === NORMA)).toBe(true));
+    await act(async () => {
+      await result.current.addNorm({
+        nombre: 'RCA de la empresa',
+        tipoDocumento: 'Resolucion',
+        fuente: 'RCA',
+        tenantId: 'a0000000-0000-0000-0000-000000000001',
+        plantIds: [],
+      });
+    });
+
+    expect(post).not.toHaveBeenCalledWith('/catalog/norms', expect.anything(), expect.anything());
+  });
+
+  it('si la API la rechaza, no aparece en la lista', async () => {
+    // Pintarla igual es como se produce una pantalla que confirma un registro
+    // que la base nunca recibio — el defecto de `limiteUsuarios`.
+    iniciarSesionComo('admin_empresa');
+    responderConPropia();
+    post.mockRejectedValue(new ApiError(422, 'Unprocessable Entity', { detail: 'fuente invalida' }));
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // `loading` baja antes de que haya sesion: sin esperar la carga real, el
+    // alta llegaba primero y la carga inicial la pisaba (rojo en CI el 19-sep).
+    await waitFor(() => expect(result.current.norms.some((n) => n.id === NORMA)).toBe(true));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.addNorm({
+        nombre: 'RCA que no se guarda',
+        tipoDocumento: 'Resolucion',
+        fuente: 'RCA',
+        tenantId: 'a0000000-0000-0000-0000-000000000001',
+        plantIds: [],
+      });
+    });
+
+    expect(ok).toBe(false);
+    // Por nombre y no por largo: la lista termina de cargar despues de que
+    // `loading` baja (la sesion llega un instante mas tarde), asi que contar
+    // antes y despues fallaba solo con la suite completa cargada.
+    expect(result.current.norms.some((n) => n.nombre === 'RCA que no se guarda')).toBe(false);
+  });
+
+  it('al recargar, la RCA sigue ahi con su articulado', async () => {
+    // **El otro medio viaje.** Conectar solo la escritura deja una RCA que se
+    // guarda y desaparece al recargar: `/catalog/norms` no la trae, porque es
+    // el catalogo compartido.
+    iniciarSesionComo('admin_empresa');
+    responderConPropia([
+      { id: RCA, title: 'RCA 123/2024', norm_type: 'resolucion', source_id: 3, articulos: 1 },
+    ]);
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    // `loading` baja antes de que haya sesion: sin esperar la carga real, el
+    // alta llegaba primero y la carga inicial la pisaba (rojo en CI el 19-sep).
+    await waitFor(() => expect(result.current.norms.some((n) => n.id === NORMA)).toBe(true));
+    await waitFor(() => expect(result.current.norms).toHaveLength(2));
+
+    const propia = result.current.norms.find((n) => n.id === RCA);
+    expect(propia).toBeDefined();
+    expect(propia!.fuente).toBe('RCA');
+    expect(propia!.articulos).toHaveLength(1);
+    expect(propia!.articulos[0]!.numero).toBe('5.2');
+  });
+
+  it('pide el articulado propio por su ruta, no por la del catalogo', async () => {
+    // Depender de `/catalog/norms/{id}/articles` para una RCA funciona hoy por
+    // un efecto de borde de las dependencias de FastAPI (ver `deps.py::get_db`),
+    // y se caeria en silencio el dia que el catalogo cambie de guarda.
+    iniciarSesionComo('admin_empresa');
+    responderConPropia([
+      { id: RCA, title: 'RCA 123/2024', norm_type: 'resolucion', source_id: 3, articulos: 1 },
+    ]);
+
+    const { result } = renderHook(() => useLegalMatrix(), { wrapper });
+    await waitFor(() => expect(result.current.norms).toHaveLength(2));
+
+    expect(get).toHaveBeenCalledWith(
+      `/compliance/normativa-propia/${RCA}/articulos`,
+      expect.objectContaining({ tenantId: expect.any(String) }),
+    );
+    expect(get).not.toHaveBeenCalledWith(`/catalog/norms/${RCA}/articles`);
   });
 });

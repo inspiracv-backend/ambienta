@@ -259,7 +259,7 @@ class TestLaTarea:
         """
         db = Session(bind=conexion)
         try:
-            empresas = _empresas(db)
+            empresas, _en_pausa = _empresas(db)
             assert len(empresas) >= 1
             assert EMPRESA_A in empresas
         finally:
@@ -303,3 +303,99 @@ class TestElInforme:
         ).resumen()
         assert "OBL-9" in texto
         assert "ATENCION" in texto
+
+
+class TestOlvidarContraElPoolDeVerdad:
+    """**La prueba de arriba pasa con `olvidar()` desconectado.**
+
+    `TestElAlcanceDelContexto` usa el fixture `conexion`: un engine propio y una
+    conexion dedicada que nunca vuelve a un pool. Ahi `olvidar()` se ve
+    funcionar, porque lo que se mide es el SQL.
+
+    En produccion la sesion sale de `SessionLocal`, y al devolverla SQLAlchemy
+    hace `ROLLBACK`. Medido el 10-sep, esa diferencia lo era todo:
+
+    | secuencia | conexion siguiente |
+    |---|---|
+    | `declarar(toda_la_sesion)` + `commit` + `olvidar()` | **la empresa** |
+    | **sin `olvidar()`** | **la empresa** |
+
+    Identicas: `olvidar()` no hacia nada. Su `set_config` corria en una
+    transaccion sin confirmar y el rollback del pool lo revertia, mientras que
+    el `declarar` ya habia quedado firme por el commit del despachador — que es
+    justo por lo que existe `toda_la_sesion=True`.
+
+    Es la leccion de `TestClient` aplicada a la base: **una prueba que no pasa
+    por el camino real no dice nada sobre el camino real.**
+    """
+
+    @pytest.fixture(autouse=True)
+    def _pool_limpio(self):
+        """Deja el pool sin empresa antes y despues, pase lo que pase.
+
+        Sin esto, una prueba que falle a la mitad deja la conexion sucia y la
+        siguiente hereda — que es el defecto mismo que se esta midiendo.
+        """
+        from app.db import SessionLocal as SL
+
+        try:
+            SL().close()
+        except Exception:  # pragma: no cover - entorno sin base
+            pytest.skip("Sin base de datos disponible")
+
+        def limpiar():
+            with SL() as db:
+                olvidar(db)
+
+        limpiar()
+        yield
+        limpiar()
+
+    @staticmethod
+    def _tenant_de_la_proxima_conexion():
+        from app.db import SessionLocal as SL
+
+        with SL() as db:
+            return db.execute(text("SELECT current_tenant_id()")).scalar()
+
+    def test_tras_declarar_y_confirmar_olvidar_limpia_de_verdad(self) -> None:
+        """El caso exacto del cron: el despachador confirma cada aviso."""
+        from app.db import SessionLocal as SL
+
+        with SL() as db:
+            declarar(db, EMPRESA_A, toda_la_sesion=True)
+            db.commit()  # como hace el despachador con cada aviso
+            olvidar(db)
+
+        assert self._tenant_de_la_proxima_conexion() is None, (
+            "la conexion volvio al pool con una empresa pegada: la siguiente "
+            "consulta que no declare contexto la hereda"
+        )
+
+    def test_sin_olvidar_la_empresa_SI_queda_pegada(self) -> None:
+        """El control negativo, y es lo que hace util a la prueba anterior.
+
+        Sin esto, `olvidar()` podria no hacer nada y la otra prueba pasaria
+        igual — que es exactamente lo que estaba pasando.
+        """
+        from app.db import SessionLocal as SL
+
+        with SL() as db:
+            declarar(db, EMPRESA_A, toda_la_sesion=True)
+            db.commit()
+
+        assert str(self._tenant_de_la_proxima_conexion()) == str(EMPRESA_A), (
+            "sin olvidar() la empresa no quedo pegada. Si esto falla, cambio "
+            "como el pool devuelve las conexiones y la prueba hermana ya no "
+            "prueba nada."
+        )
+
+    def test_el_alcance_transaccional_no_ensucia_el_pool(self) -> None:
+        """El camino de un request normal (`SET LOCAL`) no necesita limpieza."""
+        from app.db import SessionLocal as SL
+
+        with SL() as db:
+            declarar(db, EMPRESA_A)  # sin toda_la_sesion
+            db.execute(text("SELECT 1"))
+
+        assert self._tenant_de_la_proxima_conexion() is None

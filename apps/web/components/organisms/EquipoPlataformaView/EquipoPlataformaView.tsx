@@ -1,15 +1,15 @@
 'use client';
 
-import { useId, useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AlertTriangle, Plus, ShieldAlert, UserPlus, X } from 'lucide-react';
+import { AlertTriangle, Plus, ShieldAlert, UserPlus } from 'lucide-react';
 import type { User } from '@ambienta/shared';
 import { AccountBadge, Avatar, Button, Input } from '@/components/atoms';
 import { EmptyState, FormField, PageHeader } from '@/components/molecules';
 import { useUsers } from '@/lib/users-store';
 import { useToast } from '@/lib/toast-store';
 import { useRegistrarAuditoria } from '@/lib/audit-log-store';
-import { eventoCambioDeEstado, eventoUsuarioInvitado } from '@/lib/user-audit';
+import { eventoCambioDeEstado } from '@/lib/user-audit';
 import { cn } from '@/lib/utils';
 
 function formatFecha(iso: string | null): string {
@@ -33,51 +33,16 @@ function formatFecha(iso: string | null): string {
  * en vez de sugerir un control de permisos que no existe.
  */
 export function EquipoPlataformaView({ currentUserId }: { currentUserId: string }) {
-  const formId = useId();
-  const { users, inviteUser, setEstado } = useUsers();
+  const { users, setEstado } = useUsers();
   const { mostrarToast } = useToast();
   const registrar = useRegistrarAuditoria();
 
-  const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const [nombre, setNombre] = useState('');
-  const [email, setEmail] = useState('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [pendingDesactivar, setPendingDesactivar] = useState<User | null>(null);
   const [confirmacion, setConfirmacion] = useState('');
 
   // Equipo de plataforma = los que no pertenecen a ninguna empresa.
   const equipo = users.filter((u) => u.tenantId === null);
   const activos = equipo.filter((u) => u.estado !== 'desactivado');
-
-  function handleInvitar(e: FormEvent) {
-    e.preventDefault();
-    const next: Record<string, string> = {};
-    if (!nombre.trim()) next.nombre = 'Ingresa el nombre.';
-    if (!/^\S+@\S+\.\S+$/.test(email)) next.email = 'Ingresa un correo válido.';
-    setErrors(next);
-    if (Object.keys(next).length > 0) return;
-
-    const nuevo = inviteUser({
-      tenantId: null,
-      nombre: nombre.trim(),
-      email: email.trim(),
-      role: 'superadmin',
-      plantIds: [],
-      departamentoId: null,
-    });
-    registrar({ ...eventoUsuarioInvitado(nuevo), tenantId: null });
-
-    mostrarToast({
-      tipo: 'exito',
-      mensaje: `${nuevo.nombre} se incorporó al equipo`,
-      descripcion: 'Tiene acceso completo a la administración de la plataforma.',
-    });
-
-    setNombre('');
-    setEmail('');
-    setErrors({});
-    setIsInviteOpen(false);
-  }
 
   function handleDesactivar() {
     if (!pendingDesactivar) return;
@@ -111,7 +76,16 @@ export function EquipoPlataformaView({ currentUserId }: { currentUserId: string 
         titulo="Equipo de plataforma"
         descripcion="Personas con acceso a la administración de Ambienta"
         acciones={
-          <Button onClick={() => setIsInviteOpen(true)} icon={<Plus className="h-4 w-4" aria-hidden />}>
+          // **Deshabilitado, no simulado.** Antes agregaba a la persona solo en
+          // esta pantalla y decía "se incorporó al equipo": no escribía nada en
+          // la base ni le mandaba invitación. Una cuenta de plataforma pertenece
+          // a una empresa (`users.tenant_id` NOT NULL) y no existe todavía un rol
+          // de plataforma que asignarle (RF-84, pendiente de definición).
+          <Button
+            disabled
+            title="Todavía no se puede incorporar a alguien desde aquí"
+            icon={<Plus className="h-4 w-4" aria-hidden />}
+          >
             Incorporar persona
           </Button>
         }
@@ -127,6 +101,10 @@ export function EquipoPlataformaView({ currentUserId }: { currentUserId: string 
             Podrá dar de alta empresas, cambiar límites y suspender cuentas. Todavía no existen perfiles con permisos
             acotados (por ejemplo, un rol de Soporte solo para tickets): esa separación está pendiente de definición.
           </p>
+          <p className="mt-0.5">
+            Por eso incorporar a alguien desde esta pantalla aún no está disponible: no hay un rol de plataforma que
+            asignarle, y guardar a la persona sin él la dejaría sin poder entrar.
+          </p>
         </div>
       </div>
 
@@ -134,7 +112,7 @@ export function EquipoPlataformaView({ currentUserId }: { currentUserId: string 
         <EmptyState
           icono={UserPlus}
           titulo="No hay nadie más en el equipo"
-          descripcion="Incorpora a las personas que administrarán la plataforma junto a ti."
+          descripcion="Las personas que administran la plataforma aparecerán aquí."
         />
       ) : (
         <div className="overflow-x-auto rounded-card border border-slate-200 bg-white">
@@ -204,59 +182,6 @@ export function EquipoPlataformaView({ currentUserId }: { currentUserId: string 
           </table>
         </div>
       )}
-
-      {/* ── Incorporar ─────────────────────────────────────────────────── */}
-      <Dialog.Root
-        open={isInviteOpen}
-        onOpenChange={(open) => {
-          setIsInviteOpen(open);
-          if (!open) setErrors({});
-        }}
-      >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-900/40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-card bg-white p-6 shadow-lg">
-            <div className="flex items-start justify-between">
-              <Dialog.Title className="text-lg font-semibold text-slate-900">Incorporar al equipo</Dialog.Title>
-              <Dialog.Close aria-label="Cerrar" className="text-slate-400 hover:text-slate-700">
-                <X className="h-5 w-5" aria-hidden />
-              </Dialog.Close>
-            </div>
-            <Dialog.Description className="mt-1 text-xs text-slate-500">
-              Tendrá acceso completo a la administración de la plataforma y a todas las empresas cliente.
-            </Dialog.Description>
-
-            <form onSubmit={handleInvitar} className="mt-4 flex flex-col gap-4" noValidate>
-              <FormField label="Nombre" htmlFor={`${formId}-nombre`} required error={errors.nombre}>
-                <Input
-                  id={`${formId}-nombre`}
-                  value={nombre}
-                  invalid={!!errors.nombre}
-                  onChange={(e) => setNombre(e.target.value)}
-                />
-              </FormField>
-              <FormField label="Correo" htmlFor={`${formId}-email`} required error={errors.email}>
-                <Input
-                  id={`${formId}-email`}
-                  type="email"
-                  value={email}
-                  invalid={!!errors.email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </FormField>
-
-              <div className="flex justify-end gap-2">
-                <Dialog.Close asChild>
-                  <Button type="button" variant="secondary">
-                    Cancelar
-                  </Button>
-                </Dialog.Close>
-                <Button type="submit">Incorporar</Button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
 
       {/* ── Dar de baja ────────────────────────────────────────────────── */}
       <Dialog.Root

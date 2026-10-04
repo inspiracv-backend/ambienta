@@ -1,8 +1,10 @@
 import { FEATURE_FLAGS, type Role } from '@ambienta/shared';
 import {
+  Search,
   AlertTriangle,
   Bell,
   BookMarked,
+  FileSignature,
   Bot,
   Building,
   Building2,
@@ -96,7 +98,17 @@ export const TENANT_NAV_ITEMS: readonly NavItem[] = [
   // que respalda todo lo de arriba. La evidencia de una auditoria y el
   // procedimiento que se cita en una no conformidad viven aca.
   { label: 'Documentos', href: '/documentos', icon: FolderOpen, roles: TENANT_ROLES, enabled: true },
+  // **Despues de Documentos y no arriba de todo.** El buscador (RF-114) se
+  // usa cuando ya no se sabe en que ficha esta lo que se busca, o sea despues
+  // de intentar por el modulo; ponerlo primero sugeriria que es la via
+  // principal, y no lo es — la via principal es entrar al modulo que
+  // corresponde.
+  { label: 'Buscar', href: '/buscar', icon: Search, roles: TENANT_ROLES, enabled: true },
   { label: 'Catálogo Normativo', href: '/catalogo-normativo', icon: BookMarked, roles: TENANT_ROLES, enabled: true },
+  // Justo despues del catalogo compartido, porque es su contraparte: alla
+  // esta la ley que rige para todos, aca la RCA que rige solo para esta
+  // empresa (RF-10).
+  { label: 'Normativa Propia', href: '/normativa-propia', icon: FileSignature, roles: TENANT_ROLES, enabled: true },
   { label: 'Gestores', href: '/gestores', icon: Building2, roles: ['gestor'], enabled: true },
   // Junto a Gestores porque son el mismo trabajo en dos momentos: el CRM
   // sigue al prospecto, y un trato ganado se promueve a contrato (#82).

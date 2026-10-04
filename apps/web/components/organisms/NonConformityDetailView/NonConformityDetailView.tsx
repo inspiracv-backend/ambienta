@@ -8,7 +8,7 @@ import { FEATURE_FLAGS } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
 import { useAudits } from '@/lib/audits-store';
 import { usePlanAccion } from '@/lib/plan-accion-store';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { ncSemaforo, CRITICIDAD_LABEL } from '@/lib/audit-status';
 import type { NonConformityDetailViewProps } from './NonConformityDetailView.types';
 
@@ -30,6 +30,8 @@ export function NonConformityDetailView({
   plant,
   responsableOptions,
 }: NonConformityDetailViewProps) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const router = useRouter();
   const { nonConformities, updatePorques } = useAudits();
   const { plans, createPlan, findByOrigen } = usePlanAccion();

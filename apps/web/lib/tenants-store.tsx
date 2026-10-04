@@ -21,6 +21,7 @@ import { useRegistrarAuditoria } from '@/lib/audit-log-store';
 import { MODULO_LABEL } from '@/lib/tenant-status';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
+import { useSession } from '@/lib/session';
 import { leerTramo, type Tramo } from '@/lib/perfil-normativo';
 
 export interface NuevoTenantInput {
@@ -50,6 +51,12 @@ export interface NuevoTenantInput {
   diasVigencia: number;
   limiteUsuarios: number;
   modulosActivos: ModuloPlataforma[];
+  /**
+   * Quien administrará la empresa. Se crea con el rol `admin_empresa` y recibe
+   * la invitación de Clerk **en el mismo pedido**: si la invitación no sale,
+   * la empresa tampoco se crea.
+   */
+  administrador?: { nombre: string; email: string };
 }
 
 interface TenantsContextValue {
@@ -57,7 +64,8 @@ interface TenantsContextValue {
   loading: boolean;
   /** Por que la lista esta vacia, si es que fallo (#208). `null` = se pregunto. */
   errorDeCarga: string | null;
-  createTenant: (input: NuevoTenantInput) => Tenant;
+  /** Rechaza si la API no la creó; en ese caso no queda nada escrito. */
+  createTenant: (input: NuevoTenantInput) => Promise<Tenant>;
   setEstado: (tenantId: string, estado: Tenant['estado']) => void;
   setLimiteUsuarios: (tenantId: string, limite: number) => void;
   setModulosActivos: (tenantId: string, modulos: ModuloPlataforma[]) => void;
@@ -97,7 +105,11 @@ function mapApiTenant(raw: Record<string, unknown>): Tenant | null {
       tramo: leerTramo(raw.size_bracket) ?? undefined,
       giro: raw.business_activity ? String(raw.business_activity) : undefined,
       direccion: undefined,
-      estado: raw.status === 'active' ? 'activo' : raw.status === 'suspended' ? 'suspendido' : 'activo',
+      // `closed` se mostraba como activo: una empresa dada de baja, en solo
+      // lectura desde el 21-sep, aparecia activa en la cartera. `trial` si se
+      // lee como activo, porque opera igual que una activa.
+      estado:
+        raw.status === 'suspended' ? 'suspendido' : raw.status === 'closed' ? 'cerrado' : 'activo',
       // **Aproximación, y solo para la vista de plataforma.**
       //
       // El criterio de verdad vive en el servidor y se lee con `GET /me`
@@ -150,18 +162,36 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { mostrarToast } = useToast();
+  const { user } = useSession();
+  const tenantDeLaSesion = user?.tenantId ?? null;
+  // De que sesion son los datos cargados: sin esto, cambiar de sesion deja un
+  // instante los de la anterior con `loading: false` (mismo arreglo que el
+  // resto de los stores).
+  const [datosDe, setDatosDe] = useState<string | null>(null);
 
   useEffect(() => {
+    // **Se pide con la empresa de la sesion.** Sin ella, en modo desarrollo
+    // —sin Clerk— la peticion salia sin credencial y `/tenants/` respondia
+    // 401: la lista quedaba vacia y **21 pantallas** se quedaban sin plantas, y
+    // la ficha de auditoria sin quien emite el informe. Con Clerk no cambia
+    // nada: el token tiene prioridad sobre `tenantId` (`api-client`).
+    //
+    // **Sin empresa en la sesion se pregunta igual**, como antes. Saltarse la
+    // peticion dejaria la lista vacia y sin error, y la pantalla de empresas
+    // diria "no hay" cuando la verdad es "no se pudo preguntar" (#208).
     let cancelled = false;
+    setLoading(true);
+    setErrorDeCarga(null);
     // Las instalaciones se piden junto con la empresa y no aparte porque
     // `plants` venia siempre vacio, y **21 pantallas sacan de ahi su lista de
     // plantas**. Con la lista vacia esas pantallas caian a `mockTenants`, cuyos
     // identificadores son `planta-rancagua` mientras la API usa UUID: los datos
     // reales llegaban y no cruzaban con nada, asi que las pantallas se veian
     // vacias aunque la API respondiera bien.
+    const opts = tenantDeLaSesion ? { tenantId: tenantDeLaSesion } : undefined;
     Promise.all([
-      api.get<Record<string, unknown>[]>('/tenants/'),
-      api.get<Record<string, unknown>[]>('/facilities/').catch(() => []),
+      api.get<Record<string, unknown>[]>('/tenants/', opts),
+      api.get<Record<string, unknown>[]>('/facilities/', opts).catch(() => []),
     ])
       .then(([datosTenants, datosPlantas]) => {
         if (cancelled) return;
@@ -182,88 +212,50 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
         );
       })
       .catch((e: unknown) => {
+        // Una respuesta de la sesion anterior no pisa a la de esta.
+        if (cancelled) return;
         // **Se dice que fallo.** Con la lista vacia y sin mensaje, la
         // pantalla afirma 'no hay nada' cuando la verdad es 'no se pudo
         // preguntar' — la misma mentira de #208 en su otra forma.
         setErrorDeCarga(mensajeDeError(e));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setDatosDe(tenantDeLaSesion);
+        setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [tenantDeLaSesion]);
 
-  function createTenant(input: NuevoTenantInput): Tenant {
-    const ahora = new Date();
-    const termino = new Date(ahora);
-    termino.setDate(termino.getDate() + input.diasVigencia);
-
-    const nuevo: Tenant = {
-      id: `tenant-${Date.now()}`,
-      nombre: input.nombre,
-      identificacion: { tipo: documentoDePais(input.pais), numero: input.numeroIdentificacion },
-      pais: input.pais,
-      sector: input.sector,
-      sectorId: input.sectorId,
-      tramo: input.tramo,
-      giro: input.giro,
-      direccion: input.direccion,
-      sitioWeb: input.sitioWeb,
-      numeroTrabajadores: input.numeroTrabajadores,
-      certificaciones: input.certificaciones,
-      contactoComercial: input.contactoComercial,
-      notasComerciales: input.notasComerciales,
-      esGestor: input.esGestor,
-      estado: 'activo',
-      perfilEmpresaCompleto: false,
-      suscripcion: {
-        plan: input.plan,
-        fechaInicio: ahora.toISOString(),
-        fechaTermino: termino.toISOString(),
-        limiteUsuarios: input.limiteUsuarios,
-      },
-      modulosActivos: input.modulosActivos,
-      plants: [],
-    };
-
-    setTenants((prev) => [...prev, nuevo]);
-
-    api
-      .post<Record<string, unknown>>('/tenants/', {
-        legal_name: input.nombre,
-        rut_tax_id: input.numeroIdentificacion,
-        tenant_type: input.esGestor ? 'manager' : 'company',
-        business_activity: input.sector,
-        sector_id: input.sectorId ?? null,
-        size_bracket: input.tramo ?? null,
-        country_id: 1,
-      })
-      .then((creado) => {
-        // **El id local es inventado.** Sin reconciliarlo, la fila que quedaba
-        // en pantalla apuntaba a `tenant-1723...`, que no existe en la base:
-        // cualquier accion posterior sobre la empresa recien creada —cambiar
-        // su plan, agregarle una planta— iba a un id inexistente y fallaba sin
-        // explicacion. Se reemplaza por el que devuelve la API.
-        const real = mapApiTenant(creado);
-        if (real) setTenants((prev) => prev.map((t) => (t.id === nuevo.id ? real : t)));
-      })
-      .catch((error) => {
-        // Antes esto era `.catch(() => {})`: la empresa quedaba en la lista
-        // como si existiera y desaparecia al recargar, sin que nadie supiera
-        // por que. Es el mismo silencio que escondio que el alta de no
-        // conformidades nunca habia funcionado.
-        setTenants((prev) => prev.filter((t) => t.id !== nuevo.id));
-        mostrarToast({
-          tipo: 'error',
-          mensaje: 'No se pudo crear la empresa',
-          descripcion: mensajeDeError(error),
-        });
-      });
+  async function createTenant(input: NuevoTenantInput): Promise<Tenant> {
+    // **Sin fila optimista, a propósito.** Antes la empresa aparecía con un id
+    // inventado (`tenant-1723…`) y el administrador se invitaba con ese id: la
+    // API lo rechazaba —o, con Clerk, lo ignoraba y usaba la empresa de la
+    // sesión—, así que **ninguna empresa nueva recibía a su administrador**.
+    // Ahora empresa, roles, administrador e invitación son un solo pedido.
+    const creado = await api.post<Record<string, unknown>>('/tenants/', {
+      legal_name: input.nombre,
+      rut_tax_id: input.numeroIdentificacion,
+      tenant_type: input.esGestor ? 'manager' : 'company',
+      business_activity: input.sector,
+      sector_id: input.sectorId ?? null,
+      size_bracket: input.tramo ?? null,
+      country_id: 1,
+      // Sin esto el límite y los módulos elegidos en el alta se perdían al
+      // recargar: la lectura sale de `settings` (TenantSettingsSchema).
+      settings: { limiteUsuarios: input.limiteUsuarios, modulosActivos: input.modulosActivos },
+      administrador: input.administrador
+        ? { full_name: input.administrador.nombre, email: input.administrador.email }
+        : null,
+    });
+    const real = mapApiTenant(creado);
+    if (!real) throw new Error('La API respondió sin la empresa creada.');
+    setTenants((prev) => [...prev, real]);
 
     registrar({
       entidadTipo: 'tenant',
-      entidadId: nuevo.id,
-      entidadLabel: nuevo.nombre,
+      entidadId: real.id,
+      entidadLabel: real.nombre,
       tenantId: null,
       accion: 'creado',
       resumen: input.plan === 'demo' ? 'Dio de alta una demo' : 'Dio de alta la empresa',
@@ -273,10 +265,13 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
         { campo: 'Plan', antes: null, despues: input.plan === 'demo' ? `Demo (${input.diasVigencia} días)` : 'Contrato' },
         { campo: 'Límite de usuarios', antes: null, despues: String(input.limiteUsuarios) },
         { campo: 'Módulos habilitados', antes: null, despues: String(input.modulosActivos.length) },
+        ...(input.administrador
+          ? [{ campo: 'Administrador invitado', antes: null, despues: input.administrador.email }]
+          : []),
       ],
     });
 
-    return nuevo;
+    return real;
   }
 
   function setEstado(tenantId: string, estado: Tenant['estado']) {
@@ -285,11 +280,11 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
 
     setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, estado } : t)));
 
+    // Antes era `.catch(() => {})`: si la API rechazaba, la empresa se veía
+    // suspendida, el historial lo anotaba y al recargar seguía activa.
     api.patch(`/tenants/${tenantId}`, {
       status: estado === 'activo' ? 'active' : 'suspended',
-    }).catch(() => {});
-
-    registrar({
+    }).then(() => registrar({
       entidadTipo: 'tenant',
       entidadId: tenantId,
       entidadLabel: anterior.nombre,
@@ -303,6 +298,13 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
           despues: estado === 'activo' ? 'Activa' : 'Suspendida',
         },
       ],
+    })).catch((error) => {
+      setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, estado: anterior.estado } : t)));
+      mostrarToast({
+        tipo: 'error',
+        mensaje: estado === 'suspendido' ? 'No se suspendió la empresa' : 'No se reactivó la empresa',
+        descripcion: mensajeDeError(error),
+      });
     });
   }
 
@@ -625,7 +627,7 @@ export function TenantsProvider({ children }: { children: ReactNode }) {
     <TenantsContext.Provider
       value={{
         tenants,
-        loading,
+        loading: loading || (!!tenantDeLaSesion && datosDe !== tenantDeLaSesion),
         errorDeCarga,
         createTenant,
         setEstado,
