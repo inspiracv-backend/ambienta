@@ -21,9 +21,13 @@ terminar con un archivo que parece un respaldo y no lo es:
 
 Las de volcado y restauracion **se saltan si no hay `pg_dump` de la misma
 version mayor que el servidor**, que es el caso de una maquina Windows de
-desarrollo. En CI corren: el runner trae el cliente 16 y el servicio es
-`pgvector/pgvector:pg16`. Saltarlas en silencio seria peor, asi que el motivo
-sale en el `reason`.
+desarrollo.
+
+**En CI corren, y hasta el 13-oct no corrian.** La primera version de este
+archivo afirmaba que si, sin medirlo: la corrida informo `1678 passed, 36
+skipped` y estas tres estaban entre las saltadas, porque el runner no traia el
+cliente 16. Una prueba que se salta en todas las maquinas es una prueba que no
+existe. Ahora el job de API instala `postgresql-client-16` antes de pytest.
 """
 from __future__ import annotations
 

@@ -62,6 +62,7 @@ import tarfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from ..config import get_settings
 from . import almacenamiento as alm
@@ -117,8 +118,8 @@ class Informe:
             lineas.append(f"  · purgados en disco: {len(self.purgados_locales)}")
         if self.purgados_remotos:
             lineas.append(f"  · purgados en el bucket: {len(self.purgados_remotos)}")
-        for a in self.advertencias:
-            lineas.append(f"  AVISO: {a}")
+        for aviso in self.advertencias:
+            lineas.append(f"  AVISO: {aviso}")
         return "\n".join(lineas)
 
 
@@ -144,6 +145,19 @@ def url_de_administracion() -> str:
             "'query would be affected by row-level security policy'."
         )
     return re.sub(r"^postgresql\+\w+://", "postgresql://", s.database_admin_url)
+
+
+def _contar(cx: Any, tabla: str) -> int:
+    """Las filas de una tabla. El nombre viene de `TABLAS_TESTIGO`, no de fuera.
+
+    `fetchone()` devuelve `tuple | None`, y con `count(*)` nunca es None — pero
+    el `| None` esta en la firma y hay que atenderlo en un solo lugar, no en
+    cada uso.
+    """
+    with cx.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM {tabla}")  # noqa: S608 - lista fija
+        fila = cur.fetchone()
+    return int(fila[0]) if fila else 0
 
 
 def _correr(orden: list[str], *, entorno: dict | None = None) -> str:
@@ -239,11 +253,7 @@ def verificar(artefacto: Artefacto) -> dict[str, int]:
 
     # `autocommit`: CREATE DATABASE no corre dentro de una transaccion.
     with psycopg.connect(url, autocommit=True) as cx:
-        vivas = {}
-        for tabla in TABLAS_TESTIGO:
-            with cx.cursor() as cur:
-                cur.execute(f"SELECT count(*) FROM {tabla}")  # noqa: S608 - lista fija
-                vivas[tabla] = cur.fetchone()[0]
+        vivas = {t: _contar(cx, t) for t in TABLAS_TESTIGO}
         cx.execute(f'CREATE DATABASE "{temporal}"')
 
     try:
@@ -261,12 +271,8 @@ def verificar(artefacto: Artefacto) -> dict[str, int]:
             ]
         )
 
-        restauradas: dict[str, int] = {}
         with psycopg.connect(destino, autocommit=True) as cx:
-            for tabla in TABLAS_TESTIGO:
-                with cx.cursor() as cur:
-                    cur.execute(f"SELECT count(*) FROM {tabla}")  # noqa: S608
-                    restauradas[tabla] = cur.fetchone()[0]
+            restauradas = {t: _contar(cx, t) for t in TABLAS_TESTIGO}
 
         faltantes = [
             f"{t}: {vivas[t]} en la base y {restauradas[t]} en el respaldo"
