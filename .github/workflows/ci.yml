@@ -200,6 +200,30 @@ jobs:
             echo "apps/api todavia no tiene tests/ — se omite."
           fi
 
+      - name: Las pruebas de respaldo no se pueden saltar
+        env:
+          DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
+          # **El paso de pytest no la pasa**, y estas pruebas respaldan con el
+          # dueno de la base a proposito: sin ella caen al valor por defecto del
+          # modulo, que es correcto en CI pero no deberia depender de eso.
+          DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta
+        run: |
+          # Se vuelven a correr solas **y se exige que no se salten**. Una
+          # prueba que se salta en todas las maquinas es una prueba que no
+          # existe: el volcado y la restauracion se saltaban en Windows por no
+          # tener `pg_dump`, y en CI por lo mismo — con el agravante de que el
+          # docstring afirmaba que ahi si corrian.
+          #
+          # `-rs` imprime el motivo de cada salto, que es lo que hacia falta
+          # para diagnosticarlo.
+          salida=$(python -m pytest tests/test_respaldos.py -q -rs 2>&1) || true
+          echo "$salida"
+          if echo "$salida" | grep -q "SKIPPED"; then
+            echo "::error::Las pruebas de respaldo se saltaron en CI. Ver el motivo arriba."
+            exit 1
+          fi
+          echo "$salida" | grep -qE "[0-9]+ passed" || exit 1
+
       - name: Health check
         env:
           DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
