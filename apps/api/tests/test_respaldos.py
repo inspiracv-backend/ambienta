@@ -61,17 +61,33 @@ def _version_mayor_del_cliente() -> int | None:
 
 
 def _version_mayor_del_servidor() -> int | None:
+    """La version mayor del servidor, con **cualquier** conexion que haya.
+
+    Para leer `server_version` da igual el rol, asi que se prueban las dos URLs
+    y el valor por defecto. La primera version solo miraba
+    `DATABASE_ADMIN_URL`, y el paso de pytest de CI no la declaraba: las tres
+    pruebas se saltaban ahi por no poder averiguar la version del servidor, no
+    por faltar el cliente.
+    """
     try:
         import psycopg
     except ImportError:  # pragma: no cover
         return None
-    url = os.getenv("DATABASE_ADMIN_URL", URL_ADMIN_POR_DEFECTO)
-    url = re.sub(r"^postgresql\+\w+://", "postgresql://", url)
-    try:
-        with psycopg.connect(url, connect_timeout=5) as cx:
-            return cx.info.server_version // 10000
-    except Exception:  # noqa: BLE001 - sin base, se salta
-        return None
+    candidatas = [
+        os.getenv("DATABASE_ADMIN_URL"),
+        os.getenv("DATABASE_URL"),
+        URL_ADMIN_POR_DEFECTO,
+    ]
+    for url in candidatas:
+        if not url:
+            continue
+        url = re.sub(r"^postgresql\+\w+://", "postgresql://", url)
+        try:
+            with psycopg.connect(url, connect_timeout=5) as cx:
+                return cx.info.server_version // 10000
+        except Exception:  # noqa: BLE001 - se prueba la siguiente
+            continue
+    return None
 
 
 _CLIENTE = _version_mayor_del_cliente()

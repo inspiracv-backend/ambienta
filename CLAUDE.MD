@@ -1878,6 +1878,12 @@ en paralelo. **Gastaron 4,4 millones de tokens en seis minutos y devolvieron
 cero** por un limite de gasto. Casi todo lo que se les pedia no necesitaba
 criterio, necesitaba `grep`.
 
+**Un `-q` de mas apaga el resumen de pytest.** `pytest.ini` ya trae `-q` en
+`addopts`, asi que `python -m pytest -q` es `-qq`, y en ese nivel **no se
+imprime la linea final** (`N passed, M skipped`). Costo dos desvios el 13-oct:
+una corrida local de la que hubo que sacar el total con `--collect-only`, y un
+paso de CI que fallo con sus 13 pruebas en verde porque buscaba esa linea.
+
 **PowerShell, no bash.** El entorno del usuario es Windows: `&&` y `<` no
 funcionan en la terminal. Un comando por linea.
 

@@ -192,6 +192,11 @@ jobs:
           # El mismo rol acotado con el que corre la API: probar con el dueno
           # de la base daria falsos verdes, porque es superusuario y salta RLS.
           DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
+          # Las pruebas que respaldan la base la necesitan —`pg_dump` con el rol
+          # de la aplicacion se niega por RLS— y sin ella se saltaban **tambien
+          # en CI**: `1678 passed, 36 skipped` con las tres entre las saltadas.
+          # El paso de abajo exige que no se salten.
+          DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta
         run: |
           if [ -d tests ]; then
             pip install pytest==8.3.4
@@ -216,7 +221,12 @@ jobs:
           #
           # `-rs` imprime el motivo de cada salto, que es lo que hacia falta
           # para diagnosticarlo.
-          salida=$(python -m pytest tests/test_respaldos.py -q -rs 2>&1) || true
+          #
+          # **Sin `-q`**: `pytest.ini` ya lo trae en `addopts`, y uno mas lo
+          # vuelve `-qq`, que **suprime la linea del resumen** — justo la que
+          # este paso busca. La primera version fallaba con las 13 pruebas en
+          # verde por eso.
+          salida=$(python -m pytest tests/test_respaldos.py -rs 2>&1) || true
           echo "$salida"
           if echo "$salida" | grep -q "SKIPPED"; then
             echo "::error::Las pruebas de respaldo se saltaron en CI. Ver el motivo arriba."
