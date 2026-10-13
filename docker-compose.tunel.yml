@@ -1,0 +1,90 @@
+# Ambienta detrás de un túnel de Cloudflare.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.tunel.yml up -d
+#
+# **Para qué sirve:** dejar la Beta accesible en `app.ambienta.cl` desde una
+# máquina que no tiene IP pública —un notebook, un PC de oficina, una red con
+# NAT del proveedor— sin abrir un solo puerto en el router. El túnel sale *hacia*
+# Cloudflare, así que no hay nada que exponer ni que redirigir.
+#
+# ## Qué cambia respecto del despliegue normal
+#
+# Una sola cosa: **el TLS lo termina Cloudflare**, no Caddy. El navegador habla
+# HTTPS con el borde de Cloudflare, y del borde a este Caddy el tráfico va por el
+# túnel, que ya es cifrado. Por eso `DOMAIN_WEB` y `DOMAIN_API` se le pasan a
+# Caddy con `http://` adelante: una dirección de sitio con esquema explícito
+# apaga el HTTPS automático, y Caddy deja de pedirle certificados a Let's
+# Encrypt —que de todos modos no podría validar, porque el dominio resuelve a
+# Cloudflare y no a esta máquina—.
+#
+# Lo que **no** cambia: `CORS_ORIGINS` y `NEXT_PUBLIC_API_URL` siguen en `https`,
+# porque son lo que ve el navegador. Si se les quitara el `https` el frontend
+# llamaría a la API por HTTP, Cloudflare lo redirigiría y cada petición costaría
+# un salto extra, cuando no fallaría por contenido mixto.
+#
+# ## Lo que hay que hacer en Cloudflare (no está acá, es tu cuenta)
+#
+# 1. **Mover el DNS de `ambienta.cl` a Cloudflare.** Se agrega el dominio en el
+#    panel y se cambian los nameservers donde esté registrado (NIC Chile para un
+#    `.cl`). Es el único paso que tarda: la propagación puede ser de minutos a
+#    horas. El túnel **no funciona con el DNS en otro proveedor**: los registros
+#    que crea apuntan a `<uuid>.cfargotunnel.com`, que solo resuelve dentro de
+#    Cloudflare.
+# 2. **Crear el túnel**, en Zero Trust → Networks → Tunnels → Create a tunnel →
+#    Cloudflared. Copiar el token que muestra y ponerlo en `.env` como
+#    `TUNNEL_TOKEN`. Es un secreto: quien lo tenga puede publicar su propio
+#    servicio en tu dominio.
+# 3. **Las dos reglas de entrada (Public Hostnames) del túnel:**
+#
+#        app.ambienta.cl  →  HTTP  →  caddy:80
+#        api.ambienta.cl  →  HTTP  →  caddy:80
+#
+#    Las dos al mismo lugar: Caddy decide por el `Host` del pedido. Si se
+#    apuntaran directo a `web:3000` y `api:8000` funcionaría igual, pero se
+#    perderían las cabeceras de seguridad y la compresión, que están en el
+#    Caddyfile y valen para los dos caminos.
+# 4. **En Clerk, agregar el dominio de producción** y los registros DNS que pide
+#    (`clerk.ambienta.cl` y los demás CNAME). Con el DNS ya en Cloudflare es
+#    copiar y pegar. Sin esto hay que seguir con la instancia de desarrollo, que
+#    muestra avisos de modo desarrollo al entrar.
+#
+# ## Lo que este camino no resuelve
+#
+# **La Beta vive mientras esta máquina esté encendida y con red.** El túnel se
+# reconecta solo tras un corte, y los contenedores tienen `restart: always`, así
+# que un reinicio del equipo los vuelve a levantar — pero si el equipo está
+# apagado, la Beta está caída, y nadie fuera de acá puede hacer nada al respecto.
+#
+# Y la base de datos vive en un volumen de Docker **de esta máquina**. El
+# respaldo de §7 del runbook no es opcional acá: es lo único que separa un disco
+# que falla de perder los datos del piloto.
+
+services:
+  caddy:
+    environment:
+      # El `http://` adelante es lo que apaga el HTTPS automático. Ver arriba.
+      DOMAIN_WEB: http://${DOMAIN_WEB:?falta DOMAIN_WEB en .env}
+      DOMAIN_API: http://${DOMAIN_API:?falta DOMAIN_API en .env}
+      # Caddy no pide certificados en este camino, pero la variable sigue
+      # declarada en el Caddyfile y sin ella el arranque falla.
+      ACME_EMAIL: ${ACME_EMAIL:-sin-uso-en-el-tunel@localhost}
+
+  cloudflared:
+    # Sin versión fija a propósito: Cloudflare rechaza clientes viejos, y un
+    # túnel que deja de conectarse por una imagen de hace un año es peor que uno
+    # que se actualiza al recrear el contenedor. `--no-autoupdate` evita que el
+    # binario se actualice *dentro* del contenedor, que es otra cosa: así la
+    # versión la decide el `pull`, no el proceso.
+    image: cloudflare/cloudflared:latest
+    restart: always
+    command: tunnel --no-autoupdate run
+    environment:
+      # Va por variable de entorno y no en el `command` para que el token no
+      # quede en la línea de comandos del proceso, donde lo ve cualquier
+      # `docker inspect` o `ps` en la máquina.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?falta TUNNEL_TOKEN en .env — lo da el panel de Cloudflare al crear el tunel}
+    depends_on:
+      - caddy
+    networks:
+      # Solo la red publica: el tunel llega a Caddy y no alcanza a Postgres.
+      - publica

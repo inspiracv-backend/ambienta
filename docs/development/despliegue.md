@@ -46,6 +46,88 @@ Ambos deben devolver la IP del servidor.
 
 ---
 
+## 0.1 Variante para la Beta: túnel de Cloudflare (sin servidor propio)
+
+**Cuándo sirve:** dejar la Beta accesible en `app.ambienta.cl` desde una máquina
+sin IP pública —un notebook, un PC de oficina, una red con NAT del proveedor—
+mientras no haya VPS. Reemplaza a §1 (preparar el servidor) y cambia §2 y §3;
+todo lo demás del runbook vale igual.
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.tunel.yml up -d
+```
+
+El archivo `docker-compose.tunel.yml` explica el detalle técnico. Acá va lo que
+hay que hacer y en qué orden, porque **la mitad son pasos en cuentas ajenas que
+nadie puede hacer por ti**.
+
+### Lo que cambia respecto del despliegue normal
+
+**El TLS lo termina Cloudflare, no Caddy.** El navegador habla HTTPS con el borde
+de Cloudflare; de ahí a esta máquina el tráfico va por el túnel, que ya es
+cifrado. Por eso no hace falta Let's Encrypt, ni abrir el puerto 80, ni tocar el
+router. `CORS_ORIGINS` y `NEXT_PUBLIC_API_URL` **siguen en `https`**: son lo que
+ve el navegador.
+
+### Los cuatro pasos que son tuyos
+
+1. **Mover el DNS de `ambienta.cl` a Cloudflare.** Agregar el dominio en el panel
+   y cambiar los nameservers donde esté registrado (NIC Chile para un `.cl`).
+   **Es el único paso que tarda** —de minutos a horas— y conviene arrancar por
+   él. El túnel no funciona con el DNS en otro proveedor: los registros que crea
+   apuntan a `<uuid>.cfargotunnel.com`, que solo resuelve dentro de Cloudflare.
+2. **Crear el túnel:** Zero Trust → Networks → Tunnels → Create a tunnel →
+   Cloudflared. Copiar el token y ponerlo en `.env` como `TUNNEL_TOKEN`. **Es un
+   secreto:** quien lo tenga puede publicar su propio servicio en tu dominio.
+3. **Las dos reglas de entrada del túnel** (Public Hostnames):
+
+       app.ambienta.cl  →  HTTP  →  caddy:80
+       api.ambienta.cl  →  HTTP  →  caddy:80
+
+   Las dos al mismo destino: Caddy decide por el `Host`.
+4. **Clerk y Resend**, que no dependen del túnel pero sí del dominio: ver §2.1
+   para Clerk, y agregar el dominio en Resend con sus registros SPF y DKIM. Con
+   el DNS ya en Cloudflare, los dos son copiar y pegar.
+
+### Verificación propia de este camino
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.tunel.yml logs cloudflared | tail -5
+```
+
+Con el token correcto registra cuatro conexiones (`Registered tunnel
+connection`). Si dice **`Provided Tunnel token is not valid`**, el token está
+mal copiado o el túnel se borró en el panel — es el mensaje exacto que aparece
+con un token inventado, así que sirve para distinguirlo de un problema de red.
+
+Que Caddy esté sirviendo en modo HTTP, sin pedir certificados:
+
+```bash
+curl -s --resolve app.ambienta.cl:80:127.0.0.1 http://app.ambienta.cl/login -o /dev/null -w "%{http_code}\n"
+```
+
+Debe dar `200`. Después, desde **otra red** (el teléfono con datos móviles):
+abrir `https://app.ambienta.cl` y comprobar que el certificado lo emite
+Cloudflare.
+
+### Lo que este camino no resuelve, y hay que decirlo
+
+- **La Beta vive mientras esa máquina esté encendida y con red.** El túnel se
+  reconecta solo y los contenedores tienen `restart: always`, así que un reinicio
+  del equipo los vuelve a levantar — pero con el equipo apagado la Beta está
+  caída, y nadie fuera de ahí puede hacer nada al respecto.
+- **La base de datos vive en un volumen de Docker de esa máquina.** El respaldo
+  de §7 no es opcional acá: es lo único que separa un disco que falla de perder
+  los datos del piloto. Y son **dos** respaldos, no uno (ver §7).
+- **No hay staging.** Lo que se levanta es producción, con los datos de las
+  personas que prueben la Beta.
+
+Cuando aparezca el VPS, el cambio es mover el `.env` y correr el `up` **sin** el
+archivo de túnel: ahí Caddy vuelve a pedir sus certificados y el DNS pasa a
+apuntar al servidor. No hay nada más que migrar que el volumen de Postgres.
+
+---
+
 ## 1. Preparar el servidor
 
 ```bash
