@@ -215,7 +215,15 @@ describe('imprimir en la ficha es imprimir el informe', () => {
     // de la ficha no tendria hermanos que ocultar y el PDF saldria con toda la
     // pantalla delante, que es como salia.
     await montar();
-    expect(document.querySelector('body > .solo-impresion')).not.toBeNull();
+
+    // `waitFor` y no una asercion directa: `DocumentoImprimible` se monta en
+    // **dos pasadas** —`useEffect` pone `montado` y recien ahi hay portal,
+    // porque `document` no existe en el render del servidor—, asi que la hoja
+    // aparece de forma asincrona por diseno. Afirmarlo sincronicamente pasaba
+    // en local y fallaba en CI, donde 103 archivos compiten por el CPU.
+    await waitFor(() =>
+      expect(document.querySelector('body > .solo-impresion')).not.toBeNull(),
+    );
   });
 
   it('Ctrl+P hace lo mismo que el boton: marca la hoja y lo anota en el servidor', async () => {

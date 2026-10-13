@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import type { Tenant } from '@ambienta/shared';
@@ -207,8 +207,13 @@ describe('exportar la matriz', () => {
     montar();
     await userEvent.selectOptions(screen.getByLabelText('Planta'), 'p2');
 
-    const documento = document.querySelector('body > .solo-impresion');
-    expect(documento).not.toBeNull();
+    // Misma carrera que en InformeDeAuditoriaPanel: el portal de
+    // `DocumentoImprimible` llega en la segunda pasada del render.
+    const documento = await waitFor(() => {
+      const hoja = document.querySelector('body > .solo-impresion');
+      expect(hoja).not.toBeNull();
+      return hoja;
+    });
     expect(documento?.textContent).toContain('Matriz de aspectos e impactos ambientales');
     expect(documento?.textContent).toContain('Filtrado: Planta: Faena Antofagasta');
     expect(documento?.textContent).toContain('Muestra 1 de los 3 aspectos');

@@ -251,7 +251,14 @@ jobs:
             echo 'CLERK_ISSUER=https://ci.example'
             echo 'CLERK_WEBHOOK_SECRET=whsec_ci'
             echo 'CLERK_SECRET_KEY=sk_test_ci'
-            echo 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ci'
+            # No alcanza con que exista: el SDK de Clerk la **decodifica** en
+            # tiempo de build y aborta el `next build` si no tiene forma de
+            # llave (`pk_test_` + base64 del dominio terminado en `$`). Con
+            # `pk_test_ci` el prerender de /acceso-invitado y /signup fallaba
+            # con "publishableKey passed to Clerk is invalid". Esta decodifica
+            # a `ci.clerk.accounts.dev$`, un dominio que no existe: no es un
+            # secreto ni sirve contra ninguna instancia.
+            echo 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2kuY2xlcmsuYWNjb3VudHMuZGV2JA'
             echo 'TOKEN_INVITADO_SECRETO=ci-no-es-un-secreto'
             echo 'STORAGE_ENDPOINT=s3.example.com'
             echo 'STORAGE_BUCKET=ci'
