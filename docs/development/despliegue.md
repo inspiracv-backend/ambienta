@@ -5,7 +5,7 @@ Procedimiento para desplegar Ambienta en un servidor. Escrito para ejecutarse pa
 > **Estado (13-oct-2026):** no existe un servidor de producción aprovisionado, así
 > que este runbook **no se ha ejecutado nunca contra un servidor**. Lo que sí se
 > hizo ese día fue ensayarlo completo en local con las imágenes de producción
-> reales, y el ensayo encontró **seis fallas que rompían el primer despliegue**.
+> reales, y el ensayo encontró **nueve fallas que rompían el primer despliegue**.
 > Están corregidas y anotadas donde corresponde:
 >
 > | # | Lo que pasaba | Dónde |
@@ -16,6 +16,12 @@ Procedimiento para desplegar Ambienta en un servidor. Escrito para ejecutarse pa
 > | 4 | La auditoría rotada se escribía en disco efímero: `up -d --build` la borraba, y la tabla ya no la tiene | §4.11, §7 |
 > | 5 | `/health/ready`, que este runbook mandaba a verificar, **no existe** | §4.2 |
 > | 6 | Nada decía que hay que crear el primer Admin Global: sin él nadie puede entrar | §4.10 |
+> | 7 | La imagen de la web **no se podía construir**: `COPY apps/web/public` y ese directorio no existe en el repo | `apps/web/Dockerfile` |
+> | 8 | El Caddyfile era **inválido** (`exclude` dentro de `log` no existe en Caddy 2): Caddy no arrancaba y no se servía nada | `infra/caddy/Caddyfile` |
+> | 9 | `cron` estaba **solo en una red `internal`**, donde no se resuelve DNS: ningún correo habría salido nunca | `docker-compose.prod.yml` |
+>
+> Y **no existía ningún respaldo** (§7), con la base del piloto en un volumen de
+> una sola máquina.
 >
 > Ninguna se habría visto antes del primer intento, y tres de ellas no se ven
 > ni siquiera entonces: el sistema arranca, se ve bien y falla en silencio.
@@ -548,40 +554,108 @@ revierte** — hay que restaurar desde backup (ver §7).
 
 ---
 
-## 7. Backups — pendiente de implementar
+## 7. Respaldos (RNF-19, RNF-20)
 
-**RNF-19 del Análisis Funcional exige respaldo automático diario, y hoy no existe ninguno configurado.** Esto es deuda abierta y debe resolverse antes de tener datos reales de clientes.
-
-Backup manual mientras tanto. **Son dos cosas, no una:**
-
-```bash
-# 1. La base
-docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > backup-$(date +%F).sql.gz
-
-# 2. La auditoría ya rotada, que NO está en la base
-docker run --rm \
-  -v ambienta-prod_auditoria-archivada:/origen:ro \
-  -v "$PWD":/destino \
-  alpine tar czf /destino/auditoria-$(date +%F).tar.gz -C /origen .
-```
-
-**El segundo respaldo es el que no se puede rehacer.** `rotar-auditoria` saca las
-filas de `audit_log` después de releer el archivo que escribió: a partir de ese
-momento el JSON del volumen es el único lugar donde existe ese registro. Un
-`pg_dump` perfecto no lo contiene.
-
-Restauración:
+**Corren solos, todos los días a las 02:00**, en el servicio `respaldos` del
+Compose de producción. Hasta el 13-oct-2026 esta sección decía «pendiente de
+implementar» y era cierto: no existía ninguno.
 
 ```bash
-gunzip -c backup-2026-07-28.sql.gz | \
-  docker compose -f docker-compose.prod.yml exec -T postgres \
-  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+docker compose -f docker-compose.prod.yml logs respaldos | tail -5
 ```
 
-Para cumplir RNF-19/RNF-20 hace falta: cron diario, almacenamiento **fuera** del servidor (S3/R2), retención definida y **restauración probada** (un backup nunca verificado no es un backup).
+Debe mostrar `[respaldos] proxima corrida: ...`. **A las 2 y no a las 3** a
+propósito: la rotación mensual de auditoría va a las 3 del día 1, así que el día
+que esa tarea saca filas de `audit_log` ya existe un respaldo de una hora antes
+que todavía las contiene.
 
----
+### Qué respalda, y por qué son dos cosas
+
+| Artefacto | Qué lleva |
+|---|---|
+| `ambienta-base-AAAA-MM-DD.dump` | La base entera, formato `custom` de `pg_dump` |
+| `ambienta-auditoria-AAAA-MM-DD.tar.gz` | El registro de actividades **ya rotado** |
+
+El segundo no es redundante: `rotar-auditoria` escribe un JSON por empresa y
+**borra esas filas de `audit_log`**, así que desde ese momento el JSON es el
+único lugar donde existe ese registro y **no está en `pg_dump`**. Un respaldo
+que solo copie la base pierde la auditoría de los meses cerrados — justo lo que
+pide un fiscalizador.
+
+Los dos se suben al bucket bajo el prefijo `respaldos/`, **fuera de `tenants/`**:
+un respaldo contiene los datos de todas las empresas, así que no pertenece a la
+carpeta de ninguna. Se conservan **30 días**, local y remotamente.
+
+### Correrlo a mano
+
+```bash
+docker compose -f docker-compose.prod.yml exec respaldos python -m app.tareas respaldar
+```
+
+Informa el tamaño de cada artefacto, **las filas que contó al restaurarlo**, lo
+que purgó y cualquier aviso. Opciones: `--sin-subir` (solo disco local),
+`--sin-verificar` (no restaura para comprobar) y `--retener-dias N`.
+
+### Por qué se verifica restaurando, y no mirando el archivo
+
+**Un respaldo que nadie restauró no es un respaldo.** Cada corrida crea una base
+temporal, restaura el volcado ahí, cuenta las filas de cuatro tablas testigo
+—`tenants`, `users`, `audit_log`, `legal_norms`—, las compara con la base viva y
+borra la temporal. Eso es lo que distingue un volcado completo de uno que se
+cortó porque el disco se llenó, de un `.dump` corrupto, o de un `pg_restore` que
+falla a la mitad. **La tarea sale con código distinto de cero si no pudo
+verificar**, aunque el archivo exista: un cron que informa éxito con un archivo
+ilegible es peor que uno que falla, porque nadie vuelve a mirar.
+
+Si la base todavía no tiene filas, el informe **lo dice**: ahí la verificación
+solo probó que el archivo se restaura, y un «verificado: 0 filas» no debería
+leerse como tranquilidad.
+
+### El rol con el que se respalda
+
+**Con el dueño de la base, nunca con `ambienta_app`.** No es una preferencia:
+medido el 13-oct, `pg_dump` con el rol de la aplicación **se niega** —
+`ERROR: query would be affected by row-level security policy for table
+"action_plans"`—. Por eso la tarea **exige `DATABASE_ADMIN_URL`** y no cae a
+`DATABASE_URL` como hace `db.py`: con el rol equivocado el respaldo no sale
+ninguna noche y el motivo no se parece al síntoma.
+
+Y hay una bandera que **no** se usa: `--enable-row-security` apaga esa
+protección y hace que `pg_dump` vuelque solo las filas visibles. Con el rol de la
+aplicación eso son **cero filas de empresa**, en un archivo con todo el esquema y
+un tamaño creíble. El error de arriba se arregla con el rol correcto, no con esa
+bandera.
+
+### Restaurar
+
+```bash
+# 1. La base. `--clean` borra lo que exista antes de restaurar.
+docker compose -f docker-compose.prod.yml exec -T respaldos \
+  pg_restore --dbname "$DATABASE_ADMIN_URL" --clean --if-exists --no-owner \
+  --exit-on-error /var/lib/ambienta/respaldos/ambienta-base-2026-10-13.dump
+
+# 2. La auditoría archivada, si hace falta
+docker compose -f docker-compose.prod.yml exec -T respaldos \
+  tar xzf /var/lib/ambienta/respaldos/ambienta-auditoria-2026-10-13.tar.gz \
+  -C /var/lib/ambienta/auditoria
+```
+
+Si el respaldo que hay que restaurar está en el bucket y no en disco, se baja
+desde la consola de Backblaze y se copia al volumen con `docker cp`.
+
+`--exit-on-error` no es decorativo: sin él `pg_restore` informa los errores y
+**sale con 0**, así que una restauración a medias se ve como exitosa.
+
+### Lo que sigue pendiente
+
+1. **El ensayo de restauración completo**, en una máquina aparte y con el
+   sistema apuntando a la base restaurada. La verificación automática prueba que
+   el archivo sirve; no prueba que el servicio levante contra él.
+2. **Avisar cuando no corre.** Hoy un fallo queda en el log del contenedor. Lo
+   mínimo es revisar `logs respaldos` al mirar el sistema; lo correcto es que
+   dos noches sin respaldo lleguen como aviso.
+3. **Cifrado en reposo del respaldo.** Hoy va tal cual al bucket: quien tenga
+   la llave de B2 tiene la base.
 
 ## 8. Diagnóstico de problemas
 

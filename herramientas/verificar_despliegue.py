@@ -26,6 +26,26 @@ def exigir(condicion: bool, mensaje: str) -> None:
         FALLAS.append(mensaje)
 
 
+def volumenes_de(servicio: dict) -> list[str]:
+    """Los nombres de volumen que monta un servicio.
+
+    Entiende las dos formas, y hace falta: a mano se escribe la corta
+    (`respaldos:/ruta`) y **`docker compose config` normaliza a la larga**
+    (`{type, source, target}`). La primera version de este verificador buscaba
+    la subcadena `"respaldos:"` y dio un falso positivo contra el compose real,
+    mientras el chequeo del volumen de auditoria pasaba por coincidencia de
+    substring — o sea, ninguno de los dos estaba comprobando lo que decia.
+    """
+    nombres = []
+    for v in servicio.get("volumes") or []:
+        if isinstance(v, dict):
+            if v.get("type") == "volume" and v.get("source"):
+                nombres.append(str(v["source"]))
+        elif isinstance(v, str) and ":" in v and not v.startswith((".", "/")):
+            nombres.append(v.split(":", 1)[0])
+    return nombres
+
+
 def main() -> int:
     compose = yaml.safe_load(sys.stdin)
     servicios = compose["services"]
@@ -45,7 +65,7 @@ def main() -> int:
     # 2. La API no se conecta con el dueno de la base. Es el rol al que aplica
     #    el REVOKE que hace inmutable `audit_log` (RNF-08, RNF-25) y el que no
     #    puede saltarse RLS, la unica barrera entre empresas.
-    for s in ("api", "cron"):
+    for s in ("api", "cron", "respaldos"):
         url = entorno(s).get("DATABASE_URL", "")
         # Solo el usuario, nunca el resto de la URL: **los logs de CI de un
         # repositorio publico se leen**, y `url.split('@')[0]` incluye la
@@ -65,14 +85,44 @@ def main() -> int:
     # 4. `rotar-auditoria` borra de `audit_log` lo que archivo. Sin volumen, el
     #    `up -d --build` del runbook destruye el archivo y la tabla ya no lo
     #    tiene: se pierde el registro de actividades de meses enteros.
-    for s in ("api", "cron"):
-        volumenes = " ".join(str(v) for v in (servicios[s].get("volumes") or []))
+    for s in ("api", "cron", "respaldos"):
         exigir(
-            "auditoria" in volumenes,
+            "auditoria-archivada" in volumenes_de(servicios[s]),
             f"el servicio «{s}» no monta el volumen de la auditoria archivada",
         )
 
-    # 5. Postgres no se publica al host. Es lo que convierte una filtracion de
+    # 4.b El respaldo diario tiene que existir y guardar donde no se borre.
+    #     Hasta el 13-oct no habia ninguno: RNF-19 era deuda declarada, con la
+    #     base del piloto en un volumen de una sola maquina.
+    exigir("respaldos" in servicios, "no hay servicio de respaldo diario (RNF-19)")
+    if "respaldos" in servicios:
+        exigir(
+            "respaldos" in volumenes_de(servicios["respaldos"]),
+            "el servicio «respaldos» no monta un volumen: el respaldo moriria con el contenedor",
+        )
+
+    # 5. **Las tareas de fondo necesitan salir a internet.** `internal: true` no
+    #    es solo "no publica puertos": un contenedor cuya unica red es esa **no
+    #    resuelve DNS**. Medido el 13-oct: `cron` estaba solo en `interna`, asi
+    #    que no alcanzaba api.resend.com y ningun correo habria salido nunca —
+    #    encolado como fallo de red transitorio, en un log que nadie lee.
+    redes = compose.get("networks") or {}
+    for s in ("cron", "respaldos"):
+        if s not in servicios:
+            continue
+        propias = servicios[s].get("networks") or []
+        if isinstance(propias, dict):
+            propias = list(propias)
+        con_salida = [
+            n for n in propias if not (redes.get(n) or {}).get("internal", False)
+        ]
+        exigir(
+            bool(con_salida),
+            f"el servicio «{s}» solo esta en redes internal: no resuelve DNS, "
+            "asi que no alcanza Resend ni el bucket",
+        )
+
+    # 6. Postgres no se publica al host. Es lo que convierte una filtracion de
     #    credenciales en un problema acotado.
     exigir(
         not servicios["postgres"].get("ports"),
@@ -85,8 +135,9 @@ def main() -> int:
             print(f"  · {f}", file=sys.stderr)
         return 1
 
-    print("OK · llave de Clerk, rol de base, URL de administracion, volumen de")
-    print("     auditoria y aislamiento de Postgres estan en su lugar.")
+    print("OK · llave de Clerk, rol de base, URL de administracion, volumenes de")
+    print("     auditoria y respaldo, salida a internet de las tareas de fondo y")
+    print("     aislamiento de Postgres estan en su lugar.")
     return 0
 
 

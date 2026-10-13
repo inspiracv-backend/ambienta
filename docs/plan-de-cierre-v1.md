@@ -340,7 +340,20 @@ cd apps/web && npx vitest run
 bash db/run.sh --with-tests
 ```
 
-**Medido el 10-sep:** **1352** pruebas de API en verde, 12 saltadas (las que
-salen a internet); **700** del frontend sobre 65 archivos; `tsc --noEmit`
-limpio. El auditor: 27 endpoints sin llamador, 9 funciones de servicio sin
-llamador, 22 importaciones de datos de ejemplo en el frontend.
+**Medido el 13-oct, sobre `1.0.0-beta.1`:** **1714** pruebas de API en verde
+sobre 123 archivos —12 saltadas por salir a internet y 3 que necesitan el
+cliente `pg_dump` 16, que en Windows no esta—; **938** del frontend sobre 103
+archivos; `tsc --noEmit` y `npm run build` limpios. En el esquema: **67 tablas,
+55 con RLS y 52 con FORCE**, medido sobre una instalacion **limpia de
+produccion** y no sobre la base de desarrollo, que arrastra el seed. 13
+capacidades con spec vivo y **cero cambios activos**.
+
+Y el camino de despliegue, que hasta ese dia nunca se habia ejecutado: las
+imagenes de produccion construyen, Caddy valida, la API responde 200 a traves
+del proxy, `/health/db` tambien, el frontend sirve el login, `ambienta_app` es
+el rol conectado, `audit_log` queda en escribe-pero-no-corrige, y el respaldo
+diario se verifica restaurandolo. Lo comprueba en CI el job `despliegue`.
+
+**El 10-sep esto decia 1352 y 700.** Los numeros de una verificacion envejecen
+mas rapido que el texto que los rodea, asi que conviene volver a medirlos antes
+de citarlos.

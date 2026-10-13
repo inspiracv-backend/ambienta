@@ -452,7 +452,7 @@ Cosas que ya costaron tiempo. Vale leerlas antes de tocar lo que mencionan.
 **El camino de produccion nunca se habia ejecutado, y no funcionaba** (13-oct).
 `docker-compose.prod.yml`, su Caddyfile y su runbook se mantuvieron a mano
 durante meses sin que nadie corriera el `up`: no hay servidor aprovisionado. Al
-ensayarlo completo en local con las imagenes de produccion salieron **siete**
+ensayarlo completo en local con las imagenes de produccion salieron **nueve**
 fallas, y la mitad no se ven ni en el primer intento porque el sistema arranca,
 se ve bien y falla en silencio:
 
@@ -483,6 +483,53 @@ se ve bien y falla en silencio:
    sin empresas ni usuarios, y dar de alta una empresa exige ser Admin Global:
    sin `python -m app.tareas crear-admin-global` queda desplegado y nadie puede
    entrar.
+8. **El Caddyfile era invalido.** `exclude` dentro del bloque `log` no existe en
+   Caddy 2, asi que el archivo entero no parseaba: Caddy reiniciaba en bucle
+   imprimiendo solo "using config from file", **sin el error a la vista**, y el
+   despliegue no servia ni la web ni la API. Va `log_skip`, y al tocar ese
+   archivo se corre `caddy validate` — es lo que lo encontro.
+9. **`internal: true` no es solo "no publica puertos": tampoco deja salir.** Un
+   contenedor cuya unica red es esa **no resuelve DNS** (medido:
+   `Temporary failure in name resolution`). El servicio `cron` estaba solo en
+   `interna`, asi que no alcanzaba api.resend.com: los avisos se generaban, el
+   despachador trataba el fallo como transitorio y los encolaba para
+   reintentar, y **ningun correo habria salido nunca**. Es el mismo defecto que
+   la epica de notificaciones ya sufrio dos veces, con otras causas. Las tareas
+   de fondo van en `interna` + `salida`, que da internet sin ponerlas en la red
+   que Caddy enruta.
+
+**Y no existia ningun respaldo.** RNF-19 pide respaldo automatico diario y el
+runbook lo declaraba deuda abierta —"antes de tener datos reales de clientes"—
+con la base del piloto en un volumen de una sola maquina. Desde el 13-oct corre
+el servicio `respaldos` (`python -m app.tareas respaldar`), y hay tres cosas que
+conviene saber antes de tocarlo:
+
+- **Respalda dos cosas, no una.** La base con `pg_dump`, y el registro de
+  actividades **ya rotado**: `rotar-auditoria` borra esas filas de `audit_log`
+  despues de escribir su JSON, asi que ese archivo es el unico lugar donde
+  existen y **no esta en `pg_dump`**.
+- **Se verifica restaurando, y la tarea falla si no puede.** Crea una base
+  temporal, restaura, cuenta cuatro tablas testigo, compara con la base viva y
+  la borra. Un cron que informa exito con un archivo ilegible es peor que uno
+  que falla, porque nadie vuelve a mirar. Con la base vacia el informe **dice**
+  que solo probo que el archivo se restaura: un "verificado: 0 filas" no es una
+  tranquilidad.
+- **Se respalda con el dueno de la base.** Medido: `pg_dump` con `ambienta_app`
+  se niega con `query would be affected by row-level security policy`. La
+  bandera `--enable-row-security` "arreglaria" ese error volcando **solo las
+  filas visibles** —cero filas de empresa, esquema completo, tamano creible— y
+  por eso no se usa. Corre a las 02:00, **una hora antes** de la rotacion
+  mensual, para que el dia que la rotacion saca filas ya exista un respaldo que
+  las contiene.
+
+Y `herramientas/verificar_despliegue.py` comprueba en CI lo que no se ve
+mirando: que `web` reciba la llave de Clerk, que la API no se conecte como
+dueno, que las dos URLs esten declaradas, que los volumenes esten montados, que
+las tareas de fondo tengan salida a internet y que Postgres no publique puertos.
+**Probado con mutaciones**, y su primera version tenia un falso positivo y un
+chequeo que pasaba por coincidencia de substring: `docker compose config`
+normaliza los volumenes a la forma larga (`source:`/`target:`) y el verificador
+buscaba la corta.
 
 **El rol de la base no es un detalle de configuracion: es la garantia.** Si algo
 necesita cruzar empresas usa `AdminSessionLocal` —el webhook de Clerk, el health
@@ -1839,8 +1886,10 @@ funcionan en la terminal. Un comando por linea.
 ```bash
 python herramientas/auditar.py          # los detectores de las clases de defecto ya sufridas
 npm run spec:check                      # los 4 artefactos de cada cambio
-cd apps/api && python -m pytest         # 1659 pruebas, medido el 21-sep (12 se saltan: las de B2, opt-in). Necesita DATABASE_URL, ver arriba
-cd apps/web && npx vitest run           # 908 pruebas, 98 archivos (medido el 21-sep)
+cd apps/api && python -m pytest         # 1714 pruebas en 123 archivos, medido el 13-oct. Se saltan 12 (salen a internet) y 3 (necesitan pg_dump 16, que en Windows no esta). Necesita DATABASE_URL, ver arriba
+cd apps/web && npx vitest run           # 938 pruebas, 103 archivos (medido el 13-oct)
+python herramientas/comprobar_env.py    # el `.env` antes de desplegar, sin imprimir un solo valor
+docker compose -f docker-compose.prod.yml config | python herramientas/verificar_despliegue.py
 bash db/run.sh --with-tests             # 9 comprobaciones del esquema (y CI las corre solo)
 ```
 

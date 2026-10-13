@@ -318,6 +318,76 @@ services:
         condition: service_healthy
     networks:
       - interna
+      # **Sin esto el correo no sale, y nada lo dice.** Medido el 13-oct: un
+      # contenedor cuya unica red es `internal: true` no resuelve ni un nombre
+      # —`Temporary failure in name resolution`—, asi que no alcanza a
+      # api.resend.com. Este servicio estaba solo en `interna`: los avisos se
+      # generaban, el despachador trataba el fallo de red como transitorio y los
+      # encolaba para reintentar, y **ningun correo habria salido nunca**, con el
+      # error en un log que nadie lee. Es el mismo defecto que esta epica ya
+      # sufrio una vez, con otra causa.
+      - salida
+
+  respaldos:
+    # **Respaldo diario de la base y de la auditoria archivada** (RNF-19).
+    #
+    # Hasta el 13-oct no existia ninguno y el runbook lo declaraba deuda
+    # abierta: "debe resolverse antes de tener datos reales de clientes". Con la
+    # Beta corriendo desde una sola maquina, un disco que falla es la perdida de
+    # los datos del piloto.
+    #
+    # Misma imagen que la API, que es la que trae `pg_dump` 16 y `boto3`: el
+    # volcado y la subida al bucket los hace un solo proceso, en un solo
+    # lenguaje, reusando `services/almacenamiento.py`.
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: always
+    entrypoint: ['/bin/sh', '-c']
+    # **A las 2, una hora ANTES de la rotacion mensual de auditoria** (que el
+    # runbook instala a las 3 del dia 1). El orden importa: asi el dia que la
+    # rotacion saca filas de `audit_log`, ya existe un respaldo de una hora
+    # antes que todavia las contiene.
+    command:
+      - |
+        while true; do
+          ahora=$$(date +%s)
+          proxima=$$(date -d "today ${HORA_RESPALDOS:-02}:00" +%s)
+          if [ "$$proxima" -le "$$ahora" ]; then
+            proxima=$$(date -d "tomorrow ${HORA_RESPALDOS:-02}:00" +%s)
+          fi
+          echo "[respaldos] proxima corrida: $$(date -d @$$proxima)"
+          sleep $$((proxima - ahora))
+          python -m app.tareas respaldar || echo "[respaldos] EL RESPALDO FALLO"
+        done
+    environment:
+      ENVIRONMENT: production
+      # **La del dueno es la que respalda.** Con el rol de la aplicacion
+      # `pg_dump` se niega: "query would be affected by row-level security
+      # policy". Medido, no supuesto.
+      DATABASE_ADMIN_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+psycopg://ambienta_app:${APP_DB_PASSWORD:?falta APP_DB_PASSWORD en .env}@postgres:5432/${POSTGRES_DB}
+      RUTA_RESPALDOS: /var/lib/ambienta/respaldos
+      RUTA_ARCHIVO_AUDITORIA: /var/lib/ambienta/auditoria
+      # Para subirlo fuera de esta maquina, que es el punto. Sin esto el
+      # respaldo queda en el mismo disco que puede fallar — la tarea lo dice en
+      # su informe en vez de fingir que cumplio.
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-005}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_KEY_ID: ${STORAGE_KEY_ID:-}
+      STORAGE_KEY: ${STORAGE_KEY:-}
+    volumes:
+      - respaldos:/var/lib/ambienta/respaldos
+      # La auditoria rotada se lee para empaquetarla. **Solo lectura**: esta
+      # tarea respalda, no borra.
+      - auditoria-archivada:/var/lib/ambienta/auditoria:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - interna
+      - salida
 
   caddy:
     image: caddy:2-alpine
@@ -349,9 +419,20 @@ volumes:
   # Lo que `rotar-auditoria` saca de la base. Es el unico volumen cuyo
   # contenido no se puede reconstruir desde ninguna otra parte.
   auditoria-archivada:
+  # Los respaldos diarios, antes de subirse al bucket. Se conservan 30 dias.
+  respaldos:
 
 networks:
   # Postgres vive solo aquí; ni Caddy ni la web lo alcanzan.
+  #
+  # `internal: true` no es solo "no publica puertos": **tampoco deja salir**.
+  # Un contenedor cuya unica red es esta no resuelve DNS. De ahi que las tareas
+  # de fondo necesiten `salida`.
   interna:
     internal: true
+  # Lo que Caddy alcanza, o sea lo que se puede llegar a servir desde internet.
   publica:
+  # Salida a internet para las tareas de fondo —correo por Resend, respaldos al
+  # bucket, consultas a la BCN— **sin ponerlas en la red que Caddy enruta**. Una
+  # tarea que no sirve HTTP no tiene por que ser alcanzable.
+  salida:

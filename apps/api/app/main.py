@@ -56,7 +56,7 @@ instalar_auditoria(SessionLocal)
 
 app = FastAPI(
     title="Ambienta API",
-    version="0.1.0",
+    version="1.0.0-beta.1",
     description=DESCRIPCION,
     openapi_tags=TAGS_METADATA,
 )
