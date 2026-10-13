@@ -215,3 +215,76 @@ jobs:
 
       - name: Typecheck
         run: npx turbo run typecheck --filter=@ambienta/shared
+
+  # ── Camino de despliegue ──────────────────────────────────────────────
+  #
+  # **Este job existe porque el camino de produccion se podrido en silencio
+  # durante meses.** `docker-compose.prod.yml`, su Caddyfile y sus Dockerfiles
+  # se mantuvieron a mano sin que nadie corriera el `up` —no hay servidor
+  # aprovisionado— y al ensayarlo el 13-oct tenian ocho fallas. Tres las habria
+  # atrapado este job el dia que entraron:
+  #
+  #   · El Caddyfile era **invalido** (`exclude` dentro de `log` no existe en
+  #     Caddy 2): Caddy no arrancaba y el despliegue no servia nada.
+  #   · El Dockerfile de la web copiaba `apps/web/public`, que no existe en el
+  #     repo, asi que la imagen no se podia construir.
+  #   · El `reverse_proxy` apuntaba a `api:3001` y la API escucha en 8000.
+  #
+  # No despliega ni levanta nada: comprueba que lo declarado sea construible,
+  # parseable y coherente, que es lo que nadie estaba comprobando.
+  despliegue:
+    name: Despliegue — compose, Caddy, imagenes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: El compose de produccion resuelve todas sus variables
+        run: |
+          # `.env.example` trae marcadores, no secretos; los valores de abajo
+          # tampoco lo son. Alcanzan para que las variables con `:?` esten
+          # definidas, que es justo lo que falla cuando alguien agrega un
+          # servicio y olvida declarar una.
+          cp .env.example .env.ci
+          {
+            echo 'APP_DB_PASSWORD=ci-no-es-un-secreto'
+            echo 'CLERK_JWKS_URL=https://ci.example/.well-known/jwks.json'
+            echo 'CLERK_ISSUER=https://ci.example'
+            echo 'CLERK_WEBHOOK_SECRET=whsec_ci'
+            echo 'CLERK_SECRET_KEY=sk_test_ci'
+            echo 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_ci'
+            echo 'TOKEN_INVITADO_SECRETO=ci-no-es-un-secreto'
+            echo 'STORAGE_ENDPOINT=s3.example.com'
+            echo 'STORAGE_BUCKET=ci'
+            echo 'STORAGE_KEY_ID=ci'
+            echo 'STORAGE_KEY=ci'
+            echo 'RESEND_API_KEY=re_ci'
+            echo 'CORREO_REMITENTE=CI <ci@example.com>'
+          } >> .env.ci
+          docker compose -f docker-compose.prod.yml --env-file .env.ci config --quiet
+          echo "OK · el compose de produccion resuelve"
+
+      - name: Las garantias del despliegue siguen en su lugar
+        run: |
+          pip install --quiet pyyaml
+          docker compose -f docker-compose.prod.yml --env-file .env.ci config \
+            | python herramientas/verificar_despliegue.py
+
+      - name: El Caddyfile es valido
+        run: |
+          docker run --rm \
+            -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e DOMAIN_WEB=ci.example -e DOMAIN_API=api.ci.example \
+            -e ACME_EMAIL=ci@example.com \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Caddy apunta al puerto donde escucha la API
+        run: |
+          # Se comparan los dos archivos en vez de fijar el numero en un tercer
+          # lugar que tambien habria que mantener.
+          puerto_api=$(grep -oP '(?<=--port", ")[0-9]+' apps/api/Dockerfile)
+          puerto_caddy=$(grep -oP '(?<=reverse_proxy api:)[0-9]+' infra/caddy/Caddyfile)
+          echo "Dockerfile: $puerto_api · Caddyfile: $puerto_caddy"
+          test -n "$puerto_api" && test "$puerto_api" = "$puerto_caddy"
+
+      - name: Las imagenes de produccion se construyen
+        run: docker compose -f docker-compose.prod.yml --env-file .env.ci build api web

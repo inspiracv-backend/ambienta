@@ -14,8 +14,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY apps/api/app ./app
 
+# Donde la rotacion mensual deja el registro de auditoria archivado
+# (`RUTA_ARCHIVO_AUDITORIA`, apps/api/app/config.py). Se crea **en la imagen**
+# y con dueno `appuser` a proposito: un volumen nombrado hereda el dueno del
+# directorio que la imagen ya tiene en ese punto de montaje, y uno creado vacio
+# en tiempo de ejecucion seria de root — el proceso no corre como root y la
+# rotacion fallaria al escribir.
+RUN mkdir -p /var/lib/ambienta/auditoria
+
 # Usuario sin privilegios: si el proceso se ve comprometido, no corre como root.
-RUN useradd --create-home --uid 10001 appuser && chown -R appuser /repo
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser /repo /var/lib/ambienta
 USER appuser
 
 EXPOSE 8000

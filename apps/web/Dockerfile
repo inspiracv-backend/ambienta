@@ -37,6 +37,19 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 
+# Nombre del JWT Template que trae el claim `tenant_id`. El codigo asume
+# `default`; esto existe para cuando lo renombren en Clerk. Un `build-arg` que
+# el Dockerfile no declara se ignora con una advertencia facil de pasar por
+# alto, asi que las que el compose pasa tienen que estar declaradas aca.
+ARG NEXT_PUBLIC_CLERK_JWT_TEMPLATE=default
+ENV NEXT_PUBLIC_CLERK_JWT_TEMPLATE=$NEXT_PUBLIC_CLERK_JWT_TEMPLATE
+
+# Empresa del link publico del Cliente Invitado (RF-02). Sin ella la pantalla
+# /acceso-invitado exige `?empresa=<uuid>` en la URL en vez de elegir una
+# empresa al azar.
+ARG NEXT_PUBLIC_EMPRESA_INVITADO=
+ENV NEXT_PUBLIC_EMPRESA_INVITADO=$NEXT_PUBLIC_EMPRESA_INVITADO
+
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build --workspace @ambienta/web
 
@@ -54,6 +67,11 @@ RUN addgroup -g 1001 nodejs && adduser -S -u 1001 -G nodejs ambienta
 # node_modules del monorepo.
 COPY --from=builder --chown=ambienta:nodejs /repo/apps/web/.next/standalone ./
 COPY --from=builder --chown=ambienta:nodejs /repo/apps/web/.next/static ./apps/web/.next/static
+# `apps/web/public` tiene que existir en el repo aunque este vacio: `COPY` no
+# admite "si existe" y falla el build entero si falta. **Y faltaba**: la imagen
+# de produccion de la web no se podia construir, asi que `up -d --build` se
+# caia en el primer intento. En desarrollo no se nota porque `next dev` no
+# necesita el directorio. Por eso esta el `.gitkeep`.
 COPY --from=builder --chown=ambienta:nodejs /repo/apps/web/public ./apps/web/public
 
 USER ambienta

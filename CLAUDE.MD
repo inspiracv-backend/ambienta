@@ -166,7 +166,7 @@ notificaciones con vencimientos.
 
 **Monolito modular**, no microservicios. Una sola base de datos, un solo
 `SessionLocal`, sin bus de eventos ni HTTP interno. Los 13 dominios comparten
-las 66 tablas y hay FKs cruzando entre ellos: 58 apuntan a `tenants` y 49 a
+las 67 tablas y hay FKs cruzando entre ellos: 58 apuntan a `tenants` y 49 a
 `users` (medido el 22-sep; ver `db/README.md`).
 
 Los limites entre dominios existen **en el codigo y por convencion**, no
@@ -199,7 +199,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 
 | Area | Estado |
 |---|---|
-| Base de datos | **Completa y verificada, y ahora CI lo comprueba** (#55). 66 tablas, 54 con RLS (medido el 22-sep; decia 52 y 38, las cifras del esquema inicial), 9 smoke tests en verde. Hasta el 31-ago esta linea se sostenia sola: `02_smoke_test.sql` **reventaba en su tercer INSERT** desde que la migracion 13 exigio departamento a los usuarios, y como no lo corria nada, nadie se entero. Ahora corre en el job de API, antes de pytest |
+| Base de datos | **Completa y verificada, y ahora CI lo comprueba** (#55). **67 tablas, 55 con RLS y 52 con FORCE** — medido el 13-oct sobre una instalacion **limpia de produccion**, que es la cifra que importa: antes se median sobre la base de desarrollo, que arrastra el seed. El 22-sep decia 66/54 y el esquema inicial 52/38. 9 smoke tests en verde. **Las tres sin FORCE son `legal_norms`, `legal_norm_versions` y `legal_articles`, y es deliberado**: el catalogo normativo es global y lo escribe la sincronizacion de la BCN con el dueno de la base, que con FORCE quedaria sujeto a la politica y no podria insertar normas sin empresa. Tienen politica para que cada empresa vea las globales mas las propias. Hasta el 31-ago esta linea se sostenia sola: `02_smoke_test.sql` **reventaba en su tercer INSERT** desde que la migracion 13 exigio departamento a los usuarios, y como no lo corria nada, nadie se entero. Ahora corre en el job de API, antes de pytest |
 | API | **109 rutas, 225 operaciones.** Swagger con titulo y explicacion en **las 223 de negocio, sin excepciones**. 37 recursos con lectura y escritura completas, borrado logico y errores uniformes |
 | Auth | **Funcionando de punta a punta** (Clerk fases 1 a 4), verificado en el navegador el 10-ago. Sin `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` sigue el DevRoleSwitcher |
 | Auth — Google SSO | **Verificado en local el 17-ago.** Entrada con `oauth_google`, el claim `tenant_id` viaja y la API responde 200. **Falta para produccion:** credenciales propias (hoy usa las compartidas de Clerk) y el webhook. Ver abajo |
@@ -448,6 +448,67 @@ posible — la empresa cree que declaro a tiempo.
 ## Trampas conocidas
 
 Cosas que ya costaron tiempo. Vale leerlas antes de tocar lo que mencionan.
+
+**El camino de produccion nunca se habia ejecutado, y no funcionaba** (13-oct).
+`docker-compose.prod.yml`, su Caddyfile y su runbook se mantuvieron a mano
+durante meses sin que nadie corriera el `up`: no hay servidor aprovisionado. Al
+ensayarlo completo en local con las imagenes de produccion salieron **siete**
+fallas, y la mitad no se ven ni en el primer intento porque el sistema arranca,
+se ve bien y falla en silencio:
+
+1. **La imagen de la web no se podia construir.** El Dockerfile hace
+   `COPY apps/web/public` y ese directorio no existe en el repo. `COPY` no
+   admite "si existe", asi que `up -d --build` se caia en el primer intento.
+   En desarrollo no se nota: `next dev` no necesita el directorio.
+2. **Caddy apuntaba a `api:3001` y la API escucha en 8000** → 502 en toda la
+   API, con la web cargando perfecta.
+3. **El servicio `web` no recibia `CLERK_SECRET_KEY`.** `clerkMiddleware()`
+   corre en el servidor de Next y sin ella falla con *Missing secretKey*: 500 en
+   toda pantalla protegida. Como el login es publico, el despliegue se ve bien
+   hasta que alguien intenta entrar.
+4. **La API se conectaba como dueno de la base.** Las dos garantias que sostiene
+   la base dejaban de existir justo en produccion: el `REVOKE UPDATE, DELETE ON
+   audit_log` aplica **solo a `ambienta_app`** (RNF-08, RNF-25), y la barrera de
+   aislamiento volvia a depender del `SET LOCAL ROLE` que se pierde en cada
+   commit. Ahora va `ambienta_app` para la aplicacion y `DATABASE_ADMIN_URL`
+   explicita para lo que legitimamente cruza empresas.
+5. **La auditoria rotada se escribia en disco efimero.** `rotar-auditoria`
+   escribe el JSON y **borra las filas de `audit_log`**; sin volumen en
+   `RUTA_ARCHIVO_AUDITORIA`, el `up -d --build` del propio runbook lo destruia.
+   El volumen se llama `auditoria-archivada` y **es el unico cuyo contenido no se
+   puede reconstruir**: no esta en `pg_dump`.
+6. **`/health/ready`, que el runbook mandaba a verificar, no existe.** Los
+   endpoints son `/health` y `/health/db`.
+7. **Nada decia que hay que crear el primer Admin Global.** Produccion arranca
+   sin empresas ni usuarios, y dar de alta una empresa exige ser Admin Global:
+   sin `python -m app.tareas crear-admin-global` queda desplegado y nadie puede
+   entrar.
+
+**El rol de la base no es un detalle de configuracion: es la garantia.** Si algo
+necesita cruzar empresas usa `AdminSessionLocal` —el webhook de Clerk, el health
+del esquema, las tareas del `cron`, la rotacion de auditoria— y eso exige
+`DATABASE_ADMIN_URL`. Darle a una tarea del `cron` solo la URL de `ambienta_app`
+la deja con **cero filas por RLS**: los avisos de vencimiento se dejan de enviar
+sin un solo error en el log, que es el peor resultado posible en un producto cuya
+unica funcion es avisar. Las dos URLs van explicitas en los dos servicios, nunca
+una sola haciendo de ambas.
+
+**La contrasena de `ambienta_app` estaba escrita en un archivo versionado.**
+`db/07` la fija en `ambienta_app_dev` y el propio archivo pedia cambiarla por
+variable de entorno. Ahora `infra/postgres/init/99-password-del-rol-app.sh` la
+reemplaza por `APP_DB_PASSWORD` en el primer arranque y se niega a seguir si le
+pasan la de desarrollo. **Los scripts de init no vuelven a correr sobre un
+volumen que ya existe**: cambiarla en una instalacion desplegada exige el
+`ALTER ROLE` a mano que documenta el runbook.
+
+**`core.autocrlf=true` rompe los `.sh` que se montan en contenedores.** Un
+shebang que termina en `\r` falla con `bad interpreter: /bin/sh^M`. Medido:
+`db/run.sh` estaba con CRLF en la copia de trabajo. Lo fija `.gitattributes`
+(`*.sh text eol=lf`), no la configuracion de cada maquina.
+
+**Un `| ` dentro de una celda de tabla Markdown parte la fila.** Escribir
+`` `logs api | grep x` `` en una celda genera una columna extra y descuadra la
+tabla entera.
 
 **`db/01_schema.sql` no es una migracion.** Editarlo solo afecta a bases
 nuevas. Todo cambio de esquema necesita ademas un `db/NN_*.sql` idempotente, y

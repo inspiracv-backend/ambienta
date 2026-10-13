@@ -36,6 +36,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?falta POSTGRES_USER en .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en .env}
       POSTGRES_DB: ${POSTGRES_DB:?falta POSTGRES_DB en .env}
+      # La lee `99-password-del-rol-app.sh` para fijarle su contrasena al rol
+      # con el que se conecta la API. `db/07` lo crea con una contrasena de
+      # desarrollo escrita en un archivo **versionado** —el propio archivo dice
+      # que en produccion hay que cambiarla y pasarla por variable de entorno—
+      # y este es el lugar donde se cambia.
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?falta APP_DB_PASSWORD en .env — es la contrasena del rol con el que se conecta la API}
     # Sin `ports`: la base NO se expone a internet. Acceso solo vía red interna
     # o túnel SSH (`ssh -L 5432:localhost:5432 usuario@servidor`).
     volumes:
@@ -95,6 +101,12 @@ services:
       - ./db/33_relaciones_y_bitacora_de_la_bcn.sql:/docker-entrypoint-initdb.d/33-relaciones-y-bitacora-de-la-bcn.sql:ro
       - ./db/34_compromisos_del_seguimiento.sql:/docker-entrypoint-initdb.d/34-compromisos-del-seguimiento.sql:ro
       - ./db/35_evidencia_objetiva_del_hallazgo.sql:/docker-entrypoint-initdb.d/35-evidencia-objetiva-del-hallazgo.sql:ro
+      # Va al final a proposito: `99` ordena despues de todos los `NN_*.sql`,
+      # asi que corre cuando `ambienta_app` ya existe con sus GRANTs.
+      #
+      # No cuenta para la regla de los CINCO lugares: no es una migracion, es
+      # el paso que convierte la contrasena de desarrollo del rol en una real.
+      - ./infra/postgres/init/99-password-del-rol-app.sh:/docker-entrypoint-initdb.d/99-password-del-rol-app.sh:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 10s
@@ -113,7 +125,28 @@ services:
     environment:
       ENVIRONMENT: production
       PORT: 8000
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # **La API se conecta con `ambienta_app`, no con el dueno de la base.**
+      #
+      # Aqui decia `${POSTGRES_USER}` —el dueno— y eso desarmaba en produccion
+      # las dos garantias que sostiene la base, no la aplicacion:
+      #
+      #   · El `REVOKE UPDATE, DELETE ON audit_log` de `db/07` aplica **solo a
+      #     `ambienta_app`**. Conectados como dueno, el registro de auditoria
+      #     se podia editar y borrar: RNF-08 y RNF-25 dejaban de existir justo
+      #     en el entorno donde importan.
+      #   · `db.py` explica que la barrera de aislamiento "vive en la conexion"
+      #     para que no dependa de que alguien recuerde el `SET LOCAL ROLE` en
+      #     cada transaccion —se pierde en cada commit—. Con el dueno, volvia a
+      #     depender exactamente de eso.
+      DATABASE_URL: postgresql+psycopg://ambienta_app:${APP_DB_PASSWORD:?falta APP_DB_PASSWORD en .env}@postgres:5432/${POSTGRES_DB}
+      # El motor de administracion, que si cruza empresas y por eso usa el
+      # dueno: el webhook `user.deleted` de Clerk llega sin metadatos y hay que
+      # buscar en todas las empresas, y `/health/db` revisa el esquema.
+      #
+      # **Va explicita.** Si falta, `db.py` cae a `database_url` sin avisar, y
+      # con la API ya conectada como `ambienta_app` ese respaldo silencioso
+      # significa `/health/db` en rojo y el webhook sin poder escribir.
+      DATABASE_ADMIN_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       CORS_ORIGINS: https://${DOMAIN_WEB:?falta DOMAIN_WEB en .env}
       # Clerk (ADR-006). OBLIGATORIAS en produccion, y por eso van con `:?`.
       #
@@ -144,6 +177,38 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:?falta la llave de Resend}
       CORREO_REMITENTE: ${CORREO_REMITENTE:?falta el remitente, con dominio verificado en Resend}
       CORREO_RESPONDER_A: ${CORREO_RESPONDER_A:-}
+      # Opcional de verdad: el SPARQL de la BCN no pide clave, asi que sin
+      # esto la ingesta trae metadatos, versiones y relaciones igual, y lo
+      # unico que queda vacio es el texto de los articulos.
+      BCN_API_KEY: ${BCN_API_KEY:-}
+      # Tiene que coincidir con el punto de montaje del volumen de abajo. Va
+      # explicita —aunque `config.py` traiga este mismo valor por defecto—
+      # porque si alguien la cambia sin mover el volumen, la rotacion vuelve a
+      # escribir en disco efimero y el borrado de `audit_log` si es definitivo.
+      RUTA_ARCHIVO_AUDITORIA: /var/lib/ambienta/auditoria
+    # **El registro de auditoria archivado tiene que sobrevivir al redespliegue.**
+    #
+    # `rotar-auditoria` escribe un JSON por empresa y **borra esas filas de
+    # `audit_log`**: relee el archivo antes de borrar, asi que nada se pierde
+    # mientras el archivo exista. Sin este volumen el JSON caia en el sistema
+    # de archivos del contenedor, y `up -d --build` —el procedimiento de
+    # actualizacion del propio runbook— lo destruia. El resultado habria sido
+    # perder el registro de actividades de meses enteros, sin un solo error, en
+    # un producto cuyo sentido es demostrar cumplimiento (RNF-08, RNF-25).
+    #
+    # Hay que respaldarlo: `docker run --rm -v ambienta-prod_auditoria-archivada:/a`
+    # y ver docs/development/despliegue.md.
+    volumes:
+      - auditoria-archivada:/var/lib/ambienta/auditoria
+    # El mismo del compose de desarrollo. Sin esto, `docker compose ps` dice
+    # "running" aunque la API no sirva una sola respuesta, y Caddy empieza a
+    # mandarle trafico en cuanto el contenedor arranca.
+    healthcheck:
+      test: ['CMD-SHELL', 'python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(''http://localhost:8000/health'').status==200 else 1)"']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     # Sin `ports`: el único camino desde internet es a través de Caddy.
     depends_on:
       postgres:
@@ -162,9 +227,25 @@ services:
         NEXT_PUBLIC_API_URL: https://${DOMAIN_API:?falta DOMAIN_API en .env}/api/v1
         # Sin esta clave el frontend no puede iniciar sesion contra Clerk.
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?falta NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY en .env}
+        # Solo hace falta si el equipo renombro el JWT Template en Clerk: el
+        # codigo asume `default` (`lib/clerk-config.ts`). Pedir el token por un
+        # nombre que no existe devuelve 401 en **toda** la API.
+        NEXT_PUBLIC_CLERK_JWT_TEMPLATE: ${NEXT_PUBLIC_CLERK_JWT_TEMPLATE:-default}
+        # Empresa del link publico del Cliente Invitado (RF-02), para que
+        # /acceso-invitado funcione sin `?empresa=<uuid>` en la URL.
+        NEXT_PUBLIC_EMPRESA_INVITADO: ${NEXT_PUBLIC_EMPRESA_INVITADO:-}
     restart: always
     environment:
       NODE_ENV: production
+      # **`clerkMiddleware()` corre en el servidor de Next y necesita la llave
+      # secreta en tiempo de EJECUCION.** No es exclusiva del backend y no se
+      # hornea en el bundle: sin ella el middleware falla con "Missing
+      # secretKey" y **toda pantalla protegida responde 500**.
+      #
+      # Aqui no estaba: el servicio recibia solo NODE_ENV. El primer despliegue
+      # con Clerk activo habria servido el login y nada mas — y el login es
+      # publico, asi que se habria visto bien hasta el momento de entrar.
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?falta CLERK_SECRET_KEY en .env — la necesita clerkMiddleware en el servidor de Next}
     depends_on:
       - api
     networks:
@@ -210,12 +291,28 @@ services:
         done
     environment:
       ENVIRONMENT: production
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # **Las tareas del cron cruzan empresas a proposito**, y por eso abren
+      # `AdminSessionLocal` (`apps/api/app/tareas/__main__.py`): el generador de
+      # avisos recorre los vencimientos de todas las empresas.
+      #
+      # Asi que lo que de verdad necesitan es la URL de administracion. Darles
+      # solo la de `ambienta_app` las dejaria con **cero filas** por RLS y los
+      # avisos se dejarian de enviar sin un solo error en el log — el peor
+      # resultado posible para un sistema cuya unica funcion es avisar. Van las
+      # dos, explicitas, y no una sola que haga de ambas por descuido.
+      DATABASE_URL: postgresql+psycopg://ambienta_app:${APP_DB_PASSWORD:?falta APP_DB_PASSWORD en .env}@postgres:5432/${POSTGRES_DB}
+      DATABASE_ADMIN_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       # El despachador manda el correo, asi que necesita las mismas credenciales
       # que la API. Sin ellas los avisos se generan y se quedan encolados.
       RESEND_API_KEY: ${RESEND_API_KEY:?falta la llave de Resend}
       CORREO_REMITENTE: ${CORREO_REMITENTE:?falta el remitente, con dominio verificado en Resend}
       CORREO_RESPONDER_A: ${CORREO_RESPONDER_A:-}
+      # El mismo volumen que `api`: el runbook corre la rotacion mensual con
+      # `exec api`, pero este contenedor comparte imagen y podria hacerlo. Dos
+      # rutas distintas para el mismo archivo es como se pierde la mitad.
+      RUTA_ARCHIVO_AUDITORIA: /var/lib/ambienta/auditoria
+    volumes:
+      - auditoria-archivada:/var/lib/ambienta/auditoria
     depends_on:
       postgres:
         condition: service_healthy
@@ -249,6 +346,9 @@ volumes:
   postgres-data:
   caddy-data:
   caddy-config:
+  # Lo que `rotar-auditoria` saca de la base. Es el unico volumen cuyo
+  # contenido no se puede reconstruir desde ninguna otra parte.
+  auditoria-archivada:
 
 networks:
   # Postgres vive solo aquí; ni Caddy ni la web lo alcanzan.

@@ -1,0 +1,13 @@
+# Finales de linea
+#
+# Los `.sh` de este repo no los corre Windows: `infra/postgres/init/*.sh` se
+# monta dentro del contenedor de Postgres y `db/run.sh` lo ejecuta CI en Linux.
+#
+# Con `core.autocrlf=true` —lo normal en una maquina Windows, y lo que tiene
+# esta— el checkout los deja con CRLF, y un shebang que termina en `\r` falla
+# con `bad interpreter: /bin/sh^M`. Medido aca: `db/run.sh` estaba con CRLF en
+# la copia de trabajo.
+#
+# `eol=lf` lo fija en el repo, sin pedirle a nadie que cambie la configuracion
+# de su maquina ni recordarlo al clonar.
+*.sh text eol=lf
