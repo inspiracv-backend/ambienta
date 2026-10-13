@@ -200,7 +200,11 @@ jobs:
         run: |
           if [ -d tests ]; then
             pip install pytest==8.3.4
-            python -m pytest
+            # `-rs` imprime el motivo de cada salto. 36 pruebas se saltan y el
+            # conteo no decia cuales ni por que: una prueba que se salta en
+            # todas las maquinas es una prueba que no existe, asi que la lista
+            # tiene que estar a la vista en cada corrida.
+            python -m pytest -rs
           else
             echo "apps/api todavia no tiene tests/ — se omite."
           fi
