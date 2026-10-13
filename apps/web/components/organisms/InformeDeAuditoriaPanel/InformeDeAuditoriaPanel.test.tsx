@@ -252,6 +252,13 @@ it('el pie del documento no dobla el punto despues de la hora', async () => {
   // Con reloj de 12 horas `es-CL` termina en «p. m.», y la frase agregaba el
   // suyo: «12:57:21 p. m..». Visto en el navegador el 21-sep.
   await montar();
-  const pie = screen.getByText(/Documento generado por Ambienta/);
+  // `findByText` y no `getByText`: el pie vive dentro del portal de
+  // `DocumentoImprimible`, que se monta en **dos pasadas** —`useEffect` pone
+  // `montado` y recien ahi hay portal, porque `document` no existe en el render
+  // del servidor—. La version sincronica pasaba en local y fallaba en CI con
+  // `Unable to find an element with the text`, que se lee como "el pie no se
+  // renderiza" y no como "todavia no". Tercera asercion de este archivo con la
+  // misma carrera.
+  const pie = await screen.findByText(/Documento generado por Ambienta/);
   expect(pie.textContent).not.toMatch(/\.\./);
 });

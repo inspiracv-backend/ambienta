@@ -1908,6 +1908,16 @@ en paralelo. **Gastaron 4,4 millones de tokens en seis minutos y devolvieron
 cero** por un limite de gasto. Casi todo lo que se les pedia no necesitaba
 criterio, necesitaba `grep`.
 
+**El portal de `DocumentoImprimible` se monta en dos pasadas, y toda asercion
+sobre su contenido tiene que esperar.** `useEffect` pone `montado` y recien ahi
+hay portal —`document` no existe en el render del servidor— asi que
+`body > .solo-impresion` y todo lo que cuelga de el **no estan en el primer
+commit del render**. Una asercion sincronica sobre eso pasa en local y falla en
+CI, donde 103 archivos de prueba compiten por el CPU, y el mensaje
+—`Unable to find an element with the text`— se lee como "esto no se renderiza"
+en vez de "todavia no". Van **tres** aserciones del mismo archivo cazadas asi el
+13-oct. `waitFor` o `findBy*`, nunca `getBy*`.
+
 **Un `-q` de mas apaga el resumen de pytest.** `pytest.ini` ya trae `-q` en
 `addopts`, asi que `python -m pytest -q` es `-qq`, y en ese nivel **no se
 imprime la linea final** (`N passed, M skipped`). Costo dos desvios el 13-oct:
