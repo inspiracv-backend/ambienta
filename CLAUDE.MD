@@ -207,7 +207,7 @@ de confiar: `npm run spec`, `docker compose up -d`, `npx openspec list --specs`.
 | Frontend — lecturas | **Conectadas.** Las pantallas leen de la API, no de `mocks/` |
 | Frontend — escrituras | **85 %.** 33 de 39 acciones llegan a la base. **El 74 % anterior estaba mal en las dos direcciones**: decia 29 y eran 30 —`users.updatePermisos` ya estaba conectada desde que se hizo la pantalla de permisos— y tres de las "bloqueadas" habian dejado de estarlo al cerrar otros bloques, sin que nadie releyera la tabla. Las 6 que quedan tienen causa documentada en su propio docstring — ver `docs/escrituras-del-frontend.md` |
 | RBAC | **Completo desde el 10-sep, alcance incluido.** Permiso efectivo (rol + excepcion individual, la denegacion gana), guarda derivada de la ruta en todos los routers salvo seis con motivo declarado (**`crm`, `gestor` e `iso14001` no la tenian hasta el 21-sep**, ver abajo), rol `servicio_lectura`, pantalla en `/usuarios`, **acotamiento por instalacion aplicado** (`app/alcance.py`) y **el Admin Global ya no edita contenido de una empresa**. Los dos ultimos eran reglas escritas en este archivo y en el spec que no aplicaba nadie. Es el primer modulo cuyo spec vivo existe: `openspec/specs/rbac/spec.md`, 8 requisitos |
-| Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas sincronizar-bcn`. **El 21-sep entro el D.S. 609** (norma del piloto): 27 normas, 26 con identificador. Que normas importar lo decidio negocio para el piloto, salvo los "decretos 40 y 48", que son ambiguos (`docs/plan-de-cierre-v1.md`, 6.1). Falta la pantalla de admin para revisar versiones — ver abajo |
+| Catalogo normativo | **Se alimenta de la BCN de verdad desde el 26-ago, y hasta ese dia esta entrada era falsa.** Decia lo mismo que ahora mientras las 8 normas tenian `last_source_sync_at = NULL` y la Ley 19.300 dos articulos: `bcn.sincronizar()` estaba escrita, probada y **sin un solo llamador**. Medido hoy: **24 normas, 23 con identificador de la BCN, 689 articulos**, y la Ley 19.300 con sus **153 partes** y su version vigente de 2024-04-10. La sincronizacion se corre con `python -m app.tareas sincronizar-bcn`. **El 21-sep entro el D.S. 609** (norma del piloto): 27 normas, 26 con identificador. Que normas importar lo decidio negocio para el piloto. Los "decretos 40 y 48" de la reunion **quedaron fuera de la 1.0 el 13-oct** (decision A): las tres candidatas son de **seguridad laboral y minera** —D.S. 132/2002, D.S. 40/1969, D.S. 10/2013— y este producto modela cumplimiento **ambiental**; traerlas abre un dominio que no tiene. Si la reunion hablaba del SEIA, el D.S. 40/2012 ya esta y en los 8 sectores. **Y el D.S. 609 ya esta clasificado** (`db/36`, decision B): entro el 21-sep sin un solo sector, asi que el CORE no se lo proponia a nadie. Falta la pantalla de admin para revisar versiones — ver abajo |
 | Normativa aplicable | **Funcionando de punta a punta y verificado con datos reales.** La empresa declara sector CIIU y tramo, el check propone obligatorias y recomendadas, y sincronizar la matriz agrega sin borrar. Lo que falta es **declarar el sector de las empresas sembradas** — ver abajo |
 | Registro de actividades | **Se escribe solo desde el 24-ago, y se lee desde el 21-sep.** Un observador del `flush` de la sesion anota `create`, `update` y `delete` de todo lo que pasa por la ORM, sin que los routers llamen a nada. Antes: `audit_log` con **cero filas** y ningun camino para llenarla. Hasta el 21-sep la pantalla `/historial` mostraba solo lo de la sesion del navegador; ahora lee el servidor y las emisiones de PDF y CSV quedan anotadas — ver abajo |
 | Auth — clave local con RUT (RF-06) | **Funcionando desde el 25-ago.** Quien entro por SSO fija RUT y clave en su perfil y despues entra con ellos. **La clave la guarda Clerk, no nosotros** (D1). El RUT viaja como `username` con prefijo `rut`, porque Clerk rechaza los que son solo digitos — y un RUT lo es salvo cuando el verificador es K |
@@ -796,17 +796,43 @@ sincronizacion marca `not_applicable` lo que ya no le corresponde a la empresa y
 lo conserva con sus evaluaciones, pero la pantalla no leia `applicability`: la
 Ley 20.920 de la empresa de prueba salia "Pendiente de evaluar · 61 sin evaluar".
 Ahora `semaforoDeNorma` (`lib/legal-matrix.ts`) la pinta "No aplica" con su
-motivo, la ficha lo dice, y una norma derogada lleva la etiqueta. **Queda una
-pregunta de negocio:** el resumen y el tablero siguen contando las evaluaciones
-de una norma que dejo de aplicar; hoy no pesa porque la 20.920 no tiene ninguna.
+motivo, la ficha lo dice, y una norma derogada lleva la etiqueta.
 
-**Y una trampa que queda abierta:** `uq_article_compliance` es unico sobre
-`(matrix_norm_id, article_id, facility_id)` **incluidas las filas retiradas**, asi
-que una evaluacion borrada con `DELETE` no se puede volver a crear: responde 409
-para siempre. La pantalla no borra evaluaciones, pero la API si. Arreglarlo es
-una migracion y una decision —una evaluacion es evidencia, y quizas no deberia
-poder borrarse—. Ojo al limpiar pruebas: retirar una evaluacion bloquea ese
-articulo. Y al medirlo aparecio que **la API ya lo hacia bien**
+**Y desde el 13-oct tampoco cuenta en el porcentaje** (decision E). El sistema
+era incoherente consigo mismo: un **articulo** marcado "no aplica" salia del
+calculo (`FUERA_DEL_CALCULO`) y una **norma** entera que dejo de aplicar se
+contaba igual. Sale en los **tres** lugares que calculan el numero —
+`resumen_cumplimiento`, el tablero y el promedio por planta de `lib/reports.ts`,
+que es el que va en el documento que se entrega— y la constante
+`NORMAS_FUERA_DEL_CALCULO` vive en un solo modulo: con dos definiciones, la
+matriz y el tablero volverian a decir numeros distintos del mismo cumplimiento,
+que es un error que este producto ya cometio.
+
+**La norma conserva su propio conteo**, asi que `total` no es la suma de
+`por_norma`. Es deliberado: lo que se evaluo cuando si le aplicaba es evidencia
+de ese periodo, y el porcentaje de la empresa es sobre lo que le rige hoy.
+
+**La evaluacion de un articulo es evidencia y ya no se borra** (13-oct,
+decision D). Eran dos cosas enredadas:
+
+- `uq_article_compliance` era un **CONSTRAINT**, y uno de Postgres no admite
+  `WHERE`: cubria tambien las filas retiradas, asi que una evaluacion borrada
+  dejaba su articulo con **409 para siempre**. Medido: 9 filas asi en la base de
+  desarrollo. `db/37` lo pasa a indice parcial `uq_evaluacion_del_articulo`
+  (`NULLS NOT DISTINCT WHERE deleted_at IS NULL`). **El nombre cambia a
+  proposito**: `db/05` re-crea el constraint si no lo encuentra en
+  `pg_constraint`, y reusar el nombre lo haria fallar o volveria a poner el 409.
+- **El `DELETE` de la API responde 403** `evaluacion_es_evidencia`. Lo que se
+  busca al intentar borrar es reevaluar —`/evaluate`, que deja rastro—, marcar
+  el articulo como no aplicable, o retirar la norma de la matriz; las tres
+  existen. La ruta se conserva con 403 y no se quita: un 404 se leeria como "se
+  borro". Y comprueba que la fila exista **antes** de negar, para que el 403 no
+  sea un oraculo que distinga "es de otra empresa" de "no existe".
+
+Verificado con mutacion: con el constraint viejo, la prueba que recrea la
+evaluacion falla; con el indice parcial, pasa.
+
+Y al medirlo aparecio que **la API ya lo hacia bien**
 —devuelve `None`, no cero, y su docstring lo explica— asi que el acoplamiento
 que se temia no existia: el `0%` lo ponia solo el frontend.
 
@@ -1139,10 +1165,14 @@ spec pedia desde su primera version y el sistema no cumplia:
 
 Y **la cobertura de auditoria contaba los requisitos marcados "no aplica"** en su
 denominador —43 de 264 en el seed—, asi que salia mas baja por una razon que no
-existe. Lo que **no** se hizo: que la severidad solo aplique a las no
-conformidades. Hoy se pide en todo registro y cambiarlo toca el modelo, las filas
-escritas y el plazo de las etapas, que se deriva de ella: queda como decision en
-`docs/plan-de-cierre-v1.md`.
+existe.
+
+Lo que **no** se hizo: que la severidad solo aplique a las no conformidades.
+**Decidido el 13-oct (decision C): se queda pidiendose en todo registro.**
+Calificar la severidad de un riesgo no es un error conceptual —ISO 14001 la pide
+para la significancia— y cambiarlo toca el `NOT NULL` con CHECK de
+`nonconformities.severity`, las filas ya escritas y la cadena que deriva el plazo
+de cada etapa, sin ganancia visible para quien usa el sistema.
 
 **Y cada etapa avisa a su responsable desde el 13-sep** (RF-99, #40):
 `services/avisos_de_etapas.py`, llamado por el mismo cron de avisos y en la

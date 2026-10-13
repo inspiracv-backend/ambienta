@@ -496,19 +496,28 @@ tiene.
 
 ### 4.12 Cargar el catálogo normativo
 
-Producción arranca **sin `02_seed.sql`**, así que el catálogo son las ocho normas de ejemplo del esquema. Hay que traer las reales:
+Producción arranca **sin `02_seed.sql`**, así que el catálogo arranca con **cero
+normas y cero artículos** — medido el 13-oct sobre una instalación limpia; esta
+línea decía «las ocho normas de ejemplo del esquema» y era falsa: esas ocho
+viven en el seed, que producción no carga. Y con el catálogo vacío, la propuesta
+de normativa aplicable —el corazón del producto— no le ofrece nada a nadie.
+
+Hay que traer las reales:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec api python -m app.tareas sincronizar-bcn
 ```
 
-Y **después** volver a aplicar la clasificación transversal, porque la sincronización crea normas que la migración no alcanzó a clasificar:
+Y **después** volver a aplicar las **dos** clasificaciones por sector, porque la sincronización crea las normas que las migraciones no encontraron cuando corrieron:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec -T postgres   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 < db/23_normativa_transversal.sql
+docker compose -f docker-compose.prod.yml exec -T postgres   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 < db/36_sectores_del_ds_609.sql
 ```
 
-Medido en local: sin este segundo paso, el DS 1 queda con **cero** sectores y el DS 40 con uno de ocho. Nada falla — la empresa simplemente recibe menos normativa de la que le corresponde.
+Medido en local: sin el primero, el DS 1 queda con **cero** sectores y el DS 40 con uno de ocho. Sin el segundo, el **D.S. 609 queda sin ninguno** y el CORE no se lo propone a nadie. Nada falla — la empresa simplemente recibe menos normativa de la que le corresponde.
+
+Las dos avisan por `NOTICE` cuántas normas clasificaron, y **no fallan si la norma todavía no está**: por eso se corren después y no antes.
 
 Comprobar el resultado:
 
@@ -516,7 +525,7 @@ Comprobar el resultado:
 docker compose -f docker-compose.prod.yml exec postgres   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c   "SELECT count(*) AS normas FROM legal_norms WHERE deleted_at IS NULL;"
 ```
 
-Deben ser **24 o más**, no 8. Con 8 la sincronización no corrió.
+Deben ser **24 o más**. Con cero, la sincronización no corrió.
 
 > **No correr `sembrar_demo` en producción.** La tarea se niega sola con `ENVIRONMENT=production`, y comprueba el entorno antes de abrir la sesión.
 

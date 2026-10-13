@@ -5,6 +5,7 @@ import {
   computeNormComplianceSobreEvaluadosOrNull,
   countArticulosEnIncumplimiento,
   countArticulosSinEvaluar,
+  noAplica,
 } from '@/lib/legal-matrix';
 import { AUDIT_ESTADO_LABEL, NC_ESTADO_LABEL, CRITICIDAD_LABEL } from '@/lib/audit-status';
 import { aspectoSinTratar, type AspectoApi, type RiesgoApi } from '@/lib/iso-store';
@@ -115,7 +116,13 @@ export function buildCumplimientoReport(
     // planta con cuatro normas y una sola evaluada al 100 % salia en 25 %, como
     // si incumpliera tres. En el documento que se entrega, eso es una confesion
     // falsa.
-    const plantNorms = norms.filter((n) => n.plantIds.includes(plant.id));
+    // **Las normas que dejaron de aplicarle a la empresa no entran al
+    // promedio** (decision E del 13-oct). La matriz las pinta "No aplica" desde
+    // el 21-sep y seguian pesando en el porcentaje del documento que se
+    // entrega, que es justo donde el numero se lee como un hecho.
+    const plantNorms = norms
+      .filter((n) => n.plantIds.includes(plant.id))
+      .filter((n) => !noAplica(n));
     const medibles = plantNorms
       .map(computeNormComplianceOrNull)
       .filter((p): p is number => p !== null);

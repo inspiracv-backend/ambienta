@@ -61,6 +61,8 @@ run "$DIR/32_admin_empresa_sin_departamento_obligatorio.sql"
 run "$DIR/33_relaciones_y_bitacora_de_la_bcn.sql"
 run "$DIR/34_compromisos_del_seguimiento.sql"
 run "$DIR/35_evidencia_objetiva_del_hallazgo.sql"
+run "$DIR/36_sectores_del_ds_609.sql"
+run "$DIR/37_la_evaluacion_es_evidencia.sql"
 
 if $RUN_TESTS; then
     echo "→ smoke test"

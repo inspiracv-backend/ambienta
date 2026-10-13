@@ -71,16 +71,28 @@ Está en `docs/development/despliegue.md`. En orden:
 5. **Cargar el catálogo normativo** (§4.12): producción arranca con **cero
    normas**, y después de sincronizar hay que reaplicar `db/23`.
 
-### Decisiones abiertas
+### Las cinco decisiones abiertas, cerradas
 
-Cinco, en `docs/plan-de-cierre-v1.md` §6.3. Ninguna impide desplegar; las dos
-que más cambian lo que ve una empresa:
+Estuvieron escritas desde el 21-sep y se tomaron el 13-oct. El detalle está en
+`docs/plan-de-cierre-v1.md` §6.3; lo que cambia para una empresa:
 
-- **Si las evaluaciones de una norma que dejó de aplicar cuentan en el % de
-  cumplimiento.** Hoy sí, y es el número que la empresa muestra ante un
-  fiscalizador.
-- **Si una evaluación se puede borrar.** Hoy se puede, y por el índice único no
-  se puede volver a crear: responde 409 para siempre.
+- **Una evaluación de la matriz ya no se borra.** El `DELETE` responde 403 y
+  apunta a reevaluar, marcar el artículo como no aplicable o retirar la norma.
+  Es evidencia de que ese artículo se revisó, y con qué resultado. De paso se
+  arregló el índice único, que al cubrir las filas retiradas dejaba el artículo
+  con **409 para siempre** — 9 artículos estaban así.
+- **Una norma que dejó de aplicarle a la empresa ya no pesa en su porcentaje**,
+  en los tres lugares que lo calculan, incluido el promedio por planta del
+  documento que se entrega. El sistema era incoherente consigo mismo: un
+  artículo marcado «no aplica» ya salía del cálculo y una norma entera no.
+- **El D.S. 609 quedó clasificado** en los ocho sectores, con el nivel que
+  corresponde a cada uno: entró al catálogo el 21-sep sin ninguno, así que el
+  sistema no se lo proponía a nadie.
+- **La severidad se sigue pidiendo en todo registro**, no solo en las no
+  conformidades: calificar la de un riesgo no es un error conceptual.
+- **Los «decretos 40 y 48»** de la reunión quedan **fuera de esta versión**: las
+  tres normas candidatas son de seguridad laboral y minera, y este producto
+  modela cumplimiento ambiental.
 
 ### Lo que se arregló para poder desplegar
 

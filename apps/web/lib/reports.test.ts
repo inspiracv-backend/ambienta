@@ -372,6 +372,29 @@ describe('sin evaluar no se imprime como 0%', () => {
     expect(r.rows[0]![1]).toBe('100%');
   });
 
+  it('el promedio por planta ignora las normas que dejaron de aplicar', () => {
+    // **Decisión E del 13-oct.** La matriz las pinta "No aplica" desde el
+    // 21-sep y seguían pesando en el promedio del documento que se entrega,
+    // que es justo donde el número se lee como un hecho. Una planta con una
+    // norma al 100 % y otra al 0 % que ya no le rige salía en 50 %.
+    const r = buildCumplimientoReport(
+      [planta('p1', 'Planta Norte')],
+      [obligacion({ id: 'o1', plantId: 'p1' })],
+      [
+        norma({ id: 'n1', articulos: [articulo({ respuesta: 'SI' })] }),
+        norma({
+          id: 'n2',
+          articulos: [articulo({ id: 'a9', respuesta: 'NO' })],
+          aplicabilidad: { estado: 'no_aplica' },
+        } as Partial<LegalNorm>),
+      ],
+      '',
+      '',
+    );
+
+    expect(r.rows[0]![1]).toBe('100%');
+  });
+
   it('y avisa al pie que el promedio dejó normas fuera', () => {
     const r = buildCumplimientoReport(
       [planta('p1', 'Planta Norte')],

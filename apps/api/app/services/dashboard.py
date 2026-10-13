@@ -23,6 +23,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from ..models.audit import Nonconformity
 from ..models.compliance import ArticleCompliance, MatrixNorm, TenantLegalMatrix
+from .resumen_cumplimiento import NORMAS_FUERA_DEL_CALCULO
 from ..models.obligations import Obligation
 from ..models.organization import Facility
 
@@ -129,6 +130,11 @@ def _cumplimiento_global(db: Session, tenant_id: UUID) -> dict:
                 ArticleCompliance.deleted_at.is_(None),
                 MatrixNorm.deleted_at.is_(None),
                 TenantLegalMatrix.deleted_at.is_(None),
+                # Decision E del 13-oct: una norma que dejo de aplicarle a la
+                # empresa no pesa en su porcentaje. La constante vive en
+                # `resumen_cumplimiento` para que no haya dos definiciones del
+                # mismo numero.
+                MatrixNorm.applicability.notin_(NORMAS_FUERA_DEL_CALCULO),
             )
         )
     ).one()
@@ -185,6 +191,10 @@ def _cumplimiento_por_facility(db: Session, tenant_id: UUID) -> dict[UUID, dict]
                 ArticleCompliance.deleted_at.is_(None),
                 MatrixNorm.deleted_at.is_(None),
                 TenantLegalMatrix.deleted_at.is_(None),
+                # Misma regla que el global: con el filtro en un solo lado, la
+                # tarjeta de la empresa y la fila de su planta dirian numeros
+                # distintos del mismo cumplimiento.
+                MatrixNorm.applicability.notin_(NORMAS_FUERA_DEL_CALCULO),
             )
         )
         .group_by(ArticleCompliance.facility_id)

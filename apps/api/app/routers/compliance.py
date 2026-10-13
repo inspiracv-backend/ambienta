@@ -327,9 +327,54 @@ def delete_matrix_norm(mn_id: UUID, db: Session = Depends(get_tenant_db)):
     borrar_o_404(crud_matrix_norm, db, mn_id, recurso="MatrixNorm")
 
 
-@router.delete("/article-compliance/{ac_id}", status_code=status.HTTP_204_NO_CONTENT)
+#: El rechazo del borrado de una evaluacion. **Codigo propio y no
+#: `permiso_insuficiente`**: no le falta un permiso que alguien pueda
+#: concederle — el sistema no borra evaluaciones, de nadie.
+CODIGO_EVALUACION_ES_EVIDENCIA = "evaluacion_es_evidencia"
+
+
+@router.delete(
+    "/article-compliance/{ac_id}",
+    status_code=status.HTTP_403_FORBIDDEN,
+    summary="No se puede: una evaluacion es evidencia",
+    description=(
+        "**Una evaluacion de la matriz no se borra** (decision D del 13-oct). "
+        "Dice que se reviso un articulo, con que resultado y cuando: es la "
+        "respuesta de la empresa ante una fiscalizacion del periodo en que se "
+        "hizo, y borrarla destruye ese rastro.\n\n"
+        "Lo que casi siempre se busca al intentar borrar:\n\n"
+        "- **Se evaluo mal** → `POST /compliance/article-compliance/{id}/evaluate`, "
+        "que corrige el resultado y deja la correccion en el registro de "
+        "actividades.\n"
+        "- **El articulo no le aplica a la empresa** → evaluarlo como "
+        "`not_applicable`, que lo saca del porcentaje sin perder que alguien lo "
+        "miro.\n"
+        "- **La norma entera dejo de aplicar** → `DELETE "
+        "/compliance/matrix-norms/{id}`, que la retira de la matriz y conserva "
+        "sus evaluaciones.\n\n"
+        "La ruta se conserva respondiendo 403 y no se quita: un 404 se lee como "
+        "*se borro* o *no existe*, y las dos lecturas son falsas."
+    ),
+    tags=["business-logic"],
+)
 def delete_article_compliance(ac_id: UUID, db: Session = Depends(get_tenant_db)):
-    borrar_o_404(crud_article_compliance, db, ac_id, recurso="ArticleCompliance")
+    # Se comprueba que exista y sea visible **antes** de negar, para no
+    # convertir este endpoint en un oraculo: con un 403 a secas, la misma
+    # respuesta valdria para un id de otra empresa y para uno propio.
+    obtener_o_404(crud_article_compliance, db, ac_id, recurso="ArticleCompliance")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "codigo": CODIGO_EVALUACION_ES_EVIDENCIA,
+            "mensaje": (
+                "Una evaluacion de la matriz no se borra: es la evidencia de que "
+                "ese articulo se reviso. Para corregir el resultado, volver a "
+                "evaluar; si el articulo no aplica, evaluarlo como «no "
+                "aplicable»; si la norma entera dejo de aplicar, retirarla de la "
+                "matriz."
+            ),
+        },
+    )
 
 
 @router.get("/matrix-norms/{mn_id}", response_model=MatrixNormRead)

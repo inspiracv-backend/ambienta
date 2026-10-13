@@ -314,15 +314,17 @@ Lo que aparecio al cerrarlos, y que no era burocracia:
 | `hallazgos-auditoria-no-conformidades` | "No fue eficaz" no devolvia el registro a tratamiento; las salidas comprometidas no existian; un hallazgo no tenia evidencia; la cobertura contaba lo no aplicable |
 | `credenciales-de-acceso` | Nada: sus tres requisitos ya se cumplian (la invitacion es un solo acto desde el 14-sep) |
 
-### 6.3 Decisiones abiertas que quedaron escritas
+### 6.3 Las cinco decisiones, tomadas el 13-oct-2026
 
-| # | Decision | Por que no la tomo quien programa |
+Estuvieron escritas y abiertas desde el 21-sep. **Ninguna queda pendiente.**
+
+| # | Decision | Lo que quedo hecho |
 |---|---|---|
-| A | **Los "decretos 40 y 48"** de la reunion: en la BCN no hay decretos con esos numeros de seguridad minera. Ver 6.1 | Es criterio legal: traer la norma equivocada hace evaluar articulos que no rigen |
-| B | **La clasificacion por sector del D.S. 609** (propuesta en 6.1) | A que rubros llega una norma lo decide negocio |
-| C | **La severidad, ¿solo en las no conformidades?** Hoy se pide en todo registro | Toca el modelo, las filas escritas y el plazo de las etapas, que sale de la severidad |
-| D | **¿Se puede borrar una evaluacion de la matriz?** Hoy se puede, y por el indice unico no se puede volver a crear: responde 409 para siempre | Una evaluacion es evidencia; que se borre es una decision, no un detalle tecnico |
-| E | **Las evaluaciones de una norma que dejo de aplicar**, ¿cuentan en el % de cumplimiento? Hoy si | Cambia el numero que la empresa muestra ante un fiscalizador |
+| A | Los **"decretos 40 y 48"** de la reunion | **Fuera de la 1.0.** No es duda sobre cual es: las tres candidatas —D.S. 132/2002 de seguridad minera, D.S. 40/1969 del Trabajo, D.S. 10/2013 de Salud, sucesor del 48— son normas de **seguridad laboral y minera**, y Ambienta modela cumplimiento **ambiental**. Traerlas abre un dominio entero (SERNAGEOMIN, Ley 16.744) que el producto no tiene. Y si la reunion hablaba del SEIA, el D.S. 40/2012 ya esta en el catalogo y en los 8 sectores. Queda como **alcance por decidir**, no como norma faltante |
+| B | La **clasificacion por sector del D.S. 609** | **Aprobada como se propuso**, en `db/36`: `directa` en manufactura, `indirecta` en agricultura, mineria, electricidad y agua, `referencial` en construccion, comercio y transporte. Verificado: 8 sectores clasificados. Lo que activa la norma es **descargar RIL a una red**, no el rubro, asi que el nivel dice cuanto se le insiste a la empresa. Los dos decretos que la modifican **no** se clasifican: su contenido ya esta en el texto vigente del 609 |
+| C | La **severidad**, ¿solo en las no conformidades? | **Se queda como esta**: se pide en todo registro. Calificar la severidad de un riesgo no es un error conceptual —ISO 14001 lo pide para la significancia— y cambiarlo toca el esquema (`NOT NULL` con CHECK), las filas escritas y la cadena que deriva el plazo de cada etapa, sin ganancia visible para quien usa el sistema |
+| D | ¿Se puede **borrar una evaluacion**? | **No.** El `DELETE` responde 403 `evaluacion_es_evidencia` y apunta a lo que se busca de verdad: reevaluar, marcar el articulo como no aplicable, o retirar la norma de la matriz. **Y el indice se arreglo igual** (`db/37`): era un CONSTRAINT, que no admite `WHERE`, asi que cubria las filas retiradas y dejaba el articulo en **409 para siempre** — 9 filas asi en la base de desarrollo. Ahora es parcial, y una mutacion confirma que la prueba lo caza |
+| E | Las evaluaciones de **una norma que dejo de aplicar**, ¿cuentan? | **No.** Salen del porcentaje en los tres lugares que lo calculan: `resumen_cumplimiento`, el tablero y el promedio por planta del reporte que se entrega. El sistema era incoherente consigo mismo: un **articulo** marcado "no aplica" ya salia del calculo y una **norma** entera se contaba. La norma **conserva su propio conteo** —es la evidencia del periodo en que si le aplicaba—, asi que el total no es la suma del desglose, y es deliberado |
 
 **Lo que no es codigo y queda del lado de la cuenta:** cerrar el registro en
 Clerk (5), las credenciales de Google y el registro en Entra ID (4), rotar la
