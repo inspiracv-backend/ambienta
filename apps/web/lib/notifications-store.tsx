@@ -1,14 +1,13 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Notification, NotificationPreferences } from '@ambienta/shared';
+import type { Notification } from '@ambienta/shared';
 import { useSession } from '@/lib/session';
 import { useToast } from '@/lib/toast-store';
 import { api, mensajeDeError } from '@/lib/api-client';
 
 interface NotificationsContextValue {
   notifications: Notification[];
-  preferences: NotificationPreferences[];
   loading: boolean;
   /**
    * Por que la lista esta vacia, si es que fallo (#208).
@@ -19,14 +18,12 @@ interface NotificationsContextValue {
    */
   errorDeCarga: string | null;
   markAllAsRead: (userId: string) => void;
-  updatePreferences: (userId: string, updates: Partial<Omit<NotificationPreferences, 'userId'>>) => void;
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [preferences, setPreferences] = useState<NotificationPreferences[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const { user } = useSession();
@@ -119,29 +116,13 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  /**
-   * **Esto no llega a la base: no hay dónde guardarlo.**
-   *
-   * La API expone `/notifications/rules` y `/notifications/templates`, que son
-   * configuración de la empresa, no preferencias de una persona. No existe
-   * tabla ni endpoint para "este usuario quiere aviso por correo con 30, 15 y 7
-   * días de anticipación".
-   *
-   * Se guarda en memoria y se pierde al recargar. Conectarlo necesita modelo
-   * nuevo, así que va por su propio cambio, no por un parche acá.
-   */
-  function updatePreferences(userId: string, updates: Partial<Omit<NotificationPreferences, 'userId'>>) {
-    setPreferences((prev) => {
-      const existing = prev.find((p) => p.userId === userId);
-      if (!existing) {
-        return [...prev, { userId, canalEmail: true, canalInApp: true, anticipacionDias: [30, 15, 7], ...updates }];
-      }
-      return prev.map((p) => (p.userId === userId ? { ...p, ...updates } : p));
-    });
-  }
+  // `updatePreferences` se quitó el 13-sep: guardaba en memoria preferencias
+  // por persona que no tienen tabla ni endpoint, y que el generador de avisos
+  // no lee. La pantalla de configuración ahora muestra las reglas de la
+  // empresa, que son las que de verdad se aplican.
 
   return (
-    <NotificationsContext.Provider value={{ notifications, preferences, loading, errorDeCarga, markAllAsRead, updatePreferences }}>
+    <NotificationsContext.Provider value={{ notifications, loading, errorDeCarga, markAllAsRead }}>
       {children}
     </NotificationsContext.Provider>
   );

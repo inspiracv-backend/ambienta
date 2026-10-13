@@ -37,7 +37,10 @@ devuelven los dos desde el mismo conteo en vez de elegir uno:
 
 - `porcentaje_sobre_evaluados` — de lo que se miro, cuanto se cumple
 - `cobertura` — cuanto se alcanzo a mirar
-- `porcentaje` — el conservador: lo pendiente cuenta como no cumplido
+- `porcentaje` — el conservador: lo pendiente cuenta como no cumplido. **Es
+  el "% de cumplimiento" de todo el producto desde el 21-sep** (decision 3
+  del plan de cierre): el tablero, la matriz en pantalla y los reportes lo
+  muestran como numero principal, y `porcentaje_sobre_evaluados` al lado.
 
 No son tres verdades sueltas: salen del mismo conteo. En aritmetica exacta
 `porcentaje = porcentaje_sobre_evaluados x cobertura / 100`, asi que describen
@@ -79,6 +82,23 @@ from ..models.organization import Facility
 
 #: Estados que no entran al denominador porque no son una obligacion pendiente.
 FUERA_DEL_CALCULO = frozenset({"not_applicable"})
+
+#: Aplicabilidades de **norma** que salen del porcentaje (decision E del
+#: 13-oct-2026).
+#:
+#: La sincronizacion marca `not_applicable` la norma que dejo de corresponderle
+#: a la empresa y **conserva sus evaluaciones**, que es lo correcto: son la
+#: evidencia del periodo en que si le aplicaba. Lo que no corresponde es que
+#: sigan pesando en el numero que la empresa muestra hoy.
+#:
+#: Hasta esa fecha el sistema era incoherente consigo mismo: un **articulo**
+#: marcado "no aplica" ya salia del calculo (`FUERA_DEL_CALCULO`) y una **norma**
+#: entera que dejo de aplicar se contaba igual.
+#:
+#: Lo usan este modulo y `dashboard.py`. **Una sola definicion**: con dos, la
+#: matriz y el tablero volverian a decir numeros distintos del mismo
+#: cumplimiento, que es un error que este producto ya cometio.
+NORMAS_FUERA_DEL_CALCULO = frozenset({"not_applicable"})
 
 
 def cuenta_para_el_calculo(attributes: dict | None) -> bool:
@@ -260,8 +280,17 @@ def resumir(db: Session, matrix_id: UUID) -> ResumenDeMatriz:
             continue
 
         incluido = cuenta_para_el_calculo(attrs)
-        total.sumar(estado, incluido)
         normas[mn_id].conteo.sumar(estado, incluido)
+
+        # **La norma que dejo de aplicar no suma al total ni a su planta**, y si
+        # conserva su propio conteo: la ficha de esa norma sigue mostrando lo que
+        # se evaluo cuando si le aplicaba —es evidencia de ese periodo— pero el
+        # porcentaje de la empresa es sobre lo que le rige hoy. De ahi que
+        # `total` no sea la suma de `por_norma`, y es deliberado.
+        if aplicabilidad in NORMAS_FUERA_DEL_CALCULO:
+            continue
+
+        total.sumar(estado, incluido)
 
         if facility_id not in plantas:
             plantas[facility_id] = ResumenPorInstalacion(

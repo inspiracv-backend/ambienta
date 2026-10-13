@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, computed_field
@@ -29,6 +30,25 @@ class TenantCreate(BaseModel):
     sector_id: int | None = None
     size_bracket: str | None = None
     settings: dict = Field(default_factory=dict)
+
+
+class AdministradorInicial(BaseModel):
+    """Quien administrara la empresa que se esta dando de alta."""
+
+    full_name: str = Field(min_length=1)
+    email: str = Field(min_length=3)
+
+
+class AltaDeEmpresa(TenantCreate):
+    """El alta de empresa, opcionalmente **con su administrador**.
+
+    Sin administrador la empresa nace sin nadie que pueda entrar. Con el, la
+    persona se crea con el rol `admin_empresa` y recibe la invitacion de Clerk
+    en la misma transaccion: si la invitacion no sale, la empresa tampoco se
+    crea — una empresa a medias es justo lo que el alta existe para evitar.
+    """
+
+    administrador: AdministradorInicial | None = None
 
 
 class TenantRead(OrmBase):
@@ -232,6 +252,27 @@ class InvitacionEnviada(BaseModel):
     clerk_invitation_id: str | None = None
 
 
+class InvitarPersona(BaseModel):
+    """Alta de una persona de la empresa **con su invitacion** (RF-03)."""
+
+    full_name: str = Field(min_length=1)
+    email: str = Field(min_length=3)
+    #: `internal` o `tenant_admin`. Los demas tipos no se invitan desde una
+    #: empresa.
+    user_type: str
+    #: Obligatorio para `internal` (RF-11); el administrador puede no tenerlo,
+    #: porque es quien crea los departamentos.
+    department_id: UUID | None = None
+    #: Codigo del rol con que entra: `admin_empresa`, `encargado_ambiental`,
+    #: `operador`, o uno propio de la empresa. Sin rol recibiria 403 en todo.
+    role_code: str = Field(min_length=1)
+
+
+class PersonaInvitada(BaseModel):
+    user: UserRead
+    clerk_invitation_id: str | None = None
+
+
 class InvitadoRegistrado(BaseModel):
     user: UserRead
     #: Que paso ademas de crear la cuenta: sus solicitudes cambiaron de dueno y
@@ -345,6 +386,21 @@ class ProcessRead(OrmBase):
 
 class ProcessUpdate(BaseModel):
     name: str | None = None
+    #: Reclasificar el proceso en el mapa (ISO 9001 §4.4).
+    #:
+    #: **No estaba declarado, y `ProcessRead` si lo devuelve.** O sea que el
+    #: tipo se podia leer y no escribir: la pantalla del mapa de procesos
+    #: mandaba el cambio, Pydantic lo descartaba en silencio —descarta lo que no
+    #: declara— y la API respondia **200 sin guardar nada**. Reclasificar se
+    #: veia funcionar y se perdia al recargar.
+    #:
+    #: Es la misma familia que `planned_start_date` y que `process_id` en el
+    #: alta anidada de un item de auditoria.
+    #:
+    #: **`Literal` y no `str`**: los tres valores son los del CHECK de la tabla.
+    #: Con `str`, un valor equivocado llega hasta Postgres y vuelve como error
+    #: de integridad; asi se rechaza en el borde, con 422 y diciendo cuales son.
+    process_type: Literal["strategic", "operational", "support"] | None = None
     description: str | None = None
     responsible_user_id: UUID | None = None
     inputs: list | None = None

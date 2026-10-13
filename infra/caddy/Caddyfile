@@ -38,7 +38,15 @@
 {$DOMAIN_API} {
 	encode zstd gzip
 
-	reverse_proxy api:3001
+	# `api:8000`: el puerto lo fija el CMD de la imagen (`apps/api/Dockerfile`,
+	# `uvicorn --port 8000`), no la variable PORT del compose.
+	#
+	# **Aqui decia 3001 y nadie lo habia notado**, porque este proxy nunca
+	# corrio: no hay servidor aprovisionado. El numero venia del puerto que la
+	# API usaba antes de contenerizarse. Con 3001 el despliegue levanta, saca
+	# los certificados y responde **502 a toda la API**: la web carga, se ve
+	# bien, y ninguna pantalla trae datos.
+	reverse_proxy api:8000
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -50,7 +58,18 @@
 	log {
 		output stdout
 		format json
-		# Los health checks del balanceador inundarían los logs.
-		exclude /health
 	}
+
+	# Los health checks del balanceador inundarían los logs.
+	#
+	# **Acá decía `exclude /health` dentro del bloque `log`, y eso no existe en
+	# Caddy 2.** No es que se ignorara: el Caddyfile entero quedaba inválido
+	# (`exclude is not allowed in the log directive`), así que **Caddy no
+	# arrancaba** y el despliegue no servía ni la web ni la API. Reiniciaba en
+	# bucle imprimiendo solo "using config from file", sin el error a la vista.
+	# Se descubrió con `caddy validate`, que es lo que hay que correr al tocar
+	# este archivo:
+	#
+	#   docker run --rm -v ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro 	#     -e DOMAIN_WEB=x -e DOMAIN_API=y -e ACME_EMAIL=z 	#     caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
+	log_skip /health
 }

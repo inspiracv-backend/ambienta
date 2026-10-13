@@ -20,7 +20,8 @@ vi.mock('@/lib/reports', async (importarReal) => {
   const real = await importarReal<typeof import('@/lib/reports')>();
   return { ...real, downloadTextFile: (...a: unknown[]) => descargar(...a) };
 });
-vi.mock('@/lib/audit-log-store', () => ({ useRegistrarAuditoria: () => vi.fn() }));
+const anotarEmision = vi.fn();
+vi.mock('@/lib/emisiones', () => ({ useAnotarEmision: () => anotarEmision }));
 
 const TENANT = {
   id: 't-1',
@@ -145,6 +146,8 @@ describe('el documento', () => {
     await userEvent.click(screen.getByRole('button', { name: /Imprimir . Guardar PDF/ }));
 
     expect(window.print).toHaveBeenCalledOnce();
+    // Queda anotado en el servidor (RNF-26), no en el historial de la sesion.
+    expect(anotarEmision).toHaveBeenCalledWith(expect.objectContaining({ documento: 'reporte', formato: 'pdf' }));
   });
 
   it('sin empresa cargada el PDF queda deshabilitado', () => {

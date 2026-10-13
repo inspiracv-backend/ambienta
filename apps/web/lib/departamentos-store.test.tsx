@@ -18,6 +18,7 @@ vi.mock('@/mocks/departamentos', () => ({ mockDepartamentos: [] }));
 
 const get = vi.fn();
 const post = vi.fn();
+const patch = vi.fn();
 
 vi.mock('./api-client', async (importarReal) => {
   const real = await importarReal<typeof import('./api-client')>();
@@ -26,7 +27,7 @@ vi.mock('./api-client', async (importarReal) => {
     api: {
       get: (...args: unknown[]) => get(...args),
       post: (...args: unknown[]) => post(...args),
-      patch: vi.fn(),
+      patch: (...args: unknown[]) => patch(...args),
       delete: vi.fn(),
     },
   };
@@ -87,17 +88,29 @@ describe('addDepartamento', () => {
     expect(result.current.depts.departamentos[0].id).not.toMatch(/^depto-/);
   });
 
-  it('manda el proceso con codigo derivado y el tipo traducido', async () => {
-    post.mockResolvedValue({ id: 'x', name: 'Chancado y Molienda', process_type: 'operational' });
+  it('crea el departamento organizativo y cuelga de él el proceso', async () => {
+    // Sin el departamento, el perfil de empresa nunca se completaba y ninguna
+    // persona interna se podía invitar: la API los exige de `departments`.
+    post.mockImplementation((ruta: string) =>
+      Promise.resolve(
+        ruta === '/departments/'
+          ? { id: 'unidad-1', name: 'Chancado y Molienda' }
+          : { id: 'x', name: 'Chancado y Molienda', process_type: 'operational', department_id: 'unidad-1' },
+      ),
+    );
 
     const { result } = montar();
     await waitFor(() => expect(result.current.depts.loading).toBe(false));
     act(() => result.current.depts.addDepartamento(alta));
 
-    await waitFor(() => expect(post).toHaveBeenCalled());
-    const [ruta, cuerpo] = post.mock.calls[0] as [string, Record<string, unknown>];
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    const [rutaUnidad, cuerpoUnidad] = post.mock.calls[0] as [string, Record<string, unknown>];
+    expect(rutaUnidad).toBe('/departments/');
+    expect(cuerpoUnidad).toMatchObject({ code: 'DEP-CHANCADOYM', name: 'Chancado y Molienda' });
 
+    const [ruta, cuerpo] = post.mock.calls[1] as [string, Record<string, unknown>];
     expect(ruta).toBe('/processes/');
+    expect(cuerpo.department_id).toBe('unidad-1');
     // 'operativo' es nuestro; la base solo acepta el CHECK en ingles.
     expect(cuerpo.process_type).toBe('operational');
     // 'Chancado y Molienda' → CHANCADOYMOLIENDA → los primeros 10.
@@ -136,5 +149,76 @@ describe('addDepartamento', () => {
     // Modo sin backend: la pantalla sigue usable sobre datos de ejemplo.
     expect(post).not.toHaveBeenCalled();
     expect(result.current.departamentos).toHaveLength(1);
+  });
+});
+
+/**
+ * Reclasificar un proceso en el mapa (ISO 9001 §4.4).
+ *
+ * Hasta el 10-sep `updateTipo` **no llamaba a la API**, y el comentario decia
+ * por que: `ProcessUpdate` no exponia `process_type`, asi que un PATCH habria
+ * respondido 200 sin guardar nada. El diagnostico era correcto y el arreglo
+ * estaba del otro lado — la columna existe y `ProcessRead` ya la devolvia.
+ */
+describe('reclasificar un proceso', () => {
+  const PROCESO = 'p0000000-0000-0000-0000-000000000001';
+
+  function responderProcesos() {
+    get.mockImplementation((ruta: string) => {
+      if (ruta.startsWith('/processes')) {
+        return Promise.resolve([
+          {
+            id: PROCESO,
+            tenant_id: 'a0000000-0000-0000-0000-000000000001',
+            code: 'PRC-001',
+            name: 'Gestion de residuos',
+            process_type: 'operational',
+            inputs: [],
+            outputs: [],
+            active: true,
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+  }
+
+  async function montarProcesos() {
+    iniciarSesionComo('admin_empresa');
+    responderProcesos();
+    const r = renderHook(() => useDepartamentos(), { wrapper });
+    await waitFor(() => expect(r.result.current.loading).toBe(false));
+    await waitFor(() => expect(r.result.current.departamentos).toHaveLength(1));
+    return r;
+  }
+
+  it('manda el PATCH con el vocabulario de la base, no el de la pantalla', async () => {
+    const { result } = await montarProcesos();
+    patch.mockResolvedValue({ id: PROCESO, process_type: 'strategic' });
+
+    await act(async () => {
+      result.current.updateTipo(PROCESO, 'estrategico');
+    });
+
+    expect(patch).toHaveBeenCalledWith(
+      `/processes/${PROCESO}`,
+      { process_type: 'strategic' },
+      expect.anything(),
+    );
+  });
+
+  it('si la API rechaza, la tarjeta vuelve a su columna', async () => {
+    // Sin esto el mapa muestra una clasificacion que la base no tiene, y se
+    // descubre al recargar — que es como se veia antes de conectarlo.
+    const { result } = await montarProcesos();
+    patch.mockRejectedValue(new ApiError(422, 'Unprocessable Entity', { detail: 'tipo invalido' }));
+
+    await act(async () => {
+      result.current.updateTipo(PROCESO, 'estrategico');
+    });
+
+    await waitFor(() =>
+      expect(result.current.departamentos[0]!.tipo).toBe('operativo'),
+    );
   });
 });

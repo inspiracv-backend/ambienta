@@ -3,9 +3,10 @@
 import { useId, useState, type FormEvent } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { Button, Input } from '@/components/atoms';
-import { FormField, FileDropzone } from '@/components/molecules';
+import { FormField } from '@/components/molecules';
 import { useSession } from '@/lib/session';
 import { useSupportTickets } from '@/lib/support-tickets-store';
+import { mensajeDeError } from '@/lib/api-client';
 import {
   abrirSolicitud,
   categoriaDesdeTipo,
@@ -36,16 +37,16 @@ const EMPTY_STATE: FormState = { tipo: '', asunto: '', descripcion: '', nombreCo
  * Persiste en SupportTicketsProvider (elevado a app/layout.tsx) para que el
  * ticket aparezca en Soporte/Tickets internos (Sección L, S-38).
  *
- * **Hay dos caminos, y solo uno llega a la base todavía.**
+ * **Hay dos caminos, y los dos llegan a la base** (el segundo, desde el 13-sep).
  *
  * Con sesión de Cliente Invitado el ticket se abre contra la API, ligado a su
  * credencial (`guest_credential_id`). Ese vínculo es lo que después le permite
  * volver a encontrarlo y lo que impide que otro lo vea: filtrar por el correo
  * no serviría, porque el correo lo escribe la misma persona en este formulario.
  *
- * Sin esa sesión —un usuario con cuenta— sigue el camino simulado del
- * provider. Conectarlo es otra tarea: `POST /support/tickets` existe, pero
- * requiere resolver el autor desde la sesión de Clerk.
+ * Con cuenta, va por `createTicket` del provider: la API pone el autor desde
+ * la sesión. Hasta el 13-sep ese camino era simulado — un `setTimeout`, un
+ * número sorteado y el error de la API tragado.
  */
 export function TicketForm() {
   const { user } = useSession();
@@ -54,7 +55,6 @@ export function TicketForm() {
   const formId = useId();
 
   const [values, setValues] = useState<FormState>(EMPTY_STATE);
-  const [files, setFiles] = useState<File[]>([]);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ticketNumber, setTicketNumber] = useState<string | null>(null);
@@ -103,18 +103,19 @@ export function TicketForm() {
       return;
     }
 
-    setTimeout(() => {
-      const ticket = createTicket({
-        tenantId: user?.tenantId ?? null,
-        tipoSolicitud: values.tipo,
-        asunto: values.asunto.trim(),
-        descripcion: values.descripcion.trim(),
-        contactoNombre: isAuthenticated ? user!.nombre : values.nombreContacto.trim(),
-        contactoEmail: isAuthenticated ? user!.email : values.correoContacto.trim(),
-      });
-      setIsSubmitting(false);
-      setTicketNumber(ticket.numero);
-    }, 500);
+    // Sin el `setTimeout` de 500 ms que simulaba el envío: la espera ahora es
+    // la de la base, y el número es el que la base asignó.
+    createTicket({
+      tenantId: user?.tenantId ?? null,
+      tipoSolicitud: values.tipo,
+      asunto: values.asunto.trim(),
+      descripcion: values.descripcion.trim(),
+      contactoNombre: isAuthenticated ? user!.nombre : values.nombreContacto.trim(),
+      contactoEmail: isAuthenticated ? user!.email : values.correoContacto.trim(),
+    })
+      .then((ticket) => setTicketNumber(ticket.numero))
+      .catch((e) => setErrors({ descripcion: mensajeDeError(e) }))
+      .finally(() => setIsSubmitting(false));
   }
 
   if (ticketNumber) {
@@ -125,7 +126,7 @@ export function TicketForm() {
         <p className="text-sm text-slate-500">
           Tu número de ticket es <span className="font-medium text-slate-800">{ticketNumber}</span>. Te contactaremos a la brevedad.
         </p>
-        <Button variant="secondary" onClick={() => { setValues(EMPTY_STATE); setFiles([]); setTicketNumber(null); }}>
+        <Button variant="secondary" onClick={() => { setValues(EMPTY_STATE); setTicketNumber(null); }}>
           Volver
         </Button>
       </div>
@@ -173,9 +174,9 @@ export function TicketForm() {
           />
         </FormField>
 
-        <FormField label="Adjuntos" htmlFor={`${formId}-adjuntos`}>
-          <FileDropzone id={`${formId}-adjuntos`} files={files} onChange={setFiles} maxFiles={3} />
-        </FormField>
+        {/* El campo "Adjuntos" se quitó el 13-sep: ninguna de las dos rutas de
+            envío mandaba los archivos, y la solicitud salía sin ellos y sin
+            aviso. Vuelve cuando el ticket tenga dónde guardarlos. */}
 
         {!isAuthenticated && (
           <>

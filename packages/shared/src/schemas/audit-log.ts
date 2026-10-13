@@ -38,6 +38,17 @@ export const EntidadAuditableSchema = z.enum([
   'contrato',
   'departamento',
   'planta',
+  // Desde el 21-sep, cuando el registro empezó a leerse del servidor: la base
+  // audita más de cuarenta tablas y el enum tenía catorce. `otro` es el
+  // respaldo, para que ningún evento se esconda por no tener tipo.
+  'aspecto_ambiental',
+  'riesgo_oportunidad',
+  'equipo',
+  'documento',
+  'rol',
+  'crm',
+  'comentario',
+  'otro',
 ]);
 export type EntidadAuditable = z.infer<typeof EntidadAuditableSchema>;
 
@@ -59,6 +70,7 @@ export const AccionAuditableSchema = z.enum([
   'eliminado',
   'exportado',
   'comentado',
+  'ingreso',
 ]);
 export type AccionAuditable = z.infer<typeof AccionAuditableSchema>;
 
@@ -119,6 +131,14 @@ export const ENTIDAD_LABEL: Record<EntidadAuditable, string> = {
   contrato: 'Contrato',
   departamento: 'Departamento',
   planta: 'Planta',
+  aspecto_ambiental: 'Aspecto ambiental',
+  riesgo_oportunidad: 'Riesgo u oportunidad',
+  equipo: 'Equipo regulado',
+  documento: 'Documento',
+  rol: 'Rol o permiso',
+  crm: 'CRM',
+  comentario: 'Comentario',
+  otro: 'Otro registro',
 };
 
 export const ACCION_LABEL: Record<AccionAuditable, string> = {
@@ -134,4 +154,5 @@ export const ACCION_LABEL: Record<AccionAuditable, string> = {
   eliminado: 'Eliminado',
   exportado: 'Exportado',
   comentado: 'Comentario',
+  ingreso: 'Ingreso',
 };

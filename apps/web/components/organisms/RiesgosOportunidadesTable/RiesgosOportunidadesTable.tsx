@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from '@ambienta/shared';
 import { Button, StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
 import { ConfirmarBorrado, FormularioIso, type CampoIso } from '@/components/organisms/IsoForms';
-import { getUserName } from '@/lib/get-user-name';
+import { useNombreDeUsuario } from '@/lib/get-user-name';
 import { useIso, type RiesgoApi, type PlantaApi } from '@/lib/iso-store';
 import {
   ESTADO_REGISTRO,
@@ -100,6 +100,8 @@ interface Props {
  * real y estas pantallas leían el lado equivocado.
  */
 export function RiesgosOportunidadesTable({ riesgos, plants }: Props) {
+  // Nombres de las personas reales; antes todo responsable salía «Sin asignar».
+  const getUserName = useNombreDeUsuario();
   const [plantaFiltro, setPlantaFiltro] = useState('todas');
   const [tipoFiltro, setTipoFiltro] = useState('todos');
   const [estadoFiltro, setEstadoFiltro] = useState('todos');

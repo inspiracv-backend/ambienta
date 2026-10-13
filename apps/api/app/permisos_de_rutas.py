@@ -49,7 +49,16 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
     # `manager.read` y `manager.write` los tienen hoy `admin_empresa` y
     # `servicio_lectura`, que es justo quien usa un CRM.
     "crm": "manager",
+    # La cartera de un Gestor es su vista del modulo de Gestores, asi que
+    # reutiliza `manager` por el mismo motivo que el CRM: un permiso nuevo sin
+    # rol que lo conceda es un 403 para todos, y "la pantalla no carga" no se
+    # parece en nada a la causa. `manager.read` ya lo tienen `admin_empresa` y
+    # `servicio_lectura`.
+    "gestor": "manager",
     "declarations": "obligation",
+    # Anotar que se emitio un documento: lo puede quien puede generarlo. Una
+    # familia con punto es un permiso completo (ver `permiso_requerido`).
+    "emisiones": "report.generate",
     "departments": "company_profile",
     "documents": "document",
     "facilities": "company_profile",
@@ -66,11 +75,80 @@ FAMILIA_POR_RAIZ: dict[str, str] = {
     "roles": "role.manage",
 }
 
+#: Lo que un Admin Global **si** puede escribir.
+#:
+#: CLAUDE.md §4 lo declara como regla no negociable —*"Admin Global NO puede
+#: editar contenido de tenants"*— y el spec de RBAC tiene su escenario: *"un
+#: administrador global intenta modificar una obligacion de una empresa; el
+#: sistema lo rechaza, aunque pueda ver la empresa para administrarla"*.
+#:
+#: **La regla existia escrita en dos lugares y no la aplicaba ninguno.** Medido
+#: el 10-sep: `users.tenant_id` es `NOT NULL`, asi que un `platform_admin`
+#: pertenece a una empresa y su sesion la declara — RLS lo deja escribir ahi
+#: como cualquiera.
+#:
+#: Estas dos raices son **su** superficie: dar de alta empresas y administrar
+#: cuentas. `catalog` no esta porque ya no pasa por esta guarda y sus
+#: escrituras exigen `exigir_admin_global` por su cuenta.
+#:
+#: **El limite es discutible y por eso vive en una constante.** Si manana el
+#: Admin Global tiene que poder tocar `facilities` para dar de alta una planta
+#: durante el onboarding, se agrega aca y se entiende por que.
+RAICES_DE_PLATAFORMA: frozenset[str] = frozenset({"tenants", "users"})
+
+#: Metodos que no escriben. Un Admin Global **lee** todo: necesita ver la
+#: empresa para administrarla, y el escenario del spec lo dice explicito.
+METODOS_DE_LECTURA: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def escritura_vedada_al_admin_global(camino: str, metodo: str) -> bool:
+    """Si esta operacion le esta prohibida al rol de plataforma.
+
+    Se compara por la **raiz de la ruta**, igual que `permiso_requerido`: la
+    plantilla (`/api/v1/obligations/{id}`), no la URL concreta.
+    """
+    if metodo.upper() in METODOS_DE_LECTURA:
+        return False
+    if not camino.startswith("/api/v1/"):
+        return False
+    partes = [p for p in camino[len("/api/v1/") :].split("/") if p]
+    if not partes:
+        return False
+    return partes[0] not in RAICES_DE_PLATAFORMA
+
+
 #: Rutas que **no** pasan por esta guarda, con el motivo.
 #:
 #: No es una lista de conveniencia: cada entrada es una decision, y el test
 #: exige que ninguna se quede sin explicar.
 SIN_GUARDA_DE_PERMISO: dict[str, str] = {
+    "buscar": (
+        "el permiso decide QUE se busca, no si se puede buscar. Una guarda "
+        "derivada de la ruta exigiria un permiso unico para todo el "
+        "buscador; lo correcto es lo contrario: cada resultado se filtra "
+        "por el `<familia>.read` de SU tipo, con el mismo mapa que valida "
+        "el anclaje. Sin eso el buscador seria un oraculo — alguien sin "
+        "`audit.read` se enteraria de los titulos de las auditorias "
+        "escribiendo una palabra en una caja. Hay una prueba que lo fija"
+    ),
+    "historial": (
+        "igual que `comentarios`: el permiso sale del cuerpo de la consulta y "
+        "no del camino. Leer la historia de una auditoria exige `audit.read` y "
+        "la de una obligacion `obligation.read`, resuelto con el mismo mapa "
+        "que valida el anclaje. La comprobacion vive en el handler"
+    ),
+    "comentarios": (
+        "no lleva la guarda **derivada de la ruta**, y si lleva guarda. El "
+        "permiso sale del cuerpo y no del camino: una sola ruta cubre trece "
+        "entidades, y comentar sobre una auditoria exige `audit.write` "
+        "mientras que sobre una obligacion exige `obligation.write`. La "
+        "comprobacion vive en `routers/comentarios.py::_exigir`, que resuelve "
+        "la familia con el MISMO mapa que valida el anclaje — un tercer "
+        "diccionario con las mismas trece claves seria un tercer sitio del "
+        "que desincronizarse. Hay una prueba que le quita las escrituras a un "
+        "rol y exige el 403, para que esta excepcion no se convierta en una "
+        "ruta sin permisos"
+    ),
     "catalog": (
         "catalogo compartido sin `tenant_id`. Leer es informacion de trabajo "
         "para cualquiera; escribir ya exige Admin Global, que es una barrera "
@@ -103,7 +181,11 @@ SIN_GUARDA_DE_PERMISO: dict[str, str] = {
         "lo que puede tocar**: ningun endpoint de negocio sabe leer su token, "
         "que es de un tipo distinto de `CurrentUser`"
     ),
-    "system": "salud y diagnostico del esquema; no lee datos de negocio",
+    "system": (
+        "salud y diagnostico del esquema; no lee datos de negocio. **Salvo el "
+        "registro de actividades**, que si los lee y por eso esta en "
+        "`PERMISO_POR_RUTA`, que se mira antes que esta lista"
+    ),
     "me": (
         "preguntar quien soy y que puedo hacer **no puede exigir un permiso**: "
         "seria circular, porque la respuesta legitima puede ser 'ninguno' y "
@@ -124,8 +206,25 @@ PERMISO_POR_ACCION: dict[str, str] = {
     "close": "nonconformity.close",
     "evaluate": "legal_matrix.article.evaluate",
     "verify": "nonconformity.close",
-    "audit-log": "audit_log.read",
     "generate-notifications": "notification.configure",
+}
+
+#: Rutas con permiso propio que la regla general **no alcanza**, por
+#: `(raiz, ultimo segmento)`. Se miran antes que todo lo demas, incluida
+#: `SIN_GUARDA_DE_PERMISO`. Existe por dos defectos medidos el 21-sep:
+#:
+#: - **`/system/audit-log` no pedia ningun permiso.** `PERMISO_POR_ACCION`
+#:   declaraba `"audit-log": "audit_log.read"`, pero la raiz `system` esta
+#:   exenta y la funcion salia antes de llegar a esa linea: una guarda escrita
+#:   y sin efecto. El registro trae el antes y el despues de cada cambio de la
+#:   empresa, asi que cualquiera con sesion leia todo.
+#: - **Evaluar un aspecto ISO pedia el permiso de la matriz legal**, solo porque
+#:   la ruta termina en `evaluate`. Hoy los mismos roles tienen los dos, asi que
+#:   no bloqueaba a nadie; pero una excepcion individual caia en el permiso
+#:   equivocado. Evaluar la significancia es escribir el aspecto.
+PERMISO_POR_RUTA: dict[tuple[str, str], str] = {
+    ("system", "audit-log"): "audit_log.read",
+    ("iso14001", "evaluate"): "environmental_aspect.write",
 }
 
 #: Sub-rutas con familia propia, mas especifica que la de su raiz.
@@ -145,6 +244,10 @@ FAMILIA_POR_SUBRUTA: dict[tuple[str, str], str] = {
     # quien puede editar el nombre de una persona no deberia poder hacerla
     # administradora.
     ("users", "roles"): "role.manage",
+    # Acotar a alguien a una planta decide que puede ver: mismo criterio.
+    ("users", "alcance"): "role.manage",
+    # Invitar a alguien lo crea **con un rol**: mismo criterio que asignarlo.
+    ("users", "invitaciones"): "role.manage",
 }
 
 _ESCRITURAS = frozenset({"POST", "PATCH", "PUT", "DELETE"})
@@ -164,12 +267,15 @@ def permiso_requerido(camino: str, metodo: str) -> str | None:
         return None
 
     raiz = partes[0]
+    ultimo = partes[-1]
+    if (raiz, ultimo) in PERMISO_POR_RUTA:
+        return PERMISO_POR_RUTA[(raiz, ultimo)]
+
     if raiz in SIN_GUARDA_DE_PERMISO:
         return None
 
     # Las acciones ganan sobre todo lo demas: tienen permiso propio justamente
     # para no confundirse con editar el recurso.
-    ultimo = partes[-1]
     if ultimo in PERMISO_POR_ACCION:
         return PERMISO_POR_ACCION[ultimo]
 

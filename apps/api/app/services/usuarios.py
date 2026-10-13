@@ -234,6 +234,15 @@ def fijar_roles(
     deseados = set(role_ids)
     efectos: list[str] = []
 
+    # **El alcance por planta vive en las filas de rol**, asi que un rol nuevo
+    # sin planta dejaria sin acotar a quien lo estaba: `alcance_del_usuario`
+    # hace mandar al rol mas amplio. Se hereda la planta cuando todos los roles
+    # vigentes comparten una. Sin roles vigentes no hay alcance que heredar, y
+    # una fila reabierta conserva la planta que tenia.
+    plantas_vigentes = {f.facility_id for f in roles_vigentes_de(db, usuario.id)}
+    hay_vigentes = bool(plantas_vigentes)
+    heredada = next(iter(plantas_vigentes)) if len(plantas_vigentes) == 1 else None
+
     existentes = {
         fila.role_id: fila
         for fila in db.scalars(
@@ -247,6 +256,8 @@ def fijar_roles(
             # Se le vuelve a dar un rol que tuvo: se reabre la misma fila.
             fila.valid_from = ahora
             fila.valid_to = None
+            if hay_vigentes:
+                fila.facility_id = heredada
             efectos.append("se reasigno un rol que tuvo antes")
         elif role_id not in deseados and vigente:
             if fila.valid_from >= ahora:
@@ -268,9 +279,44 @@ def fijar_roles(
                 role_id=role_id,
                 tenant_id=tenant_id,
                 valid_from=ahora,
+                facility_id=heredada,
             )
         )
         efectos.append("se asigno un rol nuevo")
 
     db.flush()
     return efectos
+
+
+# ── Alcance por planta (#25) ──────────────────────────────────────────────
+
+
+class SinRolesQueAcotar(ErrorDeUsuarios):
+    """Se pidio acotar a alguien que no tiene ningun rol vigente."""
+
+
+def fijar_alcance(db: Session, usuario: User, facility_id: UUID | None) -> int:
+    """Acota a la persona a una planta, o la deja sin acotar con `None`.
+
+    Hasta el 13-sep el alcance **se aplicaba pero no se podia asignar**: la API
+    filtraba por `user_roles.facility_id` y la unica forma de escribirlo era
+    SQL a mano. La pantalla mostraba casillas de plantas que no guardaban nada.
+
+    Se escribe en **todos** los roles vigentes a la vez. Acotar uno solo no
+    acotaria a nadie: `alcance_del_usuario` hace mandar al rol mas amplio.
+
+    **Una planta, no varias.** La clave `(user_id, role_id)` no admite el mismo
+    rol en dos plantas; varias plantas exigirian inventar roles duplicados.
+
+    Devuelve cuantos roles quedaron acotados.
+    """
+    vigentes = roles_vigentes_de(db, usuario.id)
+    if not vigentes:
+        raise SinRolesQueAcotar(
+            "Esta persona no tiene ningun rol vigente, y el alcance por planta "
+            "se guarda en sus roles. Asignale un rol primero."
+        )
+    for fila in vigentes:
+        fila.facility_id = facility_id
+    db.flush()
+    return len(vigentes)

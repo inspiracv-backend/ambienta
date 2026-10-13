@@ -2,7 +2,30 @@
 
 Procedimiento para desplegar Ambienta en un servidor. Escrito para ejecutarse paso a paso, incluyendo verificación y rollback.
 
-> **Estado:** la infraestructura está lista y validada, pero **este runbook no se ha ejecutado nunca todavía** — no existe un servidor de producción aprovisionado. La primera ejecución debe hacerse con calma y verificando cada paso.
+> **Estado (13-oct-2026):** no existe un servidor de producción aprovisionado, así
+> que este runbook **no se ha ejecutado nunca contra un servidor**. Lo que sí se
+> hizo ese día fue ensayarlo completo en local con las imágenes de producción
+> reales, y el ensayo encontró **nueve fallas que rompían el primer despliegue**.
+> Están corregidas y anotadas donde corresponde:
+>
+> | # | Lo que pasaba | Dónde |
+> |---|---|---|
+> | 1 | Caddy hacía `reverse_proxy api:3001` y la API escucha en **8000**: 502 en toda la API | `infra/caddy/Caddyfile` |
+> | 2 | El servicio `web` no recibía `CLERK_SECRET_KEY`: 500 en toda pantalla protegida | `docker-compose.prod.yml` |
+> | 3 | La API se conectaba como **dueño** de la base, así que el `REVOKE` que hace inmutable `audit_log` no le aplicaba | §2, §4.6 |
+> | 4 | La auditoría rotada se escribía en disco efímero: `up -d --build` la borraba, y la tabla ya no la tiene | §4.11, §7 |
+> | 5 | `/health/ready`, que este runbook mandaba a verificar, **no existe** | §4.2 |
+> | 6 | Nada decía que hay que crear el primer Admin Global: sin él nadie puede entrar | §4.10 |
+> | 7 | La imagen de la web **no se podía construir**: `COPY apps/web/public` y ese directorio no existe en el repo | `apps/web/Dockerfile` |
+> | 8 | El Caddyfile era **inválido** (`exclude` dentro de `log` no existe en Caddy 2): Caddy no arrancaba y no se servía nada | `infra/caddy/Caddyfile` |
+> | 9 | `cron` estaba **solo en una red `internal`**, donde no se resuelve DNS: ningún correo habría salido nunca | `docker-compose.prod.yml` |
+>
+> Y **no existía ningún respaldo** (§7), con la base del piloto en un volumen de
+> una sola máquina.
+>
+> Ninguna se habría visto antes del primer intento, y tres de ellas no se ven
+> ni siquiera entonces: el sistema arranca, se ve bien y falla en silencio.
+> La primera ejecución real igual debe hacerse con calma, verificando cada paso.
 
 ---
 
@@ -26,6 +49,88 @@ dig +short api.tudominio.cl
 ```
 
 Ambos deben devolver la IP del servidor.
+
+---
+
+## 0.1 Variante para la Beta: túnel de Cloudflare (sin servidor propio)
+
+**Cuándo sirve:** dejar la Beta accesible en `app.ambienta.cl` desde una máquina
+sin IP pública —un notebook, un PC de oficina, una red con NAT del proveedor—
+mientras no haya VPS. Reemplaza a §1 (preparar el servidor) y cambia §2 y §3;
+todo lo demás del runbook vale igual.
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.tunel.yml up -d
+```
+
+El archivo `docker-compose.tunel.yml` explica el detalle técnico. Acá va lo que
+hay que hacer y en qué orden, porque **la mitad son pasos en cuentas ajenas que
+nadie puede hacer por ti**.
+
+### Lo que cambia respecto del despliegue normal
+
+**El TLS lo termina Cloudflare, no Caddy.** El navegador habla HTTPS con el borde
+de Cloudflare; de ahí a esta máquina el tráfico va por el túnel, que ya es
+cifrado. Por eso no hace falta Let's Encrypt, ni abrir el puerto 80, ni tocar el
+router. `CORS_ORIGINS` y `NEXT_PUBLIC_API_URL` **siguen en `https`**: son lo que
+ve el navegador.
+
+### Los cuatro pasos que son tuyos
+
+1. **Mover el DNS de `ambienta.cl` a Cloudflare.** Agregar el dominio en el panel
+   y cambiar los nameservers donde esté registrado (NIC Chile para un `.cl`).
+   **Es el único paso que tarda** —de minutos a horas— y conviene arrancar por
+   él. El túnel no funciona con el DNS en otro proveedor: los registros que crea
+   apuntan a `<uuid>.cfargotunnel.com`, que solo resuelve dentro de Cloudflare.
+2. **Crear el túnel:** Zero Trust → Networks → Tunnels → Create a tunnel →
+   Cloudflared. Copiar el token y ponerlo en `.env` como `TUNNEL_TOKEN`. **Es un
+   secreto:** quien lo tenga puede publicar su propio servicio en tu dominio.
+3. **Las dos reglas de entrada del túnel** (Public Hostnames):
+
+       app.ambienta.cl  →  HTTP  →  caddy:80
+       api.ambienta.cl  →  HTTP  →  caddy:80
+
+   Las dos al mismo destino: Caddy decide por el `Host`.
+4. **Clerk y Resend**, que no dependen del túnel pero sí del dominio: ver §2.1
+   para Clerk, y agregar el dominio en Resend con sus registros SPF y DKIM. Con
+   el DNS ya en Cloudflare, los dos son copiar y pegar.
+
+### Verificación propia de este camino
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.tunel.yml logs cloudflared | tail -5
+```
+
+Con el token correcto registra cuatro conexiones (`Registered tunnel
+connection`). Si dice **`Provided Tunnel token is not valid`**, el token está
+mal copiado o el túnel se borró en el panel — es el mensaje exacto que aparece
+con un token inventado, así que sirve para distinguirlo de un problema de red.
+
+Que Caddy esté sirviendo en modo HTTP, sin pedir certificados:
+
+```bash
+curl -s --resolve app.ambienta.cl:80:127.0.0.1 http://app.ambienta.cl/login -o /dev/null -w "%{http_code}\n"
+```
+
+Debe dar `200`. Después, desde **otra red** (el teléfono con datos móviles):
+abrir `https://app.ambienta.cl` y comprobar que el certificado lo emite
+Cloudflare.
+
+### Lo que este camino no resuelve, y hay que decirlo
+
+- **La Beta vive mientras esa máquina esté encendida y con red.** El túnel se
+  reconecta solo y los contenedores tienen `restart: always`, así que un reinicio
+  del equipo los vuelve a levantar — pero con el equipo apagado la Beta está
+  caída, y nadie fuera de ahí puede hacer nada al respecto.
+- **La base de datos vive en un volumen de Docker de esa máquina.** El respaldo
+  de §7 no es opcional acá: es lo único que separa un disco que falla de perder
+  los datos del piloto. Y son **dos** respaldos, no uno (ver §7).
+- **No hay staging.** Lo que se levanta es producción, con los datos de las
+  personas que prueben la Beta.
+
+Cuando aparezca el VPS, el cambio es mover el `.env` y correr el `up` **sin** el
+archivo de túnel: ahí Caddy vuelve a pedir sus certificados y el DNS pasa a
+apuntar al servidor. No hay nada más que migrar que el volumen de Postgres.
 
 ---
 
@@ -61,17 +166,93 @@ cp .env.example .env
 nano .env                  # completar TODOS los valores obligatorios
 ```
 
-Generar cada secreto por separado:
+Generar cada secreto por separado — **no reutilizar uno para dos cosas**:
 
 ```bash
-openssl rand -base64 32    # POSTGRES_PASSWORD
-openssl rand -base64 32    # REDIS_PASSWORD
-openssl rand -base64 48    # JWT_SECRET (mín. 32 caracteres)
+openssl rand -base64 32                                       # POSTGRES_PASSWORD
+openssl rand -base64 32                                       # APP_DB_PASSWORD
+python -c "import secrets; print(secrets.token_urlsafe(48))"  # TOKEN_INVITADO_SECRETO
 ```
+
+> **`REDIS_PASSWORD` y `JWT_SECRET` ya no existen.** La primera murió con el
+> servicio de Redis que ningún código consultaba; la segunda con ADR-006: la API
+> no emite tokens propios, valida los de Clerk contra su JWKS pública. Si
+> aparecen en un `.env` heredado, se borran.
+
+**`APP_DB_PASSWORD` es la contraseña de `ambienta_app`, el rol con el que se
+conecta la API** — y no es un detalle de estilo:
+
+- Es el rol que **no puede saltarse RLS**, que es la única barrera entre
+  empresas: ninguna consulta de la aplicación filtra por `tenant_id`.
+- Es el rol al que aplica el `REVOKE UPDATE, DELETE ON audit_log` de `db/07`.
+  Conectada como dueño de la base, la API podía **editar y borrar el registro
+  de auditoría**: RNF-08 y RNF-25 existían en desarrollo y no en producción.
+
+`db/07` lo crea con `ambienta_app_dev`, escrita en un archivo versionado de un
+repositorio **público**. `infra/postgres/init/99-password-del-rol-app.sh` la
+reemplaza por ésta en el primer arranque, y se niega a seguir si le pasan la de
+desarrollo.
+
+> **Si el volumen de datos ya existe, los scripts de init NO vuelven a correr.**
+> Cambiar `APP_DB_PASSWORD` en el `.env` de una instalación ya desplegada no
+> cambia nada en la base, y la API queda sin poder conectarse. El ALTER va a
+> mano, y después se reinicia la API:
+>
+> ```bash
+> docker compose -f docker-compose.prod.yml exec postgres \
+>   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+>   -c "ALTER ROLE ambienta_app WITH LOGIN PASSWORD 'la-nueva'"
+> docker compose -f docker-compose.prod.yml up -d api cron
+> ```
+
+El resto de los secretos no se generan acá: vienen de los paneles de Clerk,
+Resend y Backblaze. Ver §2.1.
 
 ```bash
 chmod 600 .env             # solo el dueño puede leerlo
 ```
+
+### 2.1 Lo que hay que configurar en Clerk (antes del primer ingreso)
+
+Nada de esto está en el repositorio: son cuatro cosas en el panel de Clerk, y
+sin ellas el despliegue levanta y nadie puede entrar.
+
+1. **Instancia de producción.** Las llaves de desarrollo (`pk_test_`, `sk_test_`)
+   no sirven en el dominio real. Las de producción (`pk_live_`, `sk_live_`) van a
+   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, y su JWKS e issuer a
+   `CLERK_JWKS_URL` y `CLERK_ISSUER`.
+
+2. **El JWT Template que inyecta `tenant_id`.** Es el paso que más fácil se
+   olvida y el que deja **401 en toda la API**. En *JWT Templates* se crea uno
+   —por defecto el código lo pide con el nombre `default`,
+   `NEXT_PUBLIC_CLERK_JWT_TEMPLATE`— con:
+
+   ```json
+   { "tenant_id": "{{user.public_metadata.tenant_id}}" }
+   ```
+
+   El token de sesión estándar **no lleva claims personalizados**: sus claims son
+   `azp, exp, fva, iat, iss, nbf, sid, sts, sub, v`. Que el template se llame
+   `default` no lo vuelve el predeterminado — es solo su nombre.
+
+3. **El webhook de usuarios**, en *Webhooks* → *Add Endpoint*:
+
+   ```
+   https://api.tudominio.cl/api/v1/webhooks/clerk
+   ```
+
+   Eventos `user.created`, `user.updated` y `user.deleted`. Su *Signing Secret*
+   va en `CLERK_WEBHOOK_SECRET`. Sin esto, quien entra por SSO no tiene fila en
+   `users` y recibe `403 sesion_sin_empresa`.
+
+4. **Cerrar el registro público**, en *Restrictions* → modo *Restricted*. Si
+   queda abierto, cualquiera con la URL se crea una cuenta. El acceso lo habilita
+   la empresa por invitación, y la invitación es la que lleva el `tenant_id` en
+   `public_metadata`.
+
+El SSO con Google y Microsoft se configura también acá (*SSO Connections*), con
+credenciales propias de cada proveedor: el callback de OAuth va a Clerk, no a
+esta API.
 
 ### Recomendado: probar primero con el staging de Let's Encrypt
 
@@ -107,7 +288,13 @@ docker compose -f docker-compose.prod.yml logs -f
 docker compose -f docker-compose.prod.yml ps
 ```
 
-Los cinco servicios (`postgres`, `api`, `web`, `cron`, `caddy`) deben estar `Up`, y `postgres` además `(healthy)`.
+Los cinco servicios (`postgres`, `api`, `web`, `cron`, `caddy`) deben estar `Up`,
+y `postgres`, `api` y `web` además `(healthy)`.
+
+> **`api` tenía `restart: always` y ningún healthcheck**, así que `ps` decía
+> «running» aunque no sirviera una sola respuesta, y Caddy le mandaba tráfico en
+> cuanto el contenedor arrancaba. Ahora tiene el mismo healthcheck que en
+> desarrollo.
 
 > **`redis` ya no está, y `cron` sí.** Medido el 4-sep: no había una sola referencia a Redis en `apps/api/app/`, pero el Compose lo levantaba con volumen, healthcheck y una `REDIS_PASSWORD` obligatoria que impedía arrancar. La cola de avisos es la tabla `notifications` en Postgres — la decisión estaba tomada y escrita, y el Compose no se había enterado.
 >
@@ -117,10 +304,21 @@ Los cinco servicios (`postgres`, `api`, `web`, `cron`, `caddy`) deben estar `Up`
 
 ```bash
 curl https://api.tudominio.cl/health
-curl https://api.tudominio.cl/health/ready
+curl https://api.tudominio.cl/health/db
 ```
 
-El segundo debe devolver `"estado": "ok"` con `postgres` en `ok`. Si da **503**, la API está viva pero no alcanza una dependencia: revisar `docker compose -f docker-compose.prod.yml logs api`.
+El segundo es el que importa: comprueba el esquema contra la base. Si da **503**,
+la API está viva pero no alcanza la base o el esquema no cuadra: revisar
+`docker compose -f docker-compose.prod.yml logs api`.
+
+> **Acá decía `/health/ready`, y ese endpoint no existe.** La API expone
+> `/health` y `/health/db` (`apps/api/app/main.py`). Verificar el despliegue con
+> una URL inventada devuelve 404 y no dice nada del estado real.
+
+**`/health/db` usa el motor de administración**, o sea `DATABASE_ADMIN_URL`. Si
+está vacía, `db.py` cae a `DATABASE_URL` sin avisar — y como la API se conecta
+con `ambienta_app`, que no puede revisar el esquema completo, este check queda en
+rojo. El compose de producción la pasa explícita por eso.
 
 ### 4.3 El frontend carga
 
@@ -156,6 +354,48 @@ nc -zv api.tudominio.cl 5432    # debe FALLAR (timeout o refused)
 ```
 
 Si conecta, hay un problema de seguridad: revisar que el Compose de producción no publique ese puerto y que el firewall lo bloquee.
+
+### 4.6.1 La API se conecta con el rol correcto, y la bitácora es inmutable
+
+**Es la verificación que faltaba, y la que estaba fallando.** Hasta el 13-oct el
+compose de producción armaba la URL de la API con `${POSTGRES_USER}` —el dueño de
+la base—, así que las dos garantías que sostiene la base no existían en el único
+entorno donde importan.
+
+Con qué rol está conectada la API, de verdad:
+
+```bash
+docker compose -f docker-compose.prod.yml exec postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "SELECT usename, count(*) FROM pg_stat_activity WHERE datname = current_database() GROUP BY 1;"
+```
+
+Tiene que aparecer **`ambienta_app`**. Si solo aparece el dueño, la API está
+conectada con él y nada de lo de abajo se cumple.
+
+Que el rol de la aplicación no pueda tocar el registro de auditoría:
+
+```bash
+docker compose -f docker-compose.prod.yml exec postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "SELECT has_table_privilege('ambienta_app','audit_log','UPDATE') AS puede_editar,
+          has_table_privilege('ambienta_app','audit_log','DELETE') AS puede_borrar,
+          has_table_privilege('ambienta_app','audit_log','INSERT') AS puede_escribir;"
+```
+
+Lo correcto es `f | f | t`: escribe y no corrige (RNF-08, RNF-25).
+
+Y que no pueda saltarse RLS:
+
+```bash
+docker compose -f docker-compose.prod.yml exec postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'ambienta_app';"
+```
+
+Ambas `f`. Si alguna es `t`, el aislamiento entre empresas no existe: ninguna
+consulta de la aplicación filtra por `tenant_id`, RLS no es la segunda barrera
+sino la única.
 
 ### 4.7 Los avisos de vencimiento van a correr
 
@@ -199,21 +439,85 @@ docker compose -f docker-compose.prod.yml exec api python -m app.tareas.comproba
 
 Sube, baja, compara el contenido y borra. Que `boto3` construya una URL firmada **no prueba nada**: la firma se genera igual con una clave equivocada y falla recién al usarla.
 
-### 4.10 Cargar el catálogo normativo
+### 4.10 Crear el primer Admin Global
 
-Producción arranca **sin `02_seed.sql`**, así que el catálogo son las ocho normas de ejemplo del esquema. Hay que traer las reales:
+**Sin este paso el sistema está desplegado y nadie puede entrar.** Producción
+arranca sin ninguna empresa y sin ningún usuario —no se carga `02_seed.sql`—,
+dar de alta una empresa exige ser Admin Global, y un Admin Global no lo podía
+crear nadie. Este runbook no lo mencionaba.
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m app.tareas crear-admin-global \
+  --correo persona@tudominio.cl --nombre "Nombre Apellido" \
+  --razon-social "Ambienta SpA" --rut 76.123.456-7
+```
+
+Deja hecho, en una sola transacción: la empresa de la plataforma, sus roles de
+sistema, la persona como `platform_admin` con `admin_empresa`, y la invitación de
+Clerk con el `tenant_id` en `public_metadata`. Si Clerk no responde, no queda
+nada a medias.
+
+**Se niega si ya existe un Admin Global**, a propósito: sumar gente al equipo de
+plataforma es RF-84, y este comando no es la puerta trasera para eso.
+
+La invitación llega por correo y la persona crea su cuenta desde ahí. Requiere
+que §2.1 esté hecho: sin el JWT Template, entra y recibe 401 en todo.
+
+### 4.11 El archivo de la auditoría sobrevive al redespliegue
+
+```bash
+docker compose -f docker-compose.prod.yml exec api sh -c \
+  'touch /var/lib/ambienta/auditoria/.prueba && ls -la /var/lib/ambienta/auditoria'
+```
+
+Tiene que escribir sin error. Dos cosas se verifican acá:
+
+1. **Que el directorio esté en un volumen.** `rotar-auditoria` escribe un JSON
+   por empresa y **borra esas filas de `audit_log`**. Hasta el 13-oct el
+   `docker-compose.prod.yml` no montaba volumen en esa ruta, así que el JSON
+   caía en el sistema de archivos del contenedor y el `up -d --build` de §5 —el
+   procedimiento de actualización de este mismo runbook— lo destruía. Habría
+   borrado meses de registro de actividades, sin un solo error, en un producto
+   cuya función es demostrar cumplimiento.
+2. **Que el proceso pueda escribir.** La API corre como usuario sin privilegios;
+   el directorio se crea en la imagen con ese dueño para que el volumen lo
+   herede. Un volumen inicializado vacío sería de `root` y la rotación fallaría
+   recién al final de mes.
+
+Que el volumen existe de verdad:
+
+```bash
+docker volume ls | grep auditoria-archivada
+```
+
+**Está en la lista de respaldos de §7**, y es el único cuyo contenido no se puede
+reconstruir desde ninguna otra parte: cuando la rotación corre, la tabla ya no lo
+tiene.
+
+### 4.12 Cargar el catálogo normativo
+
+Producción arranca **sin `02_seed.sql`**, así que el catálogo arranca con **cero
+normas y cero artículos** — medido el 13-oct sobre una instalación limpia; esta
+línea decía «las ocho normas de ejemplo del esquema» y era falsa: esas ocho
+viven en el seed, que producción no carga. Y con el catálogo vacío, la propuesta
+de normativa aplicable —el corazón del producto— no le ofrece nada a nadie.
+
+Hay que traer las reales:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec api python -m app.tareas sincronizar-bcn
 ```
 
-Y **después** volver a aplicar la clasificación transversal, porque la sincronización crea normas que la migración no alcanzó a clasificar:
+Y **después** volver a aplicar las **dos** clasificaciones por sector, porque la sincronización crea las normas que las migraciones no encontraron cuando corrieron:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec -T postgres   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 < db/23_normativa_transversal.sql
+docker compose -f docker-compose.prod.yml exec -T postgres   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 < db/36_sectores_del_ds_609.sql
 ```
 
-Medido en local: sin este segundo paso, el DS 1 queda con **cero** sectores y el DS 40 con uno de ocho. Nada falla — la empresa simplemente recibe menos normativa de la que le corresponde.
+Medido en local: sin el primero, el DS 1 queda con **cero** sectores y el DS 40 con uno de ocho. Sin el segundo, el **D.S. 609 queda sin ninguno** y el CORE no se lo propone a nadie. Nada falla — la empresa simplemente recibe menos normativa de la que le corresponde.
+
+Las dos avisan por `NOTICE` cuántas normas clasificaron, y **no fallan si la norma todavía no está**: por eso se corren después y no antes.
 
 Comprobar el resultado:
 
@@ -221,7 +525,7 @@ Comprobar el resultado:
 docker compose -f docker-compose.prod.yml exec postgres   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c   "SELECT count(*) AS normas FROM legal_norms WHERE deleted_at IS NULL;"
 ```
 
-Deben ser **24 o más**, no 8. Con 8 la sincronización no corrió.
+Deben ser **24 o más**. Con cero, la sincronización no corrió.
 
 > **No correr `sembrar_demo` en producción.** La tarea se niega sola con `ENVIRONMENT=production`, y comprueba el entorno antes de abrir la sesión.
 
@@ -250,32 +554,117 @@ git checkout <commit-estable>
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Los volúmenes de datos (`postgres-data`, `redis-data`) **no** se tocan al hacer rollback de código. Si el problema fue una migración de base de datos, el rollback de código no la revierte — hay que restaurar desde backup (ver §7).
+Los volúmenes de datos (`postgres-data`, `auditoria-archivada`, y los de los
+certificados de Caddy) **no** se tocan al hacer rollback de código. `redis-data`
+ya no existe: el servicio se eliminó el 4-sep.
+
+Si el problema fue una migración de base de datos, el rollback de código **no la
+revierte** — hay que restaurar desde backup (ver §7).
 
 ---
 
-## 7. Backups — pendiente de implementar
+## 7. Respaldos (RNF-19, RNF-20)
 
-**RNF-19 del Análisis Funcional exige respaldo automático diario, y hoy no existe ninguno configurado.** Esto es deuda abierta y debe resolverse antes de tener datos reales de clientes.
-
-Backup manual mientras tanto:
-
-```bash
-docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > backup-$(date +%F).sql.gz
-```
-
-Restauración:
+**Corren solos, todos los días a las 02:00**, en el servicio `respaldos` del
+Compose de producción. Hasta el 13-oct-2026 esta sección decía «pendiente de
+implementar» y era cierto: no existía ninguno.
 
 ```bash
-gunzip -c backup-2026-07-28.sql.gz | \
-  docker compose -f docker-compose.prod.yml exec -T postgres \
-  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+docker compose -f docker-compose.prod.yml logs respaldos | tail -5
 ```
 
-Para cumplir RNF-19/RNF-20 hace falta: cron diario, almacenamiento **fuera** del servidor (S3/R2), retención definida y **restauración probada** (un backup nunca verificado no es un backup).
+Debe mostrar `[respaldos] proxima corrida: ...`. **A las 2 y no a las 3** a
+propósito: la rotación mensual de auditoría va a las 3 del día 1, así que el día
+que esa tarea saca filas de `audit_log` ya existe un respaldo de una hora antes
+que todavía las contiene.
 
----
+### Qué respalda, y por qué son dos cosas
+
+| Artefacto | Qué lleva |
+|---|---|
+| `ambienta-base-AAAA-MM-DD.dump` | La base entera, formato `custom` de `pg_dump` |
+| `ambienta-auditoria-AAAA-MM-DD.tar.gz` | El registro de actividades **ya rotado** |
+
+El segundo no es redundante: `rotar-auditoria` escribe un JSON por empresa y
+**borra esas filas de `audit_log`**, así que desde ese momento el JSON es el
+único lugar donde existe ese registro y **no está en `pg_dump`**. Un respaldo
+que solo copie la base pierde la auditoría de los meses cerrados — justo lo que
+pide un fiscalizador.
+
+Los dos se suben al bucket bajo el prefijo `respaldos/`, **fuera de `tenants/`**:
+un respaldo contiene los datos de todas las empresas, así que no pertenece a la
+carpeta de ninguna. Se conservan **30 días**, local y remotamente.
+
+### Correrlo a mano
+
+```bash
+docker compose -f docker-compose.prod.yml exec respaldos python -m app.tareas respaldar
+```
+
+Informa el tamaño de cada artefacto, **las filas que contó al restaurarlo**, lo
+que purgó y cualquier aviso. Opciones: `--sin-subir` (solo disco local),
+`--sin-verificar` (no restaura para comprobar) y `--retener-dias N`.
+
+### Por qué se verifica restaurando, y no mirando el archivo
+
+**Un respaldo que nadie restauró no es un respaldo.** Cada corrida crea una base
+temporal, restaura el volcado ahí, cuenta las filas de cuatro tablas testigo
+—`tenants`, `users`, `audit_log`, `legal_norms`—, las compara con la base viva y
+borra la temporal. Eso es lo que distingue un volcado completo de uno que se
+cortó porque el disco se llenó, de un `.dump` corrupto, o de un `pg_restore` que
+falla a la mitad. **La tarea sale con código distinto de cero si no pudo
+verificar**, aunque el archivo exista: un cron que informa éxito con un archivo
+ilegible es peor que uno que falla, porque nadie vuelve a mirar.
+
+Si la base todavía no tiene filas, el informe **lo dice**: ahí la verificación
+solo probó que el archivo se restaura, y un «verificado: 0 filas» no debería
+leerse como tranquilidad.
+
+### El rol con el que se respalda
+
+**Con el dueño de la base, nunca con `ambienta_app`.** No es una preferencia:
+medido el 13-oct, `pg_dump` con el rol de la aplicación **se niega** —
+`ERROR: query would be affected by row-level security policy for table
+"action_plans"`—. Por eso la tarea **exige `DATABASE_ADMIN_URL`** y no cae a
+`DATABASE_URL` como hace `db.py`: con el rol equivocado el respaldo no sale
+ninguna noche y el motivo no se parece al síntoma.
+
+Y hay una bandera que **no** se usa: `--enable-row-security` apaga esa
+protección y hace que `pg_dump` vuelque solo las filas visibles. Con el rol de la
+aplicación eso son **cero filas de empresa**, en un archivo con todo el esquema y
+un tamaño creíble. El error de arriba se arregla con el rol correcto, no con esa
+bandera.
+
+### Restaurar
+
+```bash
+# 1. La base. `--clean` borra lo que exista antes de restaurar.
+docker compose -f docker-compose.prod.yml exec -T respaldos \
+  pg_restore --dbname "$DATABASE_ADMIN_URL" --clean --if-exists --no-owner \
+  --exit-on-error /var/lib/ambienta/respaldos/ambienta-base-2026-10-13.dump
+
+# 2. La auditoría archivada, si hace falta
+docker compose -f docker-compose.prod.yml exec -T respaldos \
+  tar xzf /var/lib/ambienta/respaldos/ambienta-auditoria-2026-10-13.tar.gz \
+  -C /var/lib/ambienta/auditoria
+```
+
+Si el respaldo que hay que restaurar está en el bucket y no en disco, se baja
+desde la consola de Backblaze y se copia al volumen con `docker cp`.
+
+`--exit-on-error` no es decorativo: sin él `pg_restore` informa los errores y
+**sale con 0**, así que una restauración a medias se ve como exitosa.
+
+### Lo que sigue pendiente
+
+1. **El ensayo de restauración completo**, en una máquina aparte y con el
+   sistema apuntando a la base restaurada. La verificación automática prueba que
+   el archivo sirve; no prueba que el servicio levante contra él.
+2. **Avisar cuando no corre.** Hoy un fallo queda en el log del contenedor. Lo
+   mínimo es revisar `logs respaldos` al mirar el sistema; lo correcto es que
+   dos noches sin respaldo lleguen como aviso.
+3. **Cifrado en reposo del respaldo.** Hoy va tal cual al bucket: quien tenga
+   la llave de B2 tiene la base.
 
 ## 8. Diagnóstico de problemas
 
@@ -283,10 +672,17 @@ Para cumplir RNF-19/RNF-20 hace falta: cron diario, almacenamiento **fuera** del
 |---|---|---|
 | Caddy no obtiene certificado | DNS no propagado, o 80/443 cerrados | `dig +short <dominio>`; revisar firewall; `logs caddy` |
 | `no such host: api` en logs de Caddy | El servicio `api` no arrancó | `logs api` — casi siempre falta una variable en `.env` |
-| API reinicia en bucle | Variable de entorno faltante o inválida | `logs api`: la validación Zod nombra exactamente la variable |
-| `/health/ready` da 503 | Postgres o Redis no alcanzables | `ps` para ver cuál está caído |
+| API reinicia en bucle | Variable de entorno faltante o inválida | `logs api`: pydantic-settings nombra exactamente la variable. El compose además corta con `:?` antes de arrancar |
+| `/health/db` da 503 | Postgres no alcanzable, esquema desalineado, o `DATABASE_ADMIN_URL` vacía | `ps`; `logs api`; comprobar que el compose pase las dos URLs |
 | El frontend llama a la API equivocada | `NEXT_PUBLIC_API_URL` quedó del build anterior | Reconstruir `web` con `--build` |
 | `rate limit` de Let's Encrypt | Más de 5 intentos fallidos en la semana | Usar el ACME de staging y esperar el reset |
+| **502 en toda la API**, con Caddy y `api` arriba | El `reverse_proxy` apunta a un puerto donde nadie escucha | La API escucha en **8000**. Comprobar el `Caddyfile`: decía 3001 hasta el 13-oct |
+| **500 en toda pantalla protegida**, y el login se ve bien | Falta `CLERK_SECRET_KEY` en el servicio `web` | `clerkMiddleware()` corre en el servidor de Next. El login es público, así que el síntoma aparece recién al entrar |
+| 401 en toda la API, con sesión válida | El JWT Template no existe o se llama distinto | §2.1 punto 2. El token de sesión estándar no lleva `tenant_id` |
+| `403 sesion_sin_empresa` tras entrar por SSO | El webhook de Clerk no corrió | §2.1 punto 3; `logs api` filtrando por webhook |
+| `permission denied for table audit_log` | **Es lo correcto**: la conexión de la aplicación no puede corregir la bitácora | Si la operación era legítima (rotación mensual), corre con `DATABASE_ADMIN_URL` |
+| La API no se conecta tras cambiar `APP_DB_PASSWORD` | Los scripts de init no vuelven a correr sobre un volumen existente | El `ALTER ROLE` a mano de §2 |
+| `"/repo/apps/web/public": not found` al construir | Falta el directorio `apps/web/public` en el repo | Debe existir aunque esté vacío (`.gitkeep`): `COPY` no admite "si existe" |
 | Disco lleno | Imágenes y caché de build acumuladas | `docker system df`, luego `docker builder prune -af` y `docker image prune -f` |
 
 Logs útiles:
@@ -308,7 +704,15 @@ Deuda operacional explícita, para que no se asuma resuelta:
 3. **Observabilidad** — logs a stdout únicamente. Sin agregación (Loki/Datadog), métricas ni alertas.
 4. **Despliegue sin downtime** — `up -d --build` reinicia los contenedores; hay unos segundos de corte. Para zero-downtime haría falta réplicas + drenaje del balanceador.
 5. **Entorno de staging** — solo existen dev (local) y producción. Un staging que refleje producción reduciría el riesgo de la primera vez.
-6. **Rotación de secretos** — no hay procedimiento definido para rotar `JWT_SECRET` (rotarlo invalida todas las sesiones activas).
+6. **Rotación de secretos** — no hay procedimiento definido. `JWT_SECRET` ya no
+   existe (las sesiones las firma Clerk), pero sí hay que poder rotar
+   `APP_DB_PASSWORD` (§2 tiene el ALTER manual, sin automatizar),
+   `TOKEN_INVITADO_SECRETO` —rotarlo invalida las sesiones de invitado activas— y
+   las llaves de Clerk, Resend y Backblaze.
+7. **Un `docker compose exec` corre como el rol de administración.** La rotación
+   mensual lo necesita, pero significa que quien tenga acceso al servidor puede
+   escribir en cualquier empresa: el aislamiento protege a la aplicación, no al
+   operador.
 
 ---
 

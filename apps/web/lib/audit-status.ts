@@ -6,18 +6,6 @@ import type { SemaforoStatus } from '@/components/atoms';
  * hallazgo), distintos de ObligationStatus — se traducen al semáforo visual
  * existente sin agregar nuevos valores a StatusBadge (H4).
  */
-export function auditSemaforo(estado: Audit['estado']): SemaforoStatus {
-  switch (estado) {
-    case 'cerrada':
-      return 'cumple';
-    case 'en_curso':
-      return 'parcial';
-    case 'planificada':
-    default:
-      return 'na';
-  }
-}
-
 export function ncSemaforo(estado: NonConformity['estado']): SemaforoStatus {
   switch (estado) {
     case 'cerrada':
@@ -34,6 +22,7 @@ export const AUDIT_ESTADO_LABEL: Record<Audit['estado'], string> = {
   planificada: 'Planificada',
   en_curso: 'En curso',
   cerrada: 'Cerrada',
+  cancelada: 'Cancelada',
 };
 
 export const NC_ESTADO_LABEL: Record<NonConformity['estado'], string> = {

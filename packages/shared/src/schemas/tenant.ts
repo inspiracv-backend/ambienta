@@ -173,7 +173,9 @@ export const TenantSchema = z.object({
   // ── Administración de plataforma (RF-81) ────────────────────────────────
   // Nunca contenido de negocio del tenant (CLAUDE.md).
   esGestor: z.boolean().default(false),
-  estado: z.enum(['activo', 'suspendido']),
+  // `cerrado` desde el 21-sep: queda en solo lectura igual que `suspendido`, y
+  // antes se mostraba como activo.
+  estado: z.enum(['activo', 'suspendido', 'cerrado']),
   suscripcion: SuscripcionSchema,
   modulosActivos: z.array(ModuloPlataformaSchema),
 

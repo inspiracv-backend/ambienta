@@ -2,10 +2,15 @@ import type { Articulo, LegalNorm } from '@ambienta/shared';
 import type { SemaforoStatus } from '@/components/atoms';
 
 /**
- * % de cumplimiento de una norma = SI / (SI + NO) entre los artículos marcados
- * `incluidoEnCalculo` (RF-13, S-11) — NA y N_E (pendiente de evaluar) no cuentan
- * en el denominador. Réplica en el frontend de la vista SQL
- * `resumen_cumplimiento_requisito` documentada en el ADD (docs/arquitectura).
+ * % de cumplimiento **sobre lo evaluado** = SI / (SI + NO) entre los artículos
+ * marcados `incluidoEnCalculo` (RF-13, S-11) — NA y N_E no cuentan en el
+ * denominador.
+ *
+ * **Desde el 21-sep es el dato secundario, no el cumplimiento.** El número que
+ * se llama "% de cumplimiento" en todo el producto es el conservador
+ * (`computeNormComplianceOrNull`), el mismo del tablero: decisión 3 del plan de
+ * cierre. Este responde otra pregunta —de lo que ya se revisó, cuánto se
+ * cumple— y se muestra como tal, al lado.
  *
  * ## Su equivalente en la API se llama distinto, a propósito
  *
@@ -53,8 +58,19 @@ export function computeNormCoverage(norm: LegalNorm): number {
 }
 
 /**
- * Lo mismo que `computeNormCompliance`, pero **distingue "no cumple" de "nadie
- * lo miró"** — que es la diferencia entre un hecho y una acusación falsa.
+ * **El % de cumplimiento de una norma**, con la definición del tablero: los
+ * artículos que cumplen sobre los que aplican y están incluidos en el cálculo,
+ * **con los sin evaluar en el denominador** (decisión 3 del 21-sep). Es el
+ * `porcentaje` de `GET /compliance/matrices/{id}/resumen`. Así no se infla: una
+ * norma con un artículo cumplido y quince sin evaluar da 6 %, no 100 %, y la
+ * cobertura al lado dice por qué.
+ *
+ * Hasta el 21-sep este número era el calculado sobre lo evaluado
+ * (`computeNormComplianceSobreEvaluadosOrNull`), y el tablero decía otro para la
+ * misma empresa con el mismo nombre.
+ *
+ * Y **distingue "no cumple" de "nadie lo miró"** — que es la diferencia entre un
+ * hecho y una acusación falsa.
  *
  * `computeNormCompliance` devuelve `0` en los dos casos: cuando todo se evaluó
  * y todo salió NO, y cuando no se evaluó nada. Con el catálogo sembrado eso no
@@ -70,12 +86,53 @@ export function computeNormCoverage(norm: LegalNorm): number {
  * qué mostrar, que es justamente lo que obliga a no inventar un número.
  */
 export function computeNormComplianceOrNull(norm: LegalNorm): number | null {
+  const incluidos = norm.articulos.filter((a) => a.incluidoEnCalculo && a.respuesta !== 'NA');
+  const evaluados = incluidos.filter((a) => a.respuesta === 'SI' || a.respuesta === 'NO');
+  // Nada evaluado todavía: no hay cumplimiento que informar (y no es 0 %).
+  if (evaluados.length === 0) return null;
+  return incluidos.filter((a) => a.respuesta === 'SI').length / incluidos.length;
+}
+
+/**
+ * De lo ya evaluado, cuánto se cumple. **Dato secundario** (ver
+ * `computeNormComplianceOrNull`): es el `porcentaje_sobre_evaluados` de la API,
+ * y `null` si no hay nada evaluado.
+ */
+export function computeNormComplianceSobreEvaluadosOrNull(norm: LegalNorm): number | null {
   const evaluables = norm.articulos.filter(
     (a) => a.incluidoEnCalculo && (a.respuesta === 'SI' || a.respuesta === 'NO'),
   );
   if (evaluables.length === 0) return null;
   return evaluables.filter((a) => a.respuesta === 'SI').length / evaluables.length;
 }
+
+/**
+ * **El semáforo de una norma de la matriz**, contando con si le aplica.
+ *
+ * La sincronización marca `no aplica` lo que dejó de corresponderle a la empresa
+ * y lo **conserva** con sus evaluaciones. Sin esto, la Ley 20.920 de la empresa
+ * de prueba salía "Pendiente de evaluar · 61 sin evaluar" (21-sep): la
+ * pantalla pedía evaluar una norma que ya no le aplica.
+ */
+export function semaforoDeNorma(norm: LegalNorm): SemaforoStatus {
+  if (noAplica(norm)) return 'na';
+  return normSemaforoDe(computeNormComplianceOrNull(norm));
+}
+
+/** Si la matriz de la empresa dice que esta norma no le aplica. */
+export function noAplica(norm: LegalNorm): boolean {
+  return norm.aplicabilidad?.estado === 'no_aplica';
+}
+
+/** Cómo se lee la vigencia de una norma. `vigente` no se rotula: es lo normal. */
+export const VIGENCIA_LABEL: Record<NonNullable<LegalNorm['vigencia']>['estado'], string> = {
+  vigente: 'Vigente',
+  parcialmente_vigente: 'Parcialmente vigente',
+  modificada: 'Modificada',
+  derogada: 'Derogada',
+  proyecto: 'Proyecto',
+  desconocida: 'Vigencia desconocida',
+};
 
 /** El semáforo de una norma, con `null` —nada evaluado— como `pendiente`. */
 export function normSemaforoDe(pct: number | null): SemaforoStatus {
@@ -100,12 +157,40 @@ export function resumenDeNorma(norm: LegalNorm) {
   ).length;
   return {
     pct: computeNormComplianceOrNull(norm),
+    pctSobreEvaluados: computeNormComplianceSobreEvaluadosOrNull(norm),
     total,
     aplicables,
     evaluados,
     sinEvaluar: countArticulosSinEvaluar(norm),
     incumplidos: countArticulosEnIncumplimiento(norm),
   };
+}
+
+/**
+ * Qué normas muestra la Matriz Legal a esta persona.
+ *
+ * **Las de la matriz de la empresa, tengan o no planta asignada**, más las
+ * asignadas a alguna de sus plantas. Hasta el 21-sep solo se mostraban las
+ * asignadas a una planta, y la sincronización de normativa aplicable crea las
+ * normas en la matriz **sin planta**: una empresa nueva veía la Matriz Legal
+ * vacía mientras el tablero calculaba su cumplimiento sobre esas mismas normas.
+ * Con el seed, cinco de las siete normas evaluadas —la Ley 19.300 entre ellas—
+ * no aparecían en ningún lado.
+ *
+ * Una norma de la matriz sin planta es **de toda la empresa** y la ve también
+ * quien está acotado a una planta: es la regla 2 del alcance (`lib/alcance.ts`),
+ * la misma que ya rige para las obligaciones sin planta.
+ */
+export function normasVisibles(
+  norms: LegalNorm[],
+  { tenantId, enMatriz, plantas }: { tenantId: string | null; enMatriz: Set<string>; plantas: { id: string }[] },
+): LegalNorm[] {
+  const delAlcance = new Set(plantas.map((p) => p.id));
+  return norms.filter((n) => {
+    if (n.tenantId !== null && n.tenantId !== tenantId) return false;
+    if (n.plantIds.length > 0) return n.plantIds.some((id) => delAlcance.has(id));
+    return enMatriz.has(n.id);
+  });
 }
 
 /** Artículos aplicables que nadie evaluó todavía. */

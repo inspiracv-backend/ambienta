@@ -187,65 +187,81 @@ describe('cierre', () => {
 });
 
 describe('alta de un hallazgo', () => {
-  it('manda los campos obligatorios y la severidad que la base acepta', async () => {
-    /**
-     * `code` y `title` son NOT NULL y no se mandaban; `severity` viajaba como
-     * 'alta', que viola el CHECK `IN ('minor','major','critical')`. La fila
-     * nunca entraba y el `.catch` vacio se comia el error.
-     */
+  const BASE = {
+    tenantId: 'a0000000-0000-0000-0000-000000000001',
+    plantId: 'c0000000-0000-0000-0000-000000000001',
+    hallazgo: 'Derrame sin contencion',
+    severidad: 'critical',
+    responsableId: 'd0000000-0000-0000-0000-000000000001',
+  };
+
+  it('manda los campos obligatorios y la severidad del catalogo tal cual', async () => {
     const { result } = await montar([]);
 
-    act(() => {
-      result.current.a.addNonConformity({
-        tenantId: 'a0000000-0000-0000-0000-000000000001',
-        plantId: 'c0000000-0000-0000-0000-000000000001',
-        hallazgo: 'Derrame sin contencion',
-        criticidad: 'alta',
-        responsableId: 'd0000000-0000-0000-0000-000000000001',
-      });
+    await act(async () => {
+      await result.current.a.addNonConformity(BASE);
     });
 
-    await waitFor(() => expect(post).toHaveBeenCalled());
     const cuerpo = post.mock.calls[0]![1] as Record<string, unknown>;
     expect(cuerpo.severity).toBe('critical');
     expect(cuerpo.code).toBeTruthy();
     expect(cuerpo.title).toBeTruthy();
   });
 
-  it('reemplaza el id local por el que asigna la API', async () => {
-    // El id optimista es `nc-<timestamp>`, que la API no conoce. Sin el
-    // reemplazo, toda escritura posterior sobre ese hallazgo apunta a una fila
-    // inexistente y vuelve a fallar en silencio.
+  it('manda el origen y los datos que exige cada tipo (antes se descartaban)', async () => {
+    /**
+     * El formulario pedia origen, producto y reclamo y no mandaba ninguno:
+     * una salida no conforme o un reclamo respondian 422 siempre.
+     */
     const { result } = await montar([]);
 
-    act(() => {
-      result.current.a.addNonConformity({
-        tenantId: 'a0000000-0000-0000-0000-000000000001',
-        plantId: 'c0000000-0000-0000-0000-000000000001',
-        hallazgo: 'Derrame sin contencion',
-        criticidad: 'media',
-        responsableId: 'd0000000-0000-0000-0000-000000000001',
+    await act(async () => {
+      await result.current.a.addNonConformity({
+        ...BASE,
+        tipoRegistro: 'salida_no_conforme',
+        origen: 'interna',
+        productData: { sku: 'SKU-1', lote: 'L-9', nombre: 'Aceite', cantidad: '3', unidad: 'L' },
       });
     });
 
-    await waitFor(() => expect(result.current.a.nonConformities[0]?.id).toBe(NC_ID));
+    const cuerpo = post.mock.calls[0]![1] as Record<string, unknown>;
+    expect(cuerpo.record_type).toBe('salida_no_conforme');
+    expect(cuerpo.detection_origin).toBe('interna');
+    expect(cuerpo.product_data).toMatchObject({ sku: 'SKU-1', lote: 'L-9' });
   });
 
-  it('saca de la pantalla el hallazgo que la API rechazo', async () => {
+  it('devuelve el registro con el id de la base, no uno local', async () => {
+    const { result } = await montar([]);
+
+    let id = '';
+    await act(async () => {
+      id = (await result.current.a.addNonConformity(BASE)).id;
+    });
+
+    expect(id).toBe(NC_ID);
+    expect(result.current.a.nonConformities.map((n) => n.id)).toEqual([NC_ID]);
+  });
+
+  it('conserva la pregunta de la auditoria de la que salio', async () => {
+    // Es el unico vinculo con la auditoria que trae la API: sin mapearlo, la
+    // ficha de la auditoria no podia mostrar sus hallazgos.
+    const { result } = await montar([]);
+    // Despues de montar: `montar` reinicia la respuesta de `post`.
+    post.mockResolvedValue(ncApi({ audit_item_id: 'item-7' }));
+    let nc: Awaited<ReturnType<typeof result.current.a.addNonConformity>> | undefined;
+    await act(async () => {
+      nc = await result.current.a.addNonConformity(BASE);
+    });
+    expect(nc?.auditItemId).toBe('item-7');
+  });
+
+  it('si la API lo rechaza, rechaza y no queda en pantalla', async () => {
     const { result } = await montar([]);
     post.mockRejectedValue(new ApiError(422, 'Unprocessable Entity', { detail: 'code ya existe' }));
 
-    act(() => {
-      result.current.a.addNonConformity({
-        tenantId: 'a0000000-0000-0000-0000-000000000001',
-        plantId: 'c0000000-0000-0000-0000-000000000001',
-        hallazgo: 'Derrame sin contencion',
-        criticidad: 'baja',
-        responsableId: 'd0000000-0000-0000-0000-000000000001',
-      });
+    await act(async () => {
+      await expect(result.current.a.addNonConformity(BASE)).rejects.toBeInstanceOf(ApiError);
     });
-
-    await waitFor(() => expect(result.current.toast.toasts).toHaveLength(1));
     expect(result.current.a.nonConformities).toHaveLength(0);
   });
 });
@@ -270,5 +286,29 @@ describe('cuando la API falla', () => {
     const r = renderHook(() => ({ a: useAudits(), toast: useToast() }), { wrapper });
 
     await waitFor(() => expect(r.result.current.a.loading).toBe(false));
+  });
+});
+
+describe('mientras no se preguntó por esta empresa', () => {
+  it('sigue cargando: una lista vacía no es una respuesta', async () => {
+    // El efecto baja `loading` cuando todavía no hay sesión y no lo volvía a
+    // subir al llegar el tenant: las fichas afirmaban "No encontramos esto"
+    // sobre algo que sí existe, durante todo el viaje de red.
+    get.mockImplementation(() => new Promise(() => {}));
+    iniciarSesionComo('admin_empresa');
+
+    const { result } = renderHook(() => useAudits(), { wrapper });
+
+    await waitFor(() => expect(result.current.audits).toHaveLength(0));
+    expect(result.current.loading).toBe(true);
+  });
+
+  it('deja de cargar cuando la API responde', async () => {
+    get.mockResolvedValue([]);
+    iniciarSesionComo('admin_empresa');
+
+    const { result } = renderHook(() => useAudits(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
   });
 });

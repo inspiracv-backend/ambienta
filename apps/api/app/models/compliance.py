@@ -5,12 +5,14 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -102,10 +104,26 @@ class MatrixNorm(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
 
 class ArticleCompliance(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "article_compliance"
+    # **Indice parcial, no `UniqueConstraint`** (`db/37`, decision D del 13-oct).
+    #
+    # Un constraint de Postgres no admite `WHERE`, asi que cubria tambien las
+    # filas con `deleted_at`: una evaluacion borrada dejaba su articulo con 409
+    # **para siempre**. Declararlo aca como constraint, ahora que la base tiene
+    # un indice parcial, seria describir un esquema que no existe — el error que
+    # este repositorio ya cometio leyendo columnas inventadas.
+    #
+    # `NULLS NOT DISTINCT` es imprescindible: `facility_id` nulo significa
+    # "evaluacion de toda la empresa", y sin esa bandera los NULL no colisionan
+    # entre si y el mismo articulo se podria evaluar dos veces a nivel empresa.
     __table_args__ = (
-        UniqueConstraint(
-            "matrix_norm_id", "article_id", "facility_id",
-            name="uq_article_compliance",
+        Index(
+            "uq_evaluacion_del_articulo",
+            "matrix_norm_id",
+            "article_id",
+            "facility_id",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+            postgresql_where=text("deleted_at IS NULL"),
         ),
     )
 

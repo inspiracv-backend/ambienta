@@ -201,6 +201,11 @@ function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
         ? { articuloOrigenId: String(raw.article_compliance_id) }
         : {}),
       ...(raw.matrix_norm_id ? { normaOrigenId: String(raw.matrix_norm_id) } : {}),
+      // El estado del flujo, **sin mapear**. `estado` es el semaforo y se
+      // deriva de este; el crudo se conserva porque el mapeo pierde
+      // informacion que la ficha necesita — ver `estadoDeclaracion` en
+      // `packages/shared`.
+      ...(raw.status ? { estadoDeclaracion: String(raw.status) as Obligation['estadoDeclaracion'] } : {}),
       ...(raw.external_receipt ? { folio: String(raw.external_receipt) } : {}),
       ...(motivoRechazo ? { motivoRechazo } : {}),
       ...(urlDelSistema ? { sistemaUrl: urlDelSistema } : {}),
@@ -213,6 +218,7 @@ function mapApiObligation(raw: Record<string, unknown>): Obligation | null {
 export function ObligationsProvider({ children }: { children: ReactNode }) {
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [datosDe, setDatosDe] = useState<string | null>(null);
   const [errorDeCarga, setErrorDeCarga] = useState<string | null>(null);
   const registrar = useRegistrarAuditoria();
   const { user } = useSession();
@@ -244,7 +250,7 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
         // preguntar' — que es la misma mentira de #208 en su otra forma.
         setErrorDeCarga(mensajeDeError(e));
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => { if (!cancelled) { setLoading(false); setDatosDe(user?.tenantId ?? null); } });
     return () => { cancelled = true; };
   }, [user?.tenantId]);
 
@@ -417,8 +423,15 @@ export function ObligationsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  // **Mientras no se haya preguntado POR ESTA empresa, se sigue cargando.**
+  // El efecto baja `loading` a `false` cuando todavia no hay sesion, y al
+  // llegar el tenant no lo vuelve a subir: quedaba una ventana con la lista
+  // vacia y `loading` en `false`, y las fichas afirmaban "No encontramos esto"
+  // sobre algo que si existe, durante todo el viaje de red.
+  const cargandoDeVerdad = loading || (!!user?.tenantId && datosDe !== user.tenantId);
+
   return (
-    <ObligationsContext.Provider value={{ obligations, loading, errorDeCarga, updateTask, addTask, addObligation, moverDeclaracion }}>
+    <ObligationsContext.Provider value={{ obligations, loading: cargandoDeVerdad, errorDeCarga, updateTask, addTask, addObligation, moverDeclaracion }}>
       {children}
     </ObligationsContext.Provider>
   );

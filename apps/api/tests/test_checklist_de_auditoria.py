@@ -42,6 +42,8 @@ os.environ.setdefault(
     "postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta",
 )
 
+from app.db import SessionLocal  # noqa: E402
+from app.deps import declarar  # noqa: E402
 from app.main import app  # noqa: E402
 
 EMPRESA_A = "a0000000-0000-0000-0000-000000000001"
@@ -64,10 +66,39 @@ def _como(t: str) -> dict[str, str]:
 
 @pytest.fixture
 def auditoria(cliente):
-    filas = cliente.get("/api/v1/audits/", headers=_como(EMPRESA_A)).json()
-    if not filas:
-        pytest.skip("El seed no dejo auditorias")
-    return filas[0]["id"]
+    """Una auditoria **propia, abierta y de toda la empresa**.
+
+    Antes tomaba la primera del listado del seed, que es `AUD-2026-001`, ya
+    cerrada: estas pruebas le agregaban y borraban preguntas a una auditoria
+    entregada, y desde el 19-sep eso responde 409. Tomar "la primera abierta"
+    tampoco sirve: es la de otra planta, y la cobertura mide **los articulos
+    evaluados de la planta auditada**, asi que en una base recien creada daba
+    cero aplicables y la prueba fallaba en CI y no en local.
+
+    Sin planta, el denominador son los de toda la empresa. Se crea y se borra
+    aca para no depender de que el seed traiga una auditoria util.
+    """
+    codigo = f"AUD-QA-{uuid.uuid4().hex[:6].upper()}"
+    r = cliente.post(
+        "/api/v1/audits/",
+        headers=_como(EMPRESA_A),
+        json={
+            "code": codigo,
+            "title": "[QA] Checklist y cobertura",
+            "audit_type": "internal",
+            "scope": "Cobertura",
+            "facility_id": None,
+        },
+    )
+    assert r.status_code == 201, r.text
+    creada = r.json()["id"]
+    yield creada
+    engine = create_engine(os.environ["DATABASE_URL"])
+    with engine.begin() as con:
+        con.execute(text("SELECT set_config('ambienta.tenant_id', :t, true)"), {"t": EMPRESA_A})
+        con.execute(text("DELETE FROM audit_items WHERE audit_id = :a"), {"a": creada})
+        con.execute(text("DELETE FROM audits WHERE id = :a"), {"a": creada})
+    engine.dispose()
 
 
 @pytest.fixture
@@ -288,6 +319,43 @@ class TestLaCobertura:
         ).json()["cubiertos"]
 
         assert despues - antes <= 1
+
+    def test_lo_marcado_NO_APLICA_sale_del_denominador(
+        self, cliente, auditoria, clausula, limpiar
+    ) -> None:
+        """Un requisito que no le corresponde a la empresa no es algo que la
+        auditoria dejo sin mirar: contarlo baja la cobertura por una razon que
+        no existe (spec de `gestion-mejoras`, 4-oct)."""
+        from sqlalchemy import text as sql
+
+        antes = cliente.get(
+            f"/api/v1/audits/{auditoria}/coverage", headers=_como(EMPRESA_A)
+        ).json()["aplicables"]
+
+        with SessionLocal() as db:
+            declarar(db, uuid.UUID(EMPRESA_A))
+            estado = db.execute(
+                sql("SELECT compliance_status FROM article_compliance WHERE id = :c"), {"c": clausula}
+            ).scalar_one()
+            db.execute(
+                sql("UPDATE article_compliance SET compliance_status = 'not_applicable' WHERE id = :c"),
+                {"c": clausula},
+            )
+            db.commit()
+        try:
+            despues = cliente.get(
+                f"/api/v1/audits/{auditoria}/coverage", headers=_como(EMPRESA_A)
+            ).json()["aplicables"]
+        finally:
+            with SessionLocal() as db:
+                declarar(db, uuid.UUID(EMPRESA_A))
+                db.execute(
+                    sql("UPDATE article_compliance SET compliance_status = :e WHERE id = :c"),
+                    {"c": clausula, "e": estado},
+                )
+                db.commit()
+
+        assert despues == antes - 1
 
     def test_las_preguntas_SIN_clausula_van_aparte(
         self, cliente, auditoria, limpiar

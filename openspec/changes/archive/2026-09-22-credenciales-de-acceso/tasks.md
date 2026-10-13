@@ -1,0 +1,170 @@
+# Tareas — Credenciales de acceso
+
+## Supuestos vigentes
+
+Verificados contra el sistema real, no heredados del análisis.
+
+- Clerk rechaza un `username` puramente numérico (`Username must contain one
+  non-number character`) y no admite puntos. Probado el 10-ago-2026 contra la
+  instancia `rapid-octopus-10` con los 5 formatos de la tabla de design.
+- `users` ya tiene `rut_tax_id`, `password_hash` y `clerk_id`, las tres vacías
+  en las 5 filas de demo.
+- `user_type` admite `guest` por CHECK.
+- La API no hace ninguna llamada saliente a Clerk. Confirmado por búsqueda de
+  `api.clerk.com`, `CLERK_SECRET`, `invitation` en `apps/api/app/`.
+- `CLERK_SECRET_KEY` llega al servicio `web`, no al de la API.
+- `lib/rut.ts` calcula el dígito verificador pero no valida uno escrito.
+- `/acceso-invitado` es ruta pública en el middleware y no pasa por Clerk.
+
+## Supuestos por confirmar
+
+**No empezar la fase que depende de cada uno sin resolverlo.**
+
+- [x] **El invitado no es cuenta de Clerk** (D2). Decisión abierta #1 del
+      proposal. Bloquea la Fase 4 entera
+- [x] **Vigencia del acceso de invitado**: propuesta 30 días. Bloquea la Fase 4
+- [ ] **RUT global vs por empresa** (decisión abierta #3). → **cuando vuelva el ingreso con RUT**: queda oculto en la v1.0 (decisión 6 del 21-sep). Si el equipo dice
+      que un contratista debe servir a dos empresas, **este diseño se revisa
+      antes de codear**: `users.tenant_id` es una sola columna
+- [x] **Registro público** **(decidido el 21-sep, decisión 5: cerrado, solo por invitación. Se cierra en el panel de Clerk, del lado de la cuenta)**: sigue sin decidirse desde el cambio de Clerk. Con
+      `username` habilitado y registro abierto, cualquiera reclama un RUT ajeno
+- [ ] **Verificación del RUT** → **cuando vuelva el ingreso con RUT** (decisión 6): nada comprueba que el RUT sea de esa persona.
+      ¿Alcanza el dígito verificador o se exige algo más?
+
+## Fase 0 — Prerequisitos fuera de este módulo
+
+- [ ] **Habilitar Username como identificador** → **del lado de la cuenta, y solo para el ingreso con RUT** (oculto en v1.0) — en el dashboard de Clerk
+      (Configure → Email, phone, username). Sin esto el RUT no sirve para
+      ingresar, aunque se guarde bien
+- [ ] → **con el ingreso con RUT** (oculto en v1.0): Confirmar con una prueba que un usuario con `username` puede iniciar
+      sesión con él **antes** de escribir el formulario. Es la lección del
+      template: verificar el proveedor antes de construir encima
+- [x] Decidir el cierre del registro público **(decisión 5 del 21-sep: cerrado)**
+- [x] Definir cómo se prueba el webhook en local: túnel o esperar al VPS **(esperar al VPS; mientras, el alta a mano de `docs/development/setup-local.md` §3)**
+
+## Fase 1 — Cliente saliente hacia Clerk
+
+- [x] `CLERK_SECRET_KEY` al servicio `api` en compose y `.env.example`
+- [x] Módulo con las llamadas salientes **(`services/invitacion_de_usuario.py`, `clave_local.py` y `clerk_sync.py`)**: crear invitación, fijar username,
+      fijar clave. Aislado como `auth.py`, para que cambiar de proveedor siga
+      siendo reescribir un archivo (ADR-006)
+- [x] Manejo de fallos del proveedor **(`ErrorDeInvitacion` → 409/422; `ClerkNoDisponible` → 503; en los dos casos no queda fila)**: distinguir "rechazó" de "no respondió".
+      El segundo no debe dejar la fila creada (D4)
+- [x] Tests con el cliente HTTP simulado **(`test_invitacion_de_usuario.py`, `test_alta_de_empresa_con_administrador.py`)**
+- [ ] → **del lado de la cuenta**: necesita la clave secreta de Clerk, que no entra al repositorio. **Prueba contra la instancia real**, no solo simulada: crear una
+      invitación de verdad y borrarla
+
+## Fase 2 — Invitación de usuarios
+
+- [x] Endpoint de invitación: `POST /users/invitaciones` (14-sep). Fila y rol
+      con `flush`, después Clerk, después `commit`: si Clerk falla no queda
+      nada. Ver la nota de D4. `POST /users/{id}/invitacion` se conserva para
+      reenviar
+- [x] Verificar Admin Empresa: la guarda de la ruta exige `role.manage`
+      (`sistema-actores-roles-rbac` ya entró)
+- [x] Rechazar invitar a una empresa distinta a la propia: la empresa sale de
+      la sesión (`tenant_efectivo`), no del cuerpo — no hay campo que falsear
+- [x] Que `clerk_sync` adopte la invitación consumida sin duplicar fila: busca
+      por correo y pasa `invited` → `active`
+      (`test_webhooks.py::test_se_adopta_un_usuario_que_ya_existia_por_su_correo`)
+- [x] Pantalla de invitación conectada al endpoint (`users-store.inviteUser`).
+      **Hasta el 14-sep solo hacía `POST /users/`: la persona nunca recibía el
+      correo** y la pantalla decía "Invitación creada"
+- [x] Alta de empresa con su administrador: `POST /tenants/` con
+      `administrador` siembra los roles, crea al `tenant_admin` y lo invita en
+      la misma transacción (`test_alta_de_empresa_con_administrador.py`)
+- [x] Tests de los 5 escenarios: 1, 3 y 5 con Clerk simulado, el 2 por el
+      webhook y el 4 por la guarda de la ruta
+      (`test_permisos_de_rutas.py::test_invitar_exige_administrar_roles_y_no_editar_usuarios`).
+      La prueba contra la instancia real sigue pendiente en la Fase 1
+
+## Fase 3 — RF-06, clave local con RUT
+
+- [x] `validarRut()` y `normalizarRut()` en `lib/rut.ts` con sus tests,
+      incluidos verificador K y los tres formatos de escritura
+- [x] Gemelo en Python: el modelo se escribe dos veces y ya se desincronizó
+- [x] Endpoint para fijar RUT y clave local del usuario autenticado
+      (`POST /me/clave-local`). El usuario sale de la sesión, no del cuerpo
+- [x] Rechazar RUT ya usado sin revelar de quién es. Probado: el mensaje no
+      lleva id ni correo. **Nuestra consulta corre bajo RLS**, así que un RUT
+      usado en otra empresa no lo ve — lo detecta Clerk, y está bien que sea
+      así: mirarlo entre empresas filtraría que esa persona es usuaria de otro
+      cliente nuestro
+- [x] Guardar en `users.rut_tax_id` además del username (D5). **Y no en
+      `password_hash`**, que se comprueba con una prueba: la clave la guarda
+      Clerk
+- [x] Pantalla en el perfil (S-42) para fijar la clave. Solo con Clerk activo:
+      sin él el endpoint responde 503 y sería ofrecer algo que no funciona
+- [x] Pestaña de RUT en el ingreso, con formulario propio (D1). Verificado en
+      el navegador: un verificador que no cierra se corta **sin salir a la
+      red**, y uno válido sin cuenta recibe el mismo mensaje genérico
+- [~] Confirmar que el ingreso por SSO sigue funcionando después de fijar clave.
+      **No comprobado contra una cuenta real**: exige fijarle la clave a una
+      cuenta de verdad y volver a entrar con Google. Por diseño no debería
+      romperse —se agrega un identificador, no se quita el anterior— pero eso
+      es un argumento, no una medición. Va con la Fase 5
+- [x] Tests de los 6 escenarios del requisito de clave local. 16 pruebas; de 9
+      mutaciones, 9 detectadas — dos de ellas solo después de reescribir las
+      pruebas que las dejaban pasar
+
+## Fase 4 — RF-02/RF-07, acceso real del invitado
+
+**Bloqueada por las decisiones abiertas #1 y #2.**
+
+- [x] Migración `db/NN_*.sql` idempotente para las credenciales de invitado,
+      **con su propia política RLS y sus GRANT** — el bucle de `01_schema`
+      corre una sola vez. Agregarla a los **cinco** puntos de sincronización:
+      los dos compose, `db/run.sh`, `db/README.md` y el bucle de
+      `.github/workflows/ci.yml`. Hecho en `db/10_acceso_invitado.sql`; al
+      registrarla aparecio que `docker-compose.prod.yml` venia **cuatro
+      migraciones atrasado**, sin `07_rol_aplicacion` — el que crea
+      `ambienta_app`. Corregido de paso
+- [x] Emisión de credenciales: RUT y clave persistidos con vigencia
+- [x] Validación de credenciales de invitado, separada de la de Clerk (D3)
+- [x] Dependencia propia para los endpoints que el invitado sí puede tocar
+- [x] Reemplazar `generateMockRut()` y `generateDynamicPassword()` del
+      navegador por la emisión del servidor
+- [x] Que un invitado solo vea sus propias solicitudes. Filtro por
+      `guest_credential_id` y no por correo: el correo lo escribe la misma
+      persona en el formulario, así que filtrar por él dejaría ver los tickets
+      de otro. Probado con **dos invitados de la misma empresa**, donde RLS no
+      ayuda porque son el mismo tenant
+- [x] Que `/crear-ticket` cree el ticket con el token del invitado y guarde
+      `guest_credential_id`. Verificado en el navegador: TKT-000066 quedó ligado
+      a la credencial `91926439-K`. De paso apareció que «Continuar a crear
+      ticket» **no iniciaba sesión**: la persona llegaba con sus credenciales en
+      pantalla pero sin token, y el formulario caía al camino simulado
+- [x] Límite de peticiones en las dos rutas públicas. **No es protección contra
+      un ataque distribuido** —cuenta por IP y vive en el proceso—, pero corta
+      el abuso trivial y, sobre todo, que un script recorra el espacio de claves
+      de 6 caracteres en `/sesion`
+- [x] Tests de los 7 escenarios del requisito de invitado, incluidos los tres
+      de negación: credencial inventada, vencida, y de otra empresa
+
+## Fase 5 — Comprobación contra la instancia real
+
+- [ ] → **al desplegar, con los secretos del entorno** (fuera de la 1.0): Script que emite un token con la clave secreta, pega a la API y verifica
+      200 más la presencia del claim
+- [ ] → idem: Extenderlo a los tres caminos: correo, RUT e invitado
+- [ ] → idem: Job programado con secretos, **separado del CI de cada PR** porque
+      depende de un servicio externo
+- [x] **(CLAUDE.md, "La regla general": lo que vive en la capa del servidor o en un proveedor se comprueba contra el sistema levantado)** Documentar en `CLAUDE.md` la regla que faltaba: verificar contra el
+      proveedor real antes de escribir el código que depende de él
+
+## Fase 6 — Documentación
+
+- [x] `db/README.md` con la tabla nueva y el conteo de RLS actualizado **(22-sep: la fila de `10_acceso_invitado.sql` y el conteo medido, 54 de 66)**
+- [x] `.env.example` y ambos compose **(`TOKEN_INVITADO_SECRETO` y `CLERK_SECRET_KEY`, sin valor; el de producción falla si faltan)**
+- [x] Cómo dar de alta un usuario en local mientras el webhook no llegue **(`docs/development/setup-local.md` §3 y CLAUDE.md)**
+- [x] Archivar el cambio: fundir los deltas en `openspec/specs/` **(22-sep)**
+
+## Orden sugerido
+
+Fase 0 antes que nada: sin `username` habilitado, la Fase 3 no se puede probar.
+
+Fase 1 es prerrequisito de 2 y 3. La Fase 4 es independiente de las tres
+primeras y puede ir en paralelo **una vez desbloqueadas sus decisiones** — no
+toca Clerk.
+
+La Fase 5 conviene empezarla junto con la 1: es la que habría atrapado el
+problema del JWT Template.

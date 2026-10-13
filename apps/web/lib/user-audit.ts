@@ -83,7 +83,7 @@ export function eventoCambioDeDepartamento(
   user: User,
   antes: string | null,
   despues: string | null,
-  departamentos: Departamento[],
+  departamentos: readonly { id: string; nombre: string }[],
 ): EventoAuditable {
   const nombre = (id: string | null) =>
     id ? (departamentos.find((d) => d.id === id)?.nombre ?? id) : null;

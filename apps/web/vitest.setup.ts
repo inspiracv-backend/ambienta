@@ -58,7 +58,10 @@ if (!Element.prototype.hasPointerCapture) {
  * Un test que quiera probar el acotamiento lo redefine con
  * `vi.mocked(cargarAlcance).mockResolvedValue(...)`.
  */
-vi.mock('@/lib/alcance', () => ({
+vi.mock('@/lib/alcance', async (importarReal) => ({
+  // Lo real se conserva: `visibleEnAlcance` es lógica pura que las pantallas
+  // usan para filtrar, y simularla la dejaría fuera de toda prueba.
+  ...(await importarReal<typeof import('@/lib/alcance')>()),
   cargarAlcance: vi.fn(async () => ({
     acotado: false,
     instalaciones: [] as string[],

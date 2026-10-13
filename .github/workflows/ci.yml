@@ -124,7 +124,19 @@ jobs:
                    17_avisos_sin_duplicados \
                    18_control_documental \
                    19_despacho_de_avisos 20_plantillas_de_correo \
-                   21_significancia_del_aspecto 22_crm 23_normativa_transversal; do
+                   21_significancia_del_aspecto 22_crm 23_normativa_transversal \
+                   24_datos_por_tipo_de_registro \
+                   25_catalogos_de_mejora \
+                   26_informe_por_proceso \
+                   27_vinculos_de_documentos \
+                   28_comentarios \
+                   29_normativa_propia 30_etapas_de_mejora 31_tareas_del_plan_de_accion \
+                   32_admin_empresa_sin_departamento_obligatorio \
+                   33_relaciones_y_bitacora_de_la_bcn \
+                   34_compromisos_del_seguimiento \
+                   35_evidencia_objetiva_del_hallazgo \
+                   36_sectores_del_ds_609 \
+                   37_la_evaluacion_es_evidencia; do
             echo "→ $f"
             PGPASSWORD=ambienta_dev psql -v ON_ERROR_STOP=1 -q \
               -h localhost -U ambienta -d ambienta -f "../../db/${f}.sql"
@@ -149,6 +161,26 @@ jobs:
       # entonces reventaba en su tercer INSERT. Como no lo corria nada, el
       # README y CLAUDE.md siguieron diciendo "9 smoke tests en verde" durante
       # semanas. Correrlo en CI es justamente lo que impide que vuelva a pasar.
+      - name: Cliente de Postgres 16 (lo necesitan las pruebas de respaldo)
+        run: |
+          # `pg_dump` tiene que ser de la **misma version mayor** que el
+          # servidor: uno mas viejo se niega a correr contra un 16. Sin este
+          # paso las tres pruebas de volcado y restauracion se saltan solas, y
+          # una prueba que se salta en todas las maquinas es una prueba que no
+          # existe — lo que paso: la corrida informo "1678 passed, 36 skipped"
+          # con esas tres entre las saltadas.
+          #
+          # Del repositorio de PGDG y con el nombre de la distribucion derivado,
+          # por lo mismo que en el Dockerfile: el runner cambia de version de
+          # Ubuntu sin avisar.
+          sudo apt-get install -y --no-install-recommends ca-certificates curl
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc             -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main"             | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-16
+          pg_dump --version
+
       - name: Smoke test del esquema
         env:
           PGPASSWORD: ambienta_dev
@@ -162,13 +194,51 @@ jobs:
           # El mismo rol acotado con el que corre la API: probar con el dueno
           # de la base daria falsos verdes, porque es superusuario y salta RLS.
           DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
+          # Las pruebas que respaldan la base la necesitan —`pg_dump` con el rol
+          # de la aplicacion se niega por RLS— y sin ella se saltaban **tambien
+          # en CI**: `1678 passed, 36 skipped` con las tres entre las saltadas.
+          # El paso de abajo exige que no se salten.
+          DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta
         run: |
           if [ -d tests ]; then
             pip install pytest==8.3.4
-            python -m pytest
+            # `-rs` imprime el motivo de cada salto. 36 pruebas se saltan y el
+            # conteo no decia cuales ni por que: una prueba que se salta en
+            # todas las maquinas es una prueba que no existe, asi que la lista
+            # tiene que estar a la vista en cada corrida.
+            python -m pytest -rs
           else
             echo "apps/api todavia no tiene tests/ — se omite."
           fi
+
+      - name: Las pruebas de respaldo no se pueden saltar
+        env:
+          DATABASE_URL: postgresql+psycopg://ambienta_app:ambienta_app_dev@localhost:5432/ambienta
+          # **El paso de pytest no la pasa**, y estas pruebas respaldan con el
+          # dueno de la base a proposito: sin ella caen al valor por defecto del
+          # modulo, que es correcto en CI pero no deberia depender de eso.
+          DATABASE_ADMIN_URL: postgresql+psycopg://ambienta:ambienta_dev@localhost:5432/ambienta
+        run: |
+          # Se vuelven a correr solas **y se exige que no se salten**. Una
+          # prueba que se salta en todas las maquinas es una prueba que no
+          # existe: el volcado y la restauracion se saltaban en Windows por no
+          # tener `pg_dump`, y en CI por lo mismo — con el agravante de que el
+          # docstring afirmaba que ahi si corrian.
+          #
+          # `-rs` imprime el motivo de cada salto, que es lo que hacia falta
+          # para diagnosticarlo.
+          #
+          # **Sin `-q`**: `pytest.ini` ya lo trae en `addopts`, y uno mas lo
+          # vuelve `-qq`, que **suprime la linea del resumen** — justo la que
+          # este paso busca. La primera version fallaba con las 13 pruebas en
+          # verde por eso.
+          salida=$(python -m pytest tests/test_respaldos.py -rs 2>&1) || true
+          echo "$salida"
+          if echo "$salida" | grep -q "SKIPPED"; then
+            echo "::error::Las pruebas de respaldo se saltaron en CI. Ver el motivo arriba."
+            exit 1
+          fi
+          echo "$salida" | grep -qE "[0-9]+ passed" || exit 1
 
       - name: Health check
         env:
@@ -205,3 +275,83 @@ jobs:
 
       - name: Typecheck
         run: npx turbo run typecheck --filter=@ambienta/shared
+
+  # ── Camino de despliegue ──────────────────────────────────────────────
+  #
+  # **Este job existe porque el camino de produccion se podrido en silencio
+  # durante meses.** `docker-compose.prod.yml`, su Caddyfile y sus Dockerfiles
+  # se mantuvieron a mano sin que nadie corriera el `up` —no hay servidor
+  # aprovisionado— y al ensayarlo el 13-oct tenian ocho fallas. Tres las habria
+  # atrapado este job el dia que entraron:
+  #
+  #   · El Caddyfile era **invalido** (`exclude` dentro de `log` no existe en
+  #     Caddy 2): Caddy no arrancaba y el despliegue no servia nada.
+  #   · El Dockerfile de la web copiaba `apps/web/public`, que no existe en el
+  #     repo, asi que la imagen no se podia construir.
+  #   · El `reverse_proxy` apuntaba a `api:3001` y la API escucha en 8000.
+  #
+  # No despliega ni levanta nada: comprueba que lo declarado sea construible,
+  # parseable y coherente, que es lo que nadie estaba comprobando.
+  despliegue:
+    name: Despliegue — compose, Caddy, imagenes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: El compose de produccion resuelve todas sus variables
+        run: |
+          # `.env.example` trae marcadores, no secretos; los valores de abajo
+          # tampoco lo son. Alcanzan para que las variables con `:?` esten
+          # definidas, que es justo lo que falla cuando alguien agrega un
+          # servicio y olvida declarar una.
+          cp .env.example .env.ci
+          {
+            echo 'APP_DB_PASSWORD=ci-no-es-un-secreto'
+            echo 'CLERK_JWKS_URL=https://ci.example/.well-known/jwks.json'
+            echo 'CLERK_ISSUER=https://ci.example'
+            echo 'CLERK_WEBHOOK_SECRET=whsec_ci'
+            echo 'CLERK_SECRET_KEY=sk_test_ci'
+            # No alcanza con que exista: el SDK de Clerk la **decodifica** en
+            # tiempo de build y aborta el `next build` si no tiene forma de
+            # llave (`pk_test_` + base64 del dominio terminado en `$`). Con
+            # `pk_test_ci` el prerender de /acceso-invitado y /signup fallaba
+            # con "publishableKey passed to Clerk is invalid". Esta decodifica
+            # a `ci.clerk.accounts.dev$`, un dominio que no existe: no es un
+            # secreto ni sirve contra ninguna instancia.
+            echo 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2kuY2xlcmsuYWNjb3VudHMuZGV2JA'
+            echo 'TOKEN_INVITADO_SECRETO=ci-no-es-un-secreto'
+            echo 'STORAGE_ENDPOINT=s3.example.com'
+            echo 'STORAGE_BUCKET=ci'
+            echo 'STORAGE_KEY_ID=ci'
+            echo 'STORAGE_KEY=ci'
+            echo 'RESEND_API_KEY=re_ci'
+            echo 'CORREO_REMITENTE=CI <ci@example.com>'
+          } >> .env.ci
+          docker compose -f docker-compose.prod.yml --env-file .env.ci config --quiet
+          echo "OK · el compose de produccion resuelve"
+
+      - name: Las garantias del despliegue siguen en su lugar
+        run: |
+          pip install --quiet pyyaml
+          docker compose -f docker-compose.prod.yml --env-file .env.ci config \
+            | python herramientas/verificar_despliegue.py
+
+      - name: El Caddyfile es valido
+        run: |
+          docker run --rm \
+            -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e DOMAIN_WEB=ci.example -e DOMAIN_API=api.ci.example \
+            -e ACME_EMAIL=ci@example.com \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Caddy apunta al puerto donde escucha la API
+        run: |
+          # Se comparan los dos archivos en vez de fijar el numero en un tercer
+          # lugar que tambien habria que mantener.
+          puerto_api=$(grep -oP '(?<=--port", ")[0-9]+' apps/api/Dockerfile)
+          puerto_caddy=$(grep -oP '(?<=reverse_proxy api:)[0-9]+' infra/caddy/Caddyfile)
+          echo "Dockerfile: $puerto_api · Caddyfile: $puerto_caddy"
+          test -n "$puerto_api" && test "$puerto_api" = "$puerto_caddy"
+
+      - name: Las imagenes de produccion se construyen
+        run: docker compose -f docker-compose.prod.yml --env-file .env.ci build api web

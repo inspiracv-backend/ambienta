@@ -33,7 +33,14 @@ export function ComplianceConfigModal({ norm, open, onOpenChange }: ComplianceCo
   }
 
   function handleSave() {
-    draft.forEach((valor, articuloId) => setIncluidoEnCalculo(norm.id, articuloId, valor));
+    // **Solo lo que cambio.** Hasta el 21-sep se escribian todos los articulos
+    // del borrador: en la Ley 19.300, desmarcar uno eran 151 peticiones y 150
+    // evaluaciones nuevas con `incluidoEnCalculo: true` que nadie toco —el
+    // ruido que `setIncluidoEnCalculo` dice evitar—, medido en el navegador.
+    const antes = new Map(norm.articulos.map((a) => [a.id, a.incluidoEnCalculo]));
+    draft.forEach((valor, articuloId) => {
+      if (antes.get(articuloId) !== valor) setIncluidoEnCalculo(norm.id, articuloId, valor);
+    });
     onOpenChange(false);
   }
 

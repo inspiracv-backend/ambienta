@@ -21,7 +21,24 @@ body {
    resultado tiene texto seleccionable y reutiliza el mismo HTML, sin sumar
    una dependencia ni un segundo sistema de maquetación. Ver ReportePdf.tsx.
    ────────────────────────────────────────────────────────────────────────── */
+/* El documento entregable del informe: fuera de la pantalla, presente al imprimir. */
+.solo-impresion {
+  display: none;
+}
+
 @media print {
+  .solo-impresion {
+    display: block;
+  }
+
+  /* Un documento que solo existe en el papel (`DocumentoImprimible`) se imprime
+     solo. Se monta directo en <body> y, mientras dura la impresion, se oculta
+     todo lo demas: sin esto el PDF entregable salia precedido por la pantalla
+     entera. */
+  body.imprimiendo-documento > :not(.solo-impresion) {
+    display: none !important;
+  }
+
   /* Fuera todo lo que no es el documento: navegación, filtros, botones. */
   header:not(.reporte-imprimible header),
   nav,

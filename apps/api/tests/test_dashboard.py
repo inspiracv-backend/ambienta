@@ -37,12 +37,16 @@ class SesionQueCompila:
     - `scalars(...)` da las plantas
     """
 
-    def __init__(self, obligaciones=None, facilities=None, agrupadas=None, nc_por_planta=None):
+    def __init__(
+        self, obligaciones=None, facilities=None, agrupadas=None, nc_por_planta=None, global_=(0, 0, 0, 0)
+    ):
         self.sql: list[str] = []
         self._obligaciones = obligaciones or []
         self._facilities = facilities or []
         self._agrupadas = agrupadas or []
         self._nc_por_planta = nc_por_planta or []
+        #: (aplicables, cumplen, incumplen, pendientes) de toda la empresa.
+        self._global = global_
 
     def _compilar(self, stmt) -> str:
         sql = str(stmt.compile(dialect=postgresql.dialect()))
@@ -52,7 +56,9 @@ class SesionQueCompila:
     def execute(self, stmt):
         sql = self._compilar(stmt)
         res = MagicMock()
-        res.one.return_value = (0, 0, 0)
+        # Dos consultas terminan en `.one()` y no tienen la misma forma: la del
+        # cumplimiento trae cuatro conteos y la de obligaciones tres.
+        res.one.return_value = self._global if "article_compliance" in sql else (0, 0, 0)
         # **Hay DOS `GROUP BY` distintos y devuelven formas distintas:**
         # cumplimiento por planta da 4 columnas y no conformidades abiertas da
         # 2. El doble devolvia la misma lista a los dos, asi que una tupla de 4
@@ -161,7 +167,9 @@ def test_forma_de_la_respuesta():
     }
     assert set(res["global"]) == {
         "compliance_percentage",
+        "coverage_percentage",
         "articles_evaluated",
+        "articles_pending",
         "articles_non_compliant",
         "total_obligations",
         "nc_open",
@@ -333,8 +341,8 @@ def test_una_planta_evaluada_y_sin_nada_cumplido_SI_dice_cero():
     medido y tiene que verse como tal.
     """
     planta = _planta("Planta Calama")
-    # (facility_id, total, cumplen, incumplen)
-    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 4, 0, 4)])
+    # (facility_id, total, cumplen, incumplen, pendientes)
+    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 4, 0, 4, 0)])
 
     metricas = svc.get_dashboard_metrics(db, TENANT)["facilities"]
 
@@ -344,7 +352,7 @@ def test_una_planta_evaluada_y_sin_nada_cumplido_SI_dice_cero():
 def test_el_porcentaje_por_planta_se_calcula_sobre_sus_propios_articulos():
     """Y no sobre el total de la empresa: cada planta responde por lo suyo."""
     planta = _planta("Planta Calama")
-    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 5, 2, 1)])
+    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 5, 2, 1, 0)])
 
     metricas = svc.get_dashboard_metrics(db, TENANT)["facilities"]
 
@@ -358,7 +366,7 @@ def test_dos_plantas_una_con_datos_y_otra_sin_ellos():
     sin_datos = _planta("Oficina Santiago")
     db = SesionQueCompila(
         facilities=[con_datos, sin_datos],
-        agrupadas=[(con_datos.id, 5, 2, 1)],
+        agrupadas=[(con_datos.id, 5, 2, 1, 0)],
     )
 
     por_nombre = {
@@ -387,8 +395,67 @@ def test_una_planta_con_TODO_no_aplicable_tampoco_dice_cero():
     articulos de emisiones marcados "no aplica" es exactamente este caso.
     """
     planta = _planta("Oficina Santiago")
-    # (facility_id, total_aplicable, cumplen, incumplen) — todo no aplicable
-    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 0, 0, 0)])
+    # (facility_id, total_aplicable, cumplen, incumplen, pendientes) — todo no aplicable
+    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 0, 0, 0, 0)])
+
+    metricas = svc.get_dashboard_metrics(db, TENANT)["facilities"]
+
+    assert metricas[0]["compliance_percentage"] is None
+
+
+# ── Cumplimiento y cobertura (ISO 14001, 21-sep) ─────────────────────────────
+
+
+def test_cumplimiento_y_cobertura_salen_por_separado():
+    """El escenario del spec de ISO: 10 aplicables, 3 evaluados y los 3 cumplen.
+
+    El cumplimiento sigue la regla del tablero —los pendientes en el
+    denominador—, asi que da 30 %. Sin la cobertura al lado ese 30 % se lee
+    como incumplimiento, cuando lo que pasa es que falta evaluar el 70 %.
+    """
+    db = SesionQueCompila(global_=(10, 3, 0, 7))
+
+    g = svc.get_dashboard_metrics(db, TENANT)["global"]
+
+    assert g["compliance_percentage"] == 30.0
+    assert g["coverage_percentage"] == 30.0
+    assert g["articles_pending"] == 7
+
+
+def test_con_todo_evaluado_la_cobertura_es_completa():
+    db = SesionQueCompila(global_=(5, 2, 1, 0))
+
+    g = svc.get_dashboard_metrics(db, TENANT)["global"]
+
+    assert g["compliance_percentage"] == 40.0
+    assert g["coverage_percentage"] == 100.0
+    assert g["articles_pending"] == 0
+
+
+def test_con_la_matriz_cargada_y_nada_evaluado_no_dice_cero():
+    """Hasta el 21-sep daba 0,0 %: el `None` solo cubria "sin filas", y la
+    sincronizacion crea las filas en `pending`. Una empresa recien puesta en
+    marcha quedaba acusada de no cumplir nada."""
+    db = SesionQueCompila(global_=(5, 0, 0, 5))
+
+    g = svc.get_dashboard_metrics(db, TENANT)["global"]
+
+    assert g["compliance_percentage"] is None
+    # La cobertura si se sabe: se evaluo el cero por ciento, y eso es un dato.
+    assert g["coverage_percentage"] == 0.0
+
+
+def test_sin_articulos_no_hay_ni_cumplimiento_ni_cobertura():
+    g = svc.get_dashboard_metrics(SesionQueCompila(), TENANT)["global"]
+
+    assert g["compliance_percentage"] is None
+    assert g["coverage_percentage"] is None
+
+
+def test_una_planta_con_todo_pendiente_tampoco_dice_cero():
+    """La misma regla por planta: los dos calculos no pueden separarse."""
+    planta = _planta("Faena Antofagasta")
+    db = SesionQueCompila(facilities=[planta], agrupadas=[(planta.id, 4, 0, 0, 4)])
 
     metricas = svc.get_dashboard_metrics(db, TENANT)["facilities"]
 

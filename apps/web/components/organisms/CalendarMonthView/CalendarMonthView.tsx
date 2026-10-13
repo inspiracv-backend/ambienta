@@ -1,10 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/atoms';
 import { cn } from '@/lib/utils';
 import type { CalendarMonthViewProps } from './CalendarMonthView.types';
+import { PREFIJO, claveDeDia } from '@/lib/eventos-de-calendario';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const MESES = [
@@ -24,7 +26,7 @@ function sameDay(a: Date, b: Date) {
 }
 
 /** S-16 Calendario. Al hacer clic en un evento se abre el mismo ticket que en Obligaciones (H4). */
-export function CalendarMonthView({ tickets, onSelectTicket }: CalendarMonthViewProps) {
+export function CalendarMonthView({ tickets, onSelectTicket, eventos = [] }: CalendarMonthViewProps) {
   const [cursor, setCursor] = useState(() => new Date());
 
   const days = useMemo(() => {
@@ -72,6 +74,12 @@ export function CalendarMonthView({ tickets, onSelectTicket }: CalendarMonthView
         ))}
         {days.map((date) => {
           const dayTickets = tickets.filter((t) => sameDay(new Date(t.task.vencimiento), date));
+          // Como texto, no como `Date`: ver `eventos-de-calendario`.
+          const dia = claveDeDia(date);
+          const dayEventos = eventos.filter((e) => e.fecha === dia);
+          const visiblesTickets = dayTickets.slice(0, 3);
+          const visiblesEventos = dayEventos.slice(0, Math.max(0, 3 - visiblesTickets.length));
+          const ocultos = dayTickets.length + dayEventos.length - visiblesTickets.length - visiblesEventos.length;
           const isCurrentMonth = date.getMonth() === cursor.getMonth();
           const isToday = sameDay(date, new Date());
 
@@ -81,7 +89,7 @@ export function CalendarMonthView({ tickets, onSelectTicket }: CalendarMonthView
                 {date.getDate()}
               </span>
               <ul className="mt-1 flex flex-col gap-0.5">
-                {dayTickets.slice(0, 3).map((t) => (
+                {visiblesTickets.map((t) => (
                   <li key={t.task.id}>
                     <button
                       type="button"
@@ -93,9 +101,28 @@ export function CalendarMonthView({ tickets, onSelectTicket }: CalendarMonthView
                     </button>
                   </li>
                 ))}
-                {dayTickets.length > 3 && (
-                  <li className="px-1 text-[10px] text-slate-400">+{dayTickets.length - 3} más</li>
-                )}
+                {visiblesEventos.map((e) => (
+                  <li key={e.id}>
+                    <Link
+                      href={e.href}
+                      title={`${PREFIJO[e.tipo]}: ${e.titulo}`}
+                      className="flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                    >
+                      {/* Cuadrado y no punto: no es una tarea con semáforo. */}
+                      <span
+                        className={cn(
+                          'h-1.5 w-1.5 shrink-0 rounded-sm',
+                          e.vencido ? 'bg-semaforo-no-cumple' : 'bg-slate-500',
+                        )}
+                        aria-hidden
+                      />
+                      <span className="truncate">
+                        {PREFIJO[e.tipo]}: {e.titulo}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+                {ocultos > 0 && <li className="px-1 text-[10px] text-slate-400">+{ocultos} más</li>}
               </ul>
             </div>
           );

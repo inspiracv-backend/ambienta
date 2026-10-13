@@ -6,4 +6,6 @@ export interface RegisterFindingFormProps {
   responsableOptions: { id: string; nombre: string }[];
   defaultPlantId?: string;
   defaultAuditId?: string;
+  /** La pregunta del checklist de la que sale el hallazgo, si se llega desde ella. */
+  defaultAuditItemId?: string;
 }

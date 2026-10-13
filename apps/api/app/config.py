@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     #: que sabe donde escribe.
     ruta_archivo_auditoria: str = "/var/lib/ambienta/auditoria"
 
+    #: Donde caen los respaldos de la base antes de subirse al bucket (RNF-19).
+    #:
+    #: Tiene que ser un **volumen**, no disco del contenedor: el respaldo cuyo
+    #: unico lugar es el contenedor desaparece en el proximo `up -d --build`.
+    ruta_respaldos: str = "/var/lib/ambienta/respaldos"
+
     # ── Almacenamiento de archivos (ADR-005: Backblaze B2) ───────────────
     #
     # Se habla por la API compatible con S3, asi que sirve igual para S3 o

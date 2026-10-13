@@ -1,11 +1,12 @@
 import { CircleCheck, CircleSlash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type EstadoCuenta = 'activo' | 'suspendido';
+type EstadoCuenta = 'activo' | 'suspendido' | 'cerrado';
 
 const ESTADO: Record<EstadoCuenta, { label: string; clase: string; icono: typeof CircleCheck }> = {
   activo: { label: 'Activa', clase: 'bg-slate-100 text-slate-700', icono: CircleCheck },
   suspendido: { label: 'Suspendida', clase: 'bg-semaforo-no-cumple-bg text-semaforo-no-cumple', icono: CircleSlash },
+  cerrado: { label: 'Cerrada', clase: 'bg-slate-200 text-slate-600', icono: CircleSlash },
 };
 
 /**

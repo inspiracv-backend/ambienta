@@ -49,6 +49,16 @@ class LegalNorm(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
+    #: **NULL = norma publica**, del catalogo compartido. Con valor, es
+    #: normativa propia de esa empresa: su RCA, sus ISO internas (RF-10).
+    #:
+    #: No usa `TenantMixin` a proposito — ese la declara `NOT NULL`, y aca la
+    #: mayoria de las filas son publicas. La politica de `db/29` deja leer
+    #: `tenant_id IS NULL OR = current_tenant_id()` y **escribir solo lo
+    #: propio**, asi que una empresa no puede escribirle la ley a las demas.
+    tenant_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE")
+    )
     country_id: Mapped[int] = mapped_column(
         SmallInteger, ForeignKey("countries.id"), nullable=False
     )
@@ -95,6 +105,10 @@ class LegalNormVersion(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
+    #: Acompana al de la norma: NULL si es publica. Ver `LegalNorm.tenant_id`.
+    tenant_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE")
+    )
     norm_id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("legal_norms.id", ondelete="CASCADE"), nullable=False
     )
@@ -130,6 +144,13 @@ class LegalArticle(Base, TimestampMixin, SoftDeleteMixin):
 
     id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    #: Acompana al de la norma. **Una RCA sin sus considerandos es un titulo**:
+    #: los compromisos —caudales, horarios, monitoreos— viven aca, asi que esta
+    #: tabla se protege igual. Dejarla afuera seria poner la puerta y olvidar
+    #: la pared.
+    tenant_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE")
     )
     norm_version_id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True),

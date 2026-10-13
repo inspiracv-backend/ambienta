@@ -1,17 +1,16 @@
 'use client';
 
-import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { SubTenantDeclarationsView } from '@/components/organisms';
+import { FichaNoDisponible, SubTenantDeclarationsView } from '@/components/organisms';
 import { useGestores } from '@/lib/gestores-store';
 import { useObligations } from '@/lib/obligations-store';
 
 export default function DeclaracionesPage({ params }: { params: { id: string } }) {
-  const { subTenants } = useGestores();
+  const { subTenants, loading: cargandoClientes } = useGestores();
   const { obligations } = useObligations();
   const subTenant = subTenants.find((s) => s.id === params.id);
 
-  if (!subTenant) return notFound();
+  if (!subTenant) return <FichaNoDisponible cargando={cargandoClientes} que="este cliente" volverA="/gestores" volverEtiqueta="Volver a gestores" />;
 
   const subObligations = obligations.filter((o) => o.subTenantId === subTenant.id);
 

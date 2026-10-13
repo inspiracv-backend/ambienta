@@ -44,6 +44,7 @@ import base64
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
+from pathlib import Path
 from uuid import UUID
 
 from ..config import get_settings
@@ -364,6 +365,75 @@ def confirmar_subida(*, clave: str) -> dict:
             else None
         ),
     }
+
+
+# ── Respaldos (RNF-19) ──────────────────────────────────────────────────────
+#
+# **Fuera de `tenants/` a proposito.** Un respaldo contiene los datos de TODAS
+# las empresas, asi que no pertenece a la carpeta de ninguna — y el dia que se
+# acote una llave de B2 al prefijo de una empresa (lo que `clave_de` deja
+# posible), los respaldos no deben quedar dentro de ese alcance.
+#
+# Van por el cliente y no por enlace firmado, al contrario que los documentos:
+# aca no hay un navegador al otro lado, el proceso que sube es el nuestro, y un
+# enlace firmado solo agregaria un paso que puede fallar.
+PREFIJO_RESPALDOS = "respaldos/"
+
+
+def subir_respaldo(*, nombre: str, ruta: Path) -> str:
+    """Sube un archivo de respaldo y devuelve su clave en el bucket."""
+    clave = f"{PREFIJO_RESPALDOS}{_nombre_seguro(nombre)}"
+    cliente = _cliente()
+    with open(ruta, "rb") as f:
+        cliente.put_object(
+            Bucket=get_settings().storage_bucket,
+            Key=clave,
+            Body=f,
+            ContentType="application/octet-stream",
+        )
+    return clave
+
+
+def listar_respaldos() -> list[str]:
+    """Los nombres de los respaldos que hay en el bucket, sin el prefijo."""
+    cliente = _cliente()
+    bucket = get_settings().storage_bucket
+    nombres: list[str] = []
+    # Paginado: con retencion de 30 dias no se llega a las 1000 claves que
+    # devuelve una pagina, pero una lista truncada haria que la purga creyera
+    # que no hay nada viejo — y el error no se veria hasta la factura.
+    continuacion: dict = {}
+    while True:
+        r = cliente.list_objects_v2(
+            Bucket=bucket, Prefix=PREFIJO_RESPALDOS, **continuacion
+        )
+        for objeto in r.get("Contents", []):
+            nombres.append(objeto["Key"][len(PREFIJO_RESPALDOS) :])
+        if not r.get("IsTruncated"):
+            return nombres
+        continuacion = {"ContinuationToken": r["NextContinuationToken"]}
+
+
+def borrar_respaldo(*, nombre: str) -> int:
+    """Borra un respaldo **con todas sus versiones**.
+
+    Igual que en `comprobar_almacenamiento`: el bucket versiona a proposito
+    (RF-106), asi que un `delete_object` sin `VersionId` deja el objeto guardado
+    con un marcador encima. La consola muestra "0 archivos" y se sigue pagando
+    por los bytes — con respaldos diarios de una base, eso crece rapido.
+    """
+    cliente = _cliente()
+    bucket = get_settings().storage_bucket
+    clave = f"{PREFIJO_RESPALDOS}{_nombre_seguro(nombre)}"
+    r = cliente.list_object_versions(Bucket=bucket, Prefix=clave)
+    borradas = 0
+    for grupo in ("Versions", "DeleteMarkers"):
+        for objeto in r.get(grupo, []):
+            cliente.delete_object(
+                Bucket=bucket, Key=objeto["Key"], VersionId=objeto["VersionId"]
+            )
+            borradas += 1
+    return borradas
 
 
 def esta_configurado() -> bool:

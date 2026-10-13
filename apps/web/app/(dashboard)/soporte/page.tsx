@@ -45,7 +45,6 @@ export default function SoportePage() {
       <SupportTicketsView
         tickets={tickets}
         tenantNombre={(tenantId) => tenants.find((t) => t.id === tenantId)?.nombre ?? 'Sin empresa (invitado)'}
-        currentUserId={user.id}
       />
     </div>
   );

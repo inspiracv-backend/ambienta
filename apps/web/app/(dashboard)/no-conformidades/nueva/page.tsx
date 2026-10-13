@@ -7,7 +7,7 @@ import { RegisterFindingForm } from '@/components/organisms';
 import { Spinner } from '@/components/atoms';
 import { useSession } from '@/lib/session';
 import { useTenants } from '@/lib/tenants-store';
-import { mockUsers } from '@/mocks/users';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 
 /**
  * S-24 Crear/Registrar Hallazgo.
@@ -36,6 +36,7 @@ function NuevaNoConformidadContent() {
   const searchParams = useSearchParams();
   const { user, cargando } = useSession();
   const { tenants } = useTenants();
+  const { personas } = usePersonasAsignables();
 
   useEffect(() => {
     if (!cargando && user === null) router.replace('/login');
@@ -50,7 +51,9 @@ function NuevaNoConformidadContent() {
   }
 
   const tenant = tenants.find((t) => t.id === user.tenantId);
-  const responsableOptions = mockUsers.filter((u) => u.tenantId === user.tenantId).map((u) => ({ id: u.id, nombre: u.nombre }));
+  // Personas de la base: `owner_user_id` es una clave foranea y un id de
+  // `mockUsers` hacia que el alta respondiera 422 siempre.
+  const responsableOptions = personas;
 
   return (
     <div className="flex flex-col items-start gap-4">
@@ -61,6 +64,7 @@ function NuevaNoConformidadContent() {
         responsableOptions={responsableOptions}
         defaultPlantId={searchParams.get('plantId') ?? undefined}
         defaultAuditId={searchParams.get('auditId') ?? undefined}
+        defaultAuditItemId={searchParams.get('auditItemId') ?? undefined}
       />
     </div>
   );

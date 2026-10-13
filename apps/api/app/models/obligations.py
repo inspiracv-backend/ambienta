@@ -102,6 +102,11 @@ class Task(Base, TenantMixin, TimestampMixin, SoftDeleteMixin):
     obligation_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("obligations.id", ondelete="CASCADE")
     )
+    #: El plan de accion del que cuelga (#169, `db/31`). **Como maximo un
+    #: padre**: `ck_tasks_un_solo_padre` impide que tenga tambien obligacion.
+    action_plan_id: Mapped[PyUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("action_plans.id")
+    )
     parent_task_id: Mapped[PyUUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tasks.id")
     )

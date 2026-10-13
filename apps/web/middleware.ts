@@ -1,17 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { CLERK_HABILITADO } from '@/lib/clerk-config';
+import { RUTAS_PUBLICAS } from '@/lib/rutas-publicas';
 
 /**
  * Rutas que se ven sin sesión: el propio login, el registro, y el acceso de
- * cliente invitado, que por diseño no exige cuenta (RF-02).
+ * cliente invitado, que por diseño no exige cuenta (RF-02). La lista vive en
+ * `lib/rutas-publicas.ts`: la usa también el puente de Clerk.
  */
-const esPublica = createRouteMatcher([
-  '/login(.*)',
-  '/signup(.*)',
-  '/acceso-invitado(.*)',
-  '/crear-ticket(.*)',
-]);
+const esPublica = createRouteMatcher(RUTAS_PUBLICAS.map((r) => `${r}(.*)`));
 
 const conClerk = clerkMiddleware(async (auth, req) => {
   if (esPublica(req)) return;

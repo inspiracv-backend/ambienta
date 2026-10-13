@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -45,6 +46,15 @@ class EnvironmentalAspectRead(OrmBase):
 
 
 class EnvironmentalAspectUpdate(BaseModel):
+    #: Se puede cambiar de proceso, o dejarlo sin proceso con `null`. Faltaba:
+    #: el alta lo aceptaba y la edicion no, asi que un aspecto quedaba para
+    #: siempre en el proceso con el que nacio. Lo valida `_validar_referencias`
+    #: como en el alta (las claves foraneas no pasan por RLS).
+    process_id: UUID | None = None
+    #: El requisito legal que le aplica (una evaluacion de la Matriz Legal).
+    #: Solo se podia fijar al crear el aspecto: un aspecto cargado sin requisito
+    #: quedaba asi para siempre, y la cadena de §6.1 no se podia cerrar (21-sep).
+    article_compliance_id: UUID | None = None
     activity: str | None = None
     aspect: str | None = None
     impact_type: str | None = None
@@ -247,6 +257,28 @@ class CertificacionPorVencer(BaseModel):
     certification_number: str | None
     expires_at: date
     dias_restantes: int
+
+
+class EquipoSinOperador(BaseModel):
+    """Un equipo en operacion que hoy nadie puede operar legalmente (#48).
+
+    **El motivo va en la fila y no se deduce**, porque son dos problemas que se
+    arreglan distinto: `sin_operador` se resuelve asignando a alguien;
+    `certificacion_vencida` renovando la que caduco. Mezclarlos obligaria a
+    abrir cada equipo para saber cual de los dos es.
+    """
+
+    equipment_id: UUID
+    facility_id: UUID | None
+    name: str
+    equipment_type: str | None
+    motivo: Literal["sin_operador", "certificacion_vencida"]
+    #: Cuantas personas tiene asignadas. Con `certificacion_vencida` es mayor
+    #: que cero: hay gente, pero a toda se le vencio.
+    operadores_asignados: int
+    #: La certificacion mas reciente entre las asignadas. `null` con
+    #: `sin_operador`, y tambien cuando nadie declaro fecha de vencimiento.
+    ultima_certificacion: date | None
 
 
 class Vencimientos(BaseModel):

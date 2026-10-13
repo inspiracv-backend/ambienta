@@ -17,10 +17,8 @@ import {
 import { Button, Input, Textarea } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { useTenants } from '@/lib/tenants-store';
-import { useUsers } from '@/lib/users-store';
 import { useToast } from '@/lib/toast-store';
-import { useRegistrarAuditoria } from '@/lib/audit-log-store';
-import { eventoUsuarioInvitado } from '@/lib/user-audit';
+import { mensajeDeError } from '@/lib/api-client';
 import { MODULO_LABEL } from '@/lib/tenant-status';
 import { cn } from '@/lib/utils';
 import { cargarSectores, TRAMOS, type Sector, type Tramo } from '@/lib/perfil-normativo';
@@ -64,9 +62,7 @@ const DIAS_CONTRATO_ANUAL = 365;
 export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const formId = useId();
   const { createTenant } = useTenants();
-  const { inviteUser } = useUsers();
   const { mostrarToast } = useToast();
-  const registrar = useRegistrarAuditoria();
 
   // Identificación
   const [nombre, setNombre] = useState('');
@@ -102,6 +98,7 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
   const [adminEmail, setAdminEmail] = useState('');
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [enviando, setEnviando] = useState(false);
 
   function cambiarPlan(nuevo: Plan) {
     setPlan(nuevo);
@@ -152,7 +149,7 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
     setErrors({});
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const next: Record<string, string> = {};
 
@@ -172,54 +169,53 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
-    const tenant = createTenant({
-      nombre: nombre.trim(),
-      pais,
-      numeroIdentificacion: numeroIdentificacion.trim(),
-      // `sector` sigue siendo el texto que se muestra en la ficha; el que
-      // decide la normativa es `sectorId`. Se guarda el nombre del sector
-      // elegido para que ambos digan lo mismo en vez de divergir.
-      sector: sectores.find((x) => x.id === sectorId)?.nombre ?? '',
-      sectorId: sectorId ?? undefined,
-      tramo: tramo || undefined,
-      giro: giro.trim() || undefined,
-      direccion: direccion.trim() || undefined,
-      sitioWeb: sitioWeb.trim() || undefined,
-      numeroTrabajadores: numeroTrabajadores ? Number(numeroTrabajadores) : undefined,
-      certificaciones,
-      contactoComercial: contactoNombre.trim()
-        ? {
-            nombre: contactoNombre.trim(),
-            cargo: contactoCargo.trim(),
-            email: contactoEmail.trim(),
-            telefono: contactoTelefono.trim(),
-          }
-        : undefined,
-      notasComerciales: notasComerciales.trim() || undefined,
-      esGestor,
-      plan,
-      diasVigencia: Number(diasVigencia),
-      limiteUsuarios: Number(limiteUsuarios),
-      modulosActivos: modulos,
-    });
-
-    // El administrador se crea junto con la empresa: un tenant sin nadie que
-    // pueda entrar no sirve de nada, y era el paso que faltaba para poder
-    // entregar una demo.
-    const admin = inviteUser({
-      tenantId: tenant.id,
-      nombre: adminNombre.trim(),
-      email: adminEmail.trim(),
-      role: 'admin_empresa',
-      plantIds: [],
-      departamentoId: null,
-    });
-    registrar(eventoUsuarioInvitado(admin));
+    setEnviando(true);
+    let tenant: Awaited<ReturnType<typeof createTenant>>;
+    try {
+      tenant = await createTenant({
+        nombre: nombre.trim(),
+        pais,
+        numeroIdentificacion: numeroIdentificacion.trim(),
+        // `sector` sigue siendo el texto que se muestra en la ficha; el que
+        // decide la normativa es `sectorId`. Se guarda el nombre del sector
+        // elegido para que ambos digan lo mismo en vez de divergir.
+        sector: sectores.find((x) => x.id === sectorId)?.nombre ?? '',
+        sectorId: sectorId ?? undefined,
+        tramo: tramo || undefined,
+        giro: giro.trim() || undefined,
+        direccion: direccion.trim() || undefined,
+        sitioWeb: sitioWeb.trim() || undefined,
+        numeroTrabajadores: numeroTrabajadores ? Number(numeroTrabajadores) : undefined,
+        certificaciones,
+        contactoComercial: contactoNombre.trim()
+          ? {
+              nombre: contactoNombre.trim(),
+              cargo: contactoCargo.trim(),
+              email: contactoEmail.trim(),
+              telefono: contactoTelefono.trim(),
+            }
+          : undefined,
+        notasComerciales: notasComerciales.trim() || undefined,
+        esGestor,
+        plan,
+        diasVigencia: Number(diasVigencia),
+        limiteUsuarios: Number(limiteUsuarios),
+        modulosActivos: modulos,
+        administrador: { nombre: adminNombre.trim(), email: adminEmail.trim() },
+      });
+    } catch (err) {
+      // El formulario queda con todo lo escrito: la API no dejó nada, así que
+      // reintentar es volver a enviar.
+      setErrors({ envio: `No se dio de alta: ${mensajeDeError(err)}` });
+      return;
+    } finally {
+      setEnviando(false);
+    }
 
     mostrarToast({
       tipo: 'exito',
       mensaje: `${tenant.nombre} dada de alta`,
-      descripcion: `${plan === 'demo' ? `Demo de ${diasVigencia} días` : 'Contrato'} · ${adminNombre.trim()} quedó como administrador.`,
+      descripcion: `${plan === 'demo' ? `Demo de ${diasVigencia} días` : 'Contrato'} · invitación enviada a ${adminEmail.trim()}.`,
     });
 
     resetForm();
@@ -564,13 +560,20 @@ export function NuevoTenantModal({ open, onOpenChange }: { open: boolean; onOpen
               </div>
             </div>
 
+            {errors.envio && (
+              <p role="alert" className="border-t border-slate-200 px-4 pt-3 text-sm text-semaforo-no-cumple">
+                {errors.envio}
+              </p>
+            )}
             <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
               <Dialog.Close asChild>
                 <Button type="button" variant="secondary">
                   Cancelar
                 </Button>
               </Dialog.Close>
-              <Button type="submit">Dar de alta</Button>
+              <Button type="submit" disabled={enviando}>
+                {enviando ? 'Dando de alta…' : 'Dar de alta'}
+              </Button>
             </div>
           </form>
         </Dialog.Content>

@@ -13,6 +13,7 @@ import { LegalMatrixProvider } from '@/lib/legal-matrix-store';
 import { GestoresProvider } from '@/lib/gestores-store';
 import { NotificationsProvider } from '@/lib/notifications-store';
 import { TenantsProvider } from '@/lib/tenants-store';
+import { AvisoDeSoloLectura } from '@/components/organisms/AvisoDeSoloLectura';
 import { DepartamentosProvider } from '@/lib/departamentos-store';
 
 /**
@@ -52,7 +53,10 @@ export default function DashboardRouteLayout({ children }: { children: ReactNode
                     <ClienteInvitadoGate>
                       <TenantScopeGate>
                         <PerfilEmpresaGate>
-                          <DashboardLayout>{children}</DashboardLayout>
+                          <DashboardLayout>
+                            <AvisoDeSoloLectura />
+                            {children}
+                          </DashboardLayout>
                           {/* Herramienta de desarrollo: no llega al bundle
                               de produccion. Va dentro de los providers
                               porque necesita la sesion y los usuarios. */}

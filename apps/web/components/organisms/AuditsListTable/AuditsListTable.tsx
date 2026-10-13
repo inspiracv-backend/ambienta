@@ -3,13 +3,14 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Inbox } from 'lucide-react';
-import { StatusBadge } from '@/components/atoms';
 import { FilterBar } from '@/components/molecules';
-import { auditSemaforo, AUDIT_ESTADO_LABEL } from '@/lib/audit-status';
+import { AUDIT_ESTADO_LABEL } from '@/lib/audit-status';
+import { fechaDeInstante } from '@/lib/fechas';
 import type { AuditsListTableProps } from './AuditsListTable.types';
 
+/** Sin fecha planificada se dice, no se inventa la de hoy. */
 function formatFecha(iso: string) {
-  return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
+  return iso ? fechaDeInstante(iso) : 'Sin fecha';
 }
 
 /** S-20 Listado de Auditorías (planificación de revisiones internas/externas). */
@@ -48,6 +49,7 @@ export function AuditsListTable({ audits, plants }: AuditsListTableProps) {
               { value: 'planificada', label: 'Planificada' },
               { value: 'en_curso', label: 'En curso' },
               { value: 'cerrada', label: 'Cerrada' },
+              { value: 'cancelada', label: 'Cancelada' },
             ],
           },
         ]}
@@ -64,11 +66,11 @@ export function AuditsListTable({ audits, plants }: AuditsListTableProps) {
             <caption className="sr-only">Auditorías planificadas</caption>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
+                <th scope="col" className="px-4 py-3">Auditoría</th>
                 <th scope="col" className="px-4 py-3">Planta</th>
                 <th scope="col" className="px-4 py-3">Tipo</th>
                 <th scope="col" className="px-4 py-3">Fecha</th>
                 <th scope="col" className="px-4 py-3">Estado</th>
-                <th scope="col" className="px-4 py-3">Procesos</th>
               </tr>
             </thead>
             <tbody>
@@ -77,17 +79,24 @@ export function AuditsListTable({ audits, plants }: AuditsListTableProps) {
                 return (
                   <tr key={audit.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-800">
+                      {/* El enlace llevaba el nombre de la planta: una auditoría de
+                          toda la empresa quedaba con un enlace sin texto. */}
                       <Link href={`/auditorias/${audit.id}`} className="hover:underline">
-                        {plant?.nombre ?? audit.plantId}
+                        {audit.titulo || audit.codigo || 'Auditoría sin título'}
                       </Link>
+                      {audit.codigo && audit.titulo && (
+                        <span className="block text-xs font-normal text-slate-500">{audit.codigo}</span>
+                      )}
                     </td>
+                    <td className="px-4 py-3 text-slate-500">{audit.plantId ? (plant?.nombre ?? audit.plantId) : 'Toda la empresa'}</td>
                     <td className="px-4 py-3 text-slate-500 capitalize">{audit.tipo}</td>
                     <td className="px-4 py-3 text-slate-500">{formatFecha(audit.fecha)}</td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={auditSemaforo(audit.estado)} className="mr-1" />
-                      <span className="text-slate-500">{AUDIT_ESTADO_LABEL[audit.estado]}</span>
+                      {/* Sin semaforo: el estado del ciclo no dice si se cumplio. Una
+                          auditoria cerrada —o cancelada— salia "Cumple" aunque
+                          hubiera encontrado no conformidades. */}
+                      <span className="text-slate-600">{AUDIT_ESTADO_LABEL[audit.estado]}</span>
                     </td>
-                    <td className="px-4 py-3 text-slate-500">{audit.procesos.join(', ')}</td>
                   </tr>
                 );
               })}

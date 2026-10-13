@@ -3,6 +3,8 @@
     python -m app.tareas rotar-auditoria [--mes AAAA-MM] [--en-seco]
     python -m app.tareas sincronizar-bcn [--en-seco]
     python -m app.tareas avisos [--solo-despachar]
+    python -m app.tareas crear-admin-global --correo C --nombre N [--razon-social R --rut X]
+    python -m app.tareas respaldar [--sin-verificar] [--sin-subir] [--retener-dias N]
 
 ## Por que un modulo y no un script suelto
 
@@ -32,6 +34,8 @@ from pathlib import Path
 from ..config import get_settings
 from ..db import AdminSessionLocal
 from .avisos import correr as correr_avisos
+from .crear_admin_global import ErrorDeArranque, crear as crear_admin
+from ..services import respaldos as svc_respaldos
 from .rotar_auditoria import mes_anterior, rotar
 from .sincronizar_bcn import sincronizar as sincronizar_bcn
 
@@ -99,6 +103,52 @@ def rotar_auditoria(args: argparse.Namespace) -> int:
         db.close()
 
 
+def respaldar(args) -> int:
+    """Respalda la base y la auditoria archivada, y lo verifica restaurando.
+
+    **Sale con codigo distinto de cero si no se pudo verificar.** Es lo
+    contrario de lo intuitivo —"al menos quedo el archivo"— y es a proposito: un
+    respaldo que no se restauro no es un respaldo, y un cron que informa exito
+    con un archivo ilegible es peor que uno que falla, porque nadie vuelve a
+    mirar.
+    """
+    destino = Path(args.destino)
+    logger.info(
+        "Respaldando a %s%s%s",
+        destino,
+        "" if args.verificar else " [SIN VERIFICAR]",
+        "" if args.subir else " [SIN SUBIR]",
+    )
+
+    libres = svc_respaldos.espacio_libre(destino)
+    if libres < 500 * 1024 * 1024:
+        logger.warning(
+            "Quedan %.0f MB libres en %s. Un volcado que no cabe deja un archivo "
+            "truncado, que se ve como un respaldo.",
+            libres / 1_048_576,
+            destino,
+        )
+
+    try:
+        informe = svc_respaldos.correr(
+            destino=destino,
+            verificando=args.verificar,
+            subiendo=args.subir,
+            retener_dias=args.retener_dias,
+        )
+    except svc_respaldos.ErrorDeRespaldo as exc:
+        logger.error("El respaldo NO se completo: %s", exc)
+        return 1
+
+    logger.info("Respaldo listo:\n%s", informe.resumen())
+
+    # Las advertencias no tumban la corrida —un respaldo local es mejor que
+    # ninguno— pero el cron tiene que poder distinguirlas en el log.
+    for aviso in informe.advertencias:
+        logger.warning(aviso)
+    return 0
+
+
 def sincronizar_catalogo(args) -> int:
     """Trae el catalogo normativo desde la BCN.
 
@@ -144,6 +194,41 @@ def avisos(args) -> int:
     return 1 if informe.hay_que_mirarlo() else 0
 
 
+def crear_admin_global(args) -> int:
+    """Crea e invita al primer Admin Global. Ver `crear_admin_global.py`.
+
+    Sale con 1 si no corresponde (ya hay uno, falta el RUT) o si Clerk no
+    acepto la invitacion; en los dos casos no queda nada escrito.
+    """
+    from ..services.clave_local import ClerkNoDisponible
+    from ..services.invitacion_de_usuario import ErrorDeInvitacion
+
+    with AdminSessionLocal() as db:
+        try:
+            r = crear_admin(
+                db,
+                correo=args.correo,
+                nombre=args.nombre,
+                razon_social=args.razon_social,
+                rut=args.rut,
+            )
+        except (ErrorDeArranque, ErrorDeInvitacion, ClerkNoDisponible) as exc:
+            db.rollback()
+            logger.error("No se creo el Admin Global: %s", exc)
+            return 1
+        db.commit()
+
+    logger.info(
+        "Admin Global creado e invitado: %s (empresa %s%s, invitacion %s). "
+        "Tiene que aceptar el correo de Clerk para entrar.",
+        args.correo,
+        r.tenant_id,
+        ", nueva" if r.empresa_nueva else "",
+        r.clerk_invitation_id or "sin id",
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.tareas")
     sub = parser.add_subparsers(dest="tarea", required=True)
@@ -184,6 +269,48 @@ def main(argv: list[str] | None = None) -> int:
         help="Genera los avisos de vencimiento del dia y despacha lo encolado.",
     )
     a.set_defaults(func=avisos)
+
+    rp = sub.add_parser(
+        "respaldar",
+        help="Respalda la base y la auditoria archivada, y lo verifica restaurando.",
+    )
+    rp.add_argument(
+        "--destino",
+        default=get_settings().ruta_respaldos,
+        help="Carpeta donde caen los respaldos antes de subirse. Tiene que ser un volumen.",
+    )
+    rp.add_argument(
+        "--sin-verificar",
+        dest="verificar",
+        action="store_false",
+        help="No restaura para comprobar. Solo si la base es grande y el tiempo aprieta.",
+    )
+    rp.add_argument(
+        "--sin-subir",
+        dest="subir",
+        action="store_false",
+        help="Deja el respaldo solo en disco local, sin mandarlo al bucket.",
+    )
+    rp.add_argument(
+        "--retener-dias",
+        type=int,
+        default=svc_respaldos.RETENER_DIAS,
+        help=f"Cuantos dias se conservan. Por defecto {svc_respaldos.RETENER_DIAS}.",
+    )
+    rp.set_defaults(func=respaldar)
+
+    g = sub.add_parser(
+        "crear-admin-global",
+        help="Crea e invita al primer Admin Global. Una sola vez, al desplegar.",
+    )
+    g.add_argument("--correo", required=True, help="Correo al que llega la invitacion de Clerk.")
+    g.add_argument("--nombre", required=True, help="Nombre completo.")
+    g.add_argument(
+        "--razon-social",
+        help="De la empresa de la plataforma. Solo si todavia no existe.",
+    )
+    g.add_argument("--rut", help="De la empresa de la plataforma. Solo si todavia no existe.")
+    g.set_defaults(func=crear_admin_global)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -6,9 +6,15 @@ import { z } from 'zod';
  * negocio, conceptos distintos: uno es una solicitud de ayuda, el otro un
  * plazo regulatorio. No comparten esquema ni store.
  */
+/**
+ * RF-83: una corrección de un registro erróneo. **Vive en la base** como un
+ * mensaje `internal_note` del ticket, y no se edita después (la API responde
+ * 409). Se carga aparte, al abrir el ticket: no viene en el listado.
+ */
 export const CorreccionTicketSchema = z.object({
+  id: z.string(),
   fecha: z.string(),
-  autorId: z.string(),
+  autorId: z.string().nullable(),
   nota: z.string(),
 });
 export type CorreccionTicket = z.infer<typeof CorreccionTicketSchema>;
@@ -24,9 +30,8 @@ export const SupportTicketSchema = z.object({
   fecha: z.string(),
   contactoNombre: z.string().optional(),
   contactoEmail: z.string().optional(),
-  /** RF-62: qué ve el cliente vs. el equipo interno. */
-  visibleParaCliente: z.boolean(),
-  /** RF-61: corrección de logs erróneos, con auditoría puntual del ticket. */
-  correcciones: z.array(CorreccionTicketSchema),
+  // `visibleParaCliente` se quitó el 13-sep: la base no tiene ese campo y la
+  // pantalla lo mostraba siempre en `true`, con un botón que no guardaba. La
+  // distinción real de RF-84 es por mensaje (`is_internal`), no por ticket.
 });
 export type SupportTicket = z.infer<typeof SupportTicketSchema>;

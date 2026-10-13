@@ -1,15 +1,14 @@
 'use client';
 
-import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/molecules';
-import { HistorialTimeline, PlanAccionDetailView } from '@/components/organisms';
+import { FichaNoDisponible, HistorialTimeline, PlanAccionDetailView } from '@/components/organisms';
 import { usePlanAccion } from '@/lib/plan-accion-store';
 
 export default function PlanAccionDetailPage({ params }: { params: { id: string } }) {
-  const { plans } = usePlanAccion();
+  const { plans, loading: cargandoPlanes } = usePlanAccion();
   const plan = plans.find((p) => p.id === params.id);
 
-  if (!plan) return notFound();
+  if (!plan) return <FichaNoDisponible cargando={cargandoPlanes} que="este plan de acción" />;
 
   return (
     <div className="flex flex-col gap-4">

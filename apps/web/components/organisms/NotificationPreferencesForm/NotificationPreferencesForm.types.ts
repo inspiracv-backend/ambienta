@@ -1,5 +1,4 @@
-import type { NotificationPreferences } from '@ambienta/shared';
-
 export interface NotificationPreferencesFormProps {
-  preferences: NotificationPreferences;
+  /** La empresa cuyas reglas de aviso se muestran. */
+  tenantId: string;
 }

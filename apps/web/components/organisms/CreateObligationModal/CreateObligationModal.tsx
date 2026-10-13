@@ -7,7 +7,7 @@ import type { SistemaDeclaracion } from '@ambienta/shared';
 import { Button, Input } from '@/components/atoms';
 import { FormField } from '@/components/molecules';
 import { useObligations } from '@/lib/obligations-store';
-import { mockUsers } from '@/mocks/users';
+import { usePersonasAsignables } from '@/lib/crm-etapas-store';
 import type { CreateObligationModalProps } from './CreateObligationModal.types';
 
 const SISTEMAS: SistemaDeclaracion[] = ['RETC', 'Ley REP', 'SINADER', 'SIDREP', 'DAE'];
@@ -31,7 +31,9 @@ export function CreateObligationModal({ open, onOpenChange, plants }: CreateObli
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const tenantId = plants[0]?.tenantId ?? '';
-  const responsableOptions = mockUsers.filter((u) => u.tenantId === tenantId);
+  // Personas de la base (`/users/`), no `mockUsers`: el responsable es una
+  // clave foránea y un id de ejemplo hacía que la API rechazara la escritura.
+  const { personas: responsableOptions } = usePersonasAsignables();
   const today = new Date().toISOString().slice(0, 10);
 
   function resetForm() {

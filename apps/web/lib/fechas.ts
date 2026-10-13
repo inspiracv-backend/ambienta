@@ -72,3 +72,33 @@ export function fecha(iso: string | null | undefined): string {
   if (!iso) return '—';
   return SOLO_FECHA.test(iso) ? fechaCalendario(iso) : fechaDeInstante(iso);
 }
+
+/**
+ * El día de calendario de un dato, `AAAA-MM-DD`, **decidido por su forma**:
+ * una fecha sin hora ya es un día y se devuelve tal cual; un instante se lleva
+ * al día de quien mira.
+ *
+ * Para comparar contra un filtro "desde / hasta" que la persona eligió en un
+ * calendario. `new Date('2026-09-20')` es la medianoche **UTC**, que en Chile es
+ * el 19 a las 20:00: comparar instantes contra eso dejaba fuera todo lo de la
+ * noche del día pedido. Pasó en el registro de actividades y en los reportes
+ * (21-sep): el servidor devolvía 500 eventos del día y la pantalla mostraba 0.
+ */
+export function diaDeCalendario(iso: string): string {
+  if (SOLO_FECHA.test(iso)) return iso;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/** Si el dato cae entre dos días de calendario, ambos incluidos. Vacío = sin límite. */
+export function enRangoDeDias(iso: string, desde: string, hasta: string): boolean {
+  if (!desde && !hasta) return true;
+  const dia = diaDeCalendario(iso);
+  if (desde && dia < desde) return false;
+  if (hasta && dia > hasta) return false;
+  return true;
+}
+
