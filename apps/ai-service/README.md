@@ -19,6 +19,39 @@ El proveedor de producción requiere `OPENAI_API_KEY` o `ANTHROPIC_API_KEY` seg�
 Con OpenAI, `DIMENSION_EMBEDDINGS` tiene que coincidir con la dimensión creada por la migración
 (1536 por defecto). Si se cambia, hay que recrear el esquema/vectorización y sincronizar de nuevo.
 
+## PDFs, monitoreo y despliegue integrado
+
+El worker `python -m ambienta_ia.operacion` ejecuta periódicamente el monitoreo normativo y la
+ingesta de documentos. La lista de cuentas se entrega en un archivo JSON montado como secreto,
+con una entrada por tenant: `[{"tenant_id":"UUID","token":"JWT"}]`. El worker solo indexa
+revisiones PDF vigentes, valida el SHA-256 del enlace firmado, extrae texto nativo y usa Tesseract
+con español para páginas escaneadas. El índice privado tiene RLS por tenant y la herramienta
+`buscar_en_documentos` consulta solo los datos del usuario autenticado.
+
+Para compartir el PostgreSQL de Ambienta sin alterar los Compose normales, se agregaron overlays
+opcionales en la raíz del repo:
+
+```bash
+# Desarrollo, backend y AI Service sobre la misma base local
+docker compose -f docker-compose.yml -f docker-compose.ai-dev.yml up -d --build
+
+# Producción (configurar AI_* en el .env raíz y crear el JSON de cuentas)
+docker compose -f docker-compose.prod.yml -f docker-compose.ai-prod.yml up -d --build
+```
+
+En producción el overlay crea roles dedicados y tablas propias en la base `ambienta`; no crea una
+segunda instancia PostgreSQL. El worker corre el monitoreo cada `AI_MONITOREO_INTERVALO_SEGUNDOS`
+(por defecto 24 h) y revisa PDFs cada `AI_INGESTA_INTERVALO_SEGUNDOS` (por defecto 30 min).
+El endpoint `GET /agentes/estado` muestra la última corrida, resultado y errores solo a una cuenta
+de plataforma autenticada.
+
+Antes de levantar el overlay de producción, crea `secrets/ai-tenant-accounts.json` (ignorado por
+Git) con este formato y agrega un JWT de servicio con acceso autorizado a cada tenant:
+
+```json
+[{"tenant_id":"UUID-DE-LA-EMPRESA","token":"JWT-DE-LA-CUENTA-DE-SERVICIO"}]
+```
+
 El archivo `compose.yml` de este directorio levanta una base pgvector y un backend simulado para
 desarrollo local. La pipeline valida lint, pruebas y construcción Docker de forma independiente
 del backend de producto.

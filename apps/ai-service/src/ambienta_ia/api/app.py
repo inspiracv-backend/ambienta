@@ -149,6 +149,30 @@ def crear_app(deps: Dependencias | None = None) -> FastAPI:
                   "catalogo_sincronizado_en": sincronizado.isoformat() if sincronizado else None}
         return JSONResponse(cuerpo, status_code=200 if base_ok and backend_ok else 503)
 
+    @app.get("/agentes/estado")
+    async def estado_agentes(
+        request: Request,
+        authorization: str | None = Header(None),
+        x_tenant_id: str | None = Header(None),
+    ) -> JSONResponse:
+        """Estado persistido de los procesos de ingesta y monitoreo (solo plataforma)."""
+        d: Dependencias = request.app.state.deps
+        try:
+            sesion, cliente = await resolver_sesion(
+                authorization=authorization, x_tenant_id=x_tenant_id,
+                backend_url=d.config.backend_url, verificador=d.verificador,
+                exigir_chatbot=False,
+                opciones_cliente={"timeout_s": d.config.backend_timeout_s, **d.opciones_cliente},
+            )
+        except ErrorIdentidad as e:
+            return _error(e.estado, e.codigo, e.detalle)
+        try:
+            if not sesion.es_plataforma:
+                return _error(403, "falta_permiso", "Solo la cuenta de plataforma puede consultar el estado de los agentes.")
+            return JSONResponse({"agentes": await d.base.estados_agentes()})
+        finally:
+            await cliente.cerrar()
+
     @app.post("/consulta")
     async def consulta(
         request: Request,

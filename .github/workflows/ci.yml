@@ -43,6 +43,11 @@ jobs:
           cache: pip
           cache-dependency-path: apps/ai-service/pyproject.toml
 
+      - name: Install OCR engine for PDF ingestion tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-spa
+
       - name: Install service and test dependencies
         run: pip install -e '.[dev,openai,anthropic]'
 

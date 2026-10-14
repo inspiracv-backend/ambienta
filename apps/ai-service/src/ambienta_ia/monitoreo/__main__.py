@@ -73,7 +73,7 @@ async def _correr(sin_snifa: bool) -> int:
     print(json.dumps({"cambios_normativos": [asdict(x) for x in catalogo.cambios],
                       "novedades_sma": [asdict(n) for n in novedades],
                       "avisos": [asdict(a) for a in informe.avisos], "ticket": informe.ticket,
-                      "errores": informe.errores}, ensure_ascii=False, indent=2, default=str))
+                      "errores": informe.errores}, ensure_ascii=False, separators=(",", ":"), default=str))
     return 1 if informe.errores else 0
 
 

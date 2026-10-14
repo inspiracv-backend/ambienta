@@ -7,6 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MIGRACIONES_DIR=/app/migraciones
 
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-spa \
+    && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install ".[openai,anthropic]"

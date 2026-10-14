@@ -49,6 +49,14 @@ class BaseConocimiento:
             async with conn.transaction():
                 yield conn
 
+    @asynccontextmanager
+    async def transaccion_de_empresa(self, tenant_id: UUID) -> AsyncIterator[psycopg.AsyncConnection]:
+        """Transacción de escritura limitada al tenant, para indexar sus documentos."""
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                await conn.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant_id),))
+                yield conn
+
     async def viva(self) -> bool:
         try:
             async with self._pool.connection() as conn:
@@ -56,6 +64,18 @@ class BaseConocimiento:
             return True
         except Exception:
             return False
+
+    async def estados_agentes(self) -> list[dict]:
+        async with self.de_empresa(None) as conn:
+            cur = await conn.execute(
+                "SELECT nombre, estado, iniciado_en, finalizado_en, elementos, detalle "
+                "FROM ai_job_estado ORDER BY nombre"
+            )
+            return [
+                {"nombre": n, "estado": e, "iniciado_en": i, "finalizado_en": f,
+                 "elementos": cantidad, "detalle": detalle}
+                for n, e, i, f, cantidad, detalle in await cur.fetchall()
+            ]
 
     async def cerrar(self) -> None:
         await self._pool.close()

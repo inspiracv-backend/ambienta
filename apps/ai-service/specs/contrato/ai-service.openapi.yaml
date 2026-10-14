@@ -99,6 +99,35 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Estado" }
 
+  /agentes/estado:
+    get:
+      operationId: estadoAgentes
+      summary: Estado de los trabajos de ingesta y monitoreo
+      description: Requiere identidad de plataforma. No devuelve tokens ni datos de empresas.
+      responses:
+        "200":
+          description: Última ejecución y resultado de cada trabajo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agentes]
+                properties:
+                  agentes:
+                    type: array
+                    items:
+                      type: object
+                      required: [nombre, estado, elementos]
+                      properties:
+                        nombre: { type: string }
+                        estado: { type: string, enum: [ejecutando, ok, error] }
+                        iniciado_en: { type: [string, 'null'], format: date-time }
+                        finalizado_en: { type: [string, 'null'], format: date-time }
+                        elementos: { type: integer }
+                        detalle: { type: [string, 'null'] }
+        "401": { $ref: "#/components/responses/SinAutenticar" }
+        "403": { $ref: "#/components/responses/SinPermiso" }
+
 components:
 
   securitySchemes:

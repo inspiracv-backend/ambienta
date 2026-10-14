@@ -27,7 +27,7 @@ from ..citas import detectar_cita, etiqueta_norma
 from ..identidad import Sesion
 from ..observabilidad import LlamadaHerramienta, Traza, aviso
 from ..proveedores import Embeddings
-from ..proveedores.embeddings import coseno
+from ..proveedores.embeddings import como_vector, coseno
 from ..recuperacion import Cita, Recuperador
 from ..sincronizar.arbol import fragmentar_norma, texto_para_embedding
 from .evidencia import Registro
@@ -79,6 +79,10 @@ class EntradaObligaciones(BaseModel):
 
 class EntradaBusqueda(BaseModel):
     q: str = Field(min_length=2, description="Texto a buscar en los registros de la empresa")
+
+
+class EntradaDocumento(BaseModel):
+    pregunta: str = Field(min_length=2, description="Qué se necesita encontrar en los PDFs vigentes de la empresa")
 
 
 EntidadTipo = Literal[
@@ -293,6 +297,28 @@ class Herramientas:
         self.registro.agregar_datos("respaldo_de", texto)
         return texto, "datos"
 
+    async def buscar_en_documentos(self, pregunta: str) -> tuple[str, str]:
+        """Busca solo fragmentos OCR indexados bajo el tenant de la sesión (RLS)."""
+        [vector] = await self.embeddings.generar([pregunta])
+        async with self.recuperador.base.de_empresa(self.sesion.tenant_id) as conn:
+            cur = await conn.execute(
+                "SELECT titulo, contenido, 1 - (embedding <=> %s) AS similitud "
+                "FROM documento_fragmento WHERE tenant_id=%s "
+                "ORDER BY embedding <=> %s LIMIT 5",
+                (como_vector(vector), self.sesion.tenant_id, como_vector(vector)),
+            )
+            filas = await cur.fetchall()
+        filas = [f for f in filas if float(f[2]) >= self.recuperador.umbral]
+        if not filas:
+            self.registro.agregar_datos("buscar_en_documentos", "No se encontró evidencia en PDFs vigentes indexados.")
+            return f"{SIN_RESULTADOS}: no hay evidencia en los PDFs vigentes de la empresa.", "sin_resultados"
+        texto = "\n\n---\n\n".join(
+            f"Documento: {titulo} (similitud {float(sim):.3f})\nExtracto: {contenido}"
+            for titulo, contenido, sim in filas
+        )
+        self.registro.agregar_datos("buscar_en_documentos", texto)
+        return texto, "datos"
+
     async def historia_de(self, entity_type: str, entity_id: UUID) -> tuple[str, str]:
         h = await self.cliente.historial(entity_type, entity_id)
         comentarios = await self.cliente.comentarios(entity_type, entity_id)
@@ -467,6 +493,9 @@ class Herramientas:
              "obligation.read"),
             ("buscar_en_empresa", "Busca por texto en los registros de la empresa (obligaciones, documentos, "
              "auditorías, no conformidades...). Devuelve títulos e ids.", self.buscar_en_empresa, EntradaBusqueda, None),
+            ("buscar_en_documentos", "Busca evidencia semántica en PDFs vigentes de RCA, ISO y normativa propia "
+             "que ya fueron extraídos e indexados para esta empresa.", self.buscar_en_documentos, EntradaDocumento,
+             "document.read"),
             ("respaldo_de", "Documentos que respaldan un registro, con el estado de su revisión. Un borrador no es "
              "evidencia.", self.respaldo_de, EntradaEntidad, "document.read"),
             ("historia_de", "Historial y comentarios de un registro: por qué pasó algo.", self.historia_de,
