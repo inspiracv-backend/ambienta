@@ -1,8 +1,12 @@
 # Cambios
 
-## 1.0.0-beta.1 — sin publicar
+## 1.0.0 — 13-oct-2026
 
-Primera versión que se despliega. Lo que sigue no es la lista de commits: es
+**Primera versión que se despliega.** Sale como `1.0.0` y no como beta por
+decisión del 13-oct; lo que eso **no** significa está en «Lo que esta versión
+deliberadamente no trae» y en «Lo que hay que hacer para que funcione»: hay
+huecos conocidos y escritos, y la operación todavía no tiene ensayo de
+restauración, aviso de respaldo fallido ni entorno de staging. Lo que sigue no es la lista de commits: es
 **qué puede hacer una empresa con esto, qué no, y qué falta decidir** — que es
 lo que hace falta saber antes de ponerle datos de un cliente adentro.
 
@@ -112,15 +116,15 @@ Y se agregó lo que no existía: **respaldo automático diario** de la base y de
 auditoría archivada, verificado restaurándolo, con 30 días de retención fuera de
 la máquina (RNF-19).
 
-### Cómo se etiqueta
+### Las etiquetas
 
-El `git tag` se crea sobre el commit que **de verdad se despliega**, después de
-integrar la rama:
+Las dos apuntan al mismo trabajo y se conservan las dos:
 
-```bash
-git tag -a v1.0.0-beta.1 -m "Beta 1.0 — primer despliegue"
-git push origin v1.0.0-beta.1
-```
+| Etiqueta | Qué es |
+|---|---|
+| `v1.0.0-beta.1` | El commit de merge del PR #237, etiquetado al integrar |
+| `v1.0.0` | La misma versión, publicada sin el sufijo de beta |
 
-Etiquetar antes dejaría la etiqueta apuntando a un commit que no quedó en la
-rama principal si la integración se hace con squash.
+El `git tag` se crea siempre sobre el commit que **de verdad se despliega**,
+después de integrar la rama: etiquetar antes deja la etiqueta apuntando a un
+commit que no quedó en la rama principal si la integración se hace con squash.

@@ -342,7 +342,7 @@ cd apps/web && npx vitest run
 bash db/run.sh --with-tests
 ```
 
-**Medido el 13-oct, sobre `1.0.0-beta.1`:** **1714** pruebas de API en verde
+**Medido el 13-oct, sobre el commit que hoy es `v1.0.0`:** **1714** pruebas de API en verde
 sobre 123 archivos —12 saltadas por salir a internet y 3 que necesitan el
 cliente `pg_dump` 16, que en Windows no esta—; **938** del frontend sobre 103
 archivos; `tsc --noEmit` y `npm run build` limpios. En el esquema: **67 tablas,
