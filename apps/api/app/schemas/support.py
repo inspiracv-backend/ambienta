@@ -167,3 +167,79 @@ class ChatbotMessageUpdate(BaseModel):
 
     citations: list | None = None
     cited_norm_ids: list | None = None
+
+
+# ── La fachada del chatbot (RF-59 a RF-63) ──────────────────────────────────
+
+
+class ConsultaDelChatbot(BaseModel):
+    """Lo que el navegador manda para preguntar.
+
+    **No lleva empresa ni usuario, y no es un olvido.** Los dos salen del token
+    verificado. Un `tenant_id` en el cuerpo seria un parametro con el que
+    cualquiera elige de que empresa leer, y la unica barrera pasaria a ser que
+    el codigo no se equivoque.
+    """
+
+    pregunta: str = Field(
+        min_length=2,
+        max_length=2000,
+        description=(
+            "La pregunta en lenguaje natural. Los limites son los del contrato "
+            "del AI Service: una de un caracter no es una pregunta, y una de "
+            "miles no cabe en el contexto junto con la evidencia."
+        ),
+    )
+    conversation_id: UUID | None = Field(
+        default=None,
+        description=(
+            "La conversacion a la que pertenece el turno. **Si no viene, el AI "
+            "Service la abre** y devuelve su id en la respuesta: el frontend lo "
+            "guarda y lo manda en los turnos siguientes."
+        ),
+    )
+    fecha: str | None = Field(
+        default=None,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description=(
+            "Para preguntar por el texto legal **vigente a una fecha**, no al de "
+            "hoy. Formato de calendario (`AAAA-MM-DD`) y no una marca de tiempo: "
+            "la vigencia de una norma es un dia, no un instante."
+        ),
+    )
+
+
+class RespuestaDelChatbot(BaseModel):
+    """La respuesta del AI Service, retransmitida.
+
+    **Acepta campos que no declara** (`extra="allow"`). El contrato lo escribe y
+    lo versiona el AI Service, no esta API: con un modelo cerrado, cada campo que
+    ellos agreguen se perderia en silencio al pasar por la fachada — y "la API
+    se come un dato" es exactamente el defecto que este repositorio ya sufrio
+    con `attributes` y con el ciclo de vida documental.
+
+    Se declaran los cinco obligatorios del contrato para que Swagger diga algo
+    util y para que un cambio incompatible falle aca y no en la pantalla.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    conversation_id: UUID | None = Field(
+        description="La conversacion, abierta por el AI Service si no se mando una."
+    )
+    respuesta: str = Field(description="El texto fundamentado.")
+    se_abstuvo: bool = Field(
+        description=(
+            "**Campo propio, no se deduce del texto.** El frontend muestra "
+            "distinto una respuesta con evidencia y un «no tengo informacion "
+            "suficiente», y adivinarlo leyendo la respuesta es como se termina "
+            "presentando una abstencion como un hecho."
+        )
+    )
+    citas: list = Field(description="De donde sale cada afirmacion.")
+    guardado: bool = Field(
+        description=(
+            "Si el turno quedo en la conversacion. En modo desarrollo no hay "
+            "usuario, asi que no se guarda y esto viene en `false`."
+        )
+    )

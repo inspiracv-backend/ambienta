@@ -1908,6 +1908,38 @@ en paralelo. **Gastaron 4,4 millones de tokens en seis minutos y devolvieron
 cero** por un limite de gasto. Casi todo lo que se les pedia no necesitaba
 criterio, necesitaba `grep`.
 
+**La API es la fachada del AI Service, y eso sostiene dos cosas** (14-oct,
+RF-59 a RF-63). `POST /support/chatbot/consulta` autoriza y reenvia; el
+navegador nunca habla con el servicio de IA.
+
+- **No hay un secreto compartido entre los dos servicios.** Se reenvia el JWT
+  original de quien pregunta, asi que el AI Service consulta la base con **su**
+  alcance y RLS sigue siendo la barrera. Con un secreto propio, ese servicio
+  podria leer cualquier empresa y la unica barrera seria que el codigo no se
+  equivoque. Hay una prueba que exige que las cabeceras sean exactamente tres.
+- **La empresa sale del token y de ningun otro lado.** El cuerpo no declara
+  `tenant_id` ni `user_id`; mandarlos no hace nada. Una prueba los manda a
+  proposito.
+- **La fachada no guarda nada.** La conversacion la persiste el AI Service
+  llamando a `/support/chatbot` con el mismo token: si la fachada tambien
+  guardara, cada turno quedaria escrito dos veces — y un duplicado no se ve
+  como un error, se ve como un historial raro tres semanas despues.
+- **El streaming reenvia los bytes, no una reconstruccion.** Rearmar los eventos
+  a partir de lo parseado pierde alguno —`herramienta`, que el frontend usa para
+  mostrar "estoy buscando"— y cambia el orden, que es lo unico que un stream
+  promete. Va con `X-Accel-Buffering: no`, o **Caddy entrega el stream completo
+  al final** y el streaming deja de servir para lo que existe.
+- **La conexion de base se devuelve antes de generar** (`db.close()`). El pool
+  son 5 mas 10: retener una conexion por chat en curso lo vacia con quince
+  personas preguntando, y el sintoma seria que **toda** la aplicacion deja de
+  responder, no solo el chat.
+- **Y la ruta va declarada antes de `/chatbot/{conversation_id}`**, o esa ruta se
+  come `consulta` leyendolo como UUID y responde 422. Tercera vez que aparece
+  este orden de lineas en el repo.
+
+Sin `AI_SERVICE_URL` responde **503 diciendo que falta**, y no cae a
+`localhost:8100`: en produccion eso es una conexion a nada que tarda en fallar.
+
 **El portal de `DocumentoImprimible` se monta en dos pasadas, y toda asercion
 sobre su contenido tiene que esperar.** `useEffect` pone `montado` y recien ahi
 hay portal —`document` no existe en el render del servidor— asi que

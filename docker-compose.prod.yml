@@ -183,6 +183,13 @@ services:
       # esto la ingesta trae metadatos, versiones y relaciones igual, y lo
       # unico que queda vacio es el texto de los articulos.
       BCN_API_KEY: ${BCN_API_KEY:-}
+      # La fachada del chatbot (RF-59 a RF-63). **Vacia por defecto**, y la URL
+      # es la **interna**: el AI Service no se publica a internet — consulta la
+      # base con el token de quien pregunta, asi que un puerto abierto es una
+      # puerta que nadie vigila. Se levanta con su overlay:
+      #
+      #   docker compose -f docker-compose.prod.yml -f docker-compose.ai-prod.yml up -d
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-}
       # Tiene que coincidir con el punto de montaje del volumen de abajo. Va
       # explicita —aunque `config.py` traiga este mismo valor por defecto—
       # porque si alguien la cambia sin mover el volumen, la rotacion vuelve a

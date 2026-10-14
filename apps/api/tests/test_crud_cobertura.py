@@ -41,6 +41,11 @@ SUFIJOS_DE_ACCION = (
     # los que **nadie enlazo un riesgo** (ISO 14001 §6.1.4). No se crea ni se
     # borra un "aspecto sin tratar" — se trata, y entonces sale solo.
     "/significant-untreated",
+    # Preguntarle al asistente es una **accion**, no un recurso: no se lista, no
+    # se lee y no se borra "una consulta". Lo que si es un recurso es la
+    # conversacion —`/support/chatbot`, con su CRUD completo— y los mensajes que
+    # el AI Service guarda ahi. La fachada solo autoriza y reenvia.
+    "/consulta",
     # Tampoco un recurso: son los equipos en operacion que hoy nadie puede
     # operar legalmente (#48). No se crea ni se borra un "equipo sin operador"
     # — se le asigna a alguien o se le renueva la certificacion, y entonces

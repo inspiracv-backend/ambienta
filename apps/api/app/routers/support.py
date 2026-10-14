@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,12 +13,15 @@ from ..crud.support import (
     crud_support_ticket,
     crud_ticket_message,
 )
-from ..deps import get_current_user, get_tenant_db, get_tenant_id
+from ..deps import get_current_user, get_tenant_db, get_tenant_id, token_crudo
+from ..services import ai_service as svc_ai
 from ._paginacion import Pagina, paginacion, recortar
 from ._comun import borrar_o_404, obtener_o_404, validar_visible, verificar_padre
 from ..crud.organization import crud_user
 from ..schemas.support import (
     ChatbotConversationCreate,
+    ConsultaDelChatbot,
+    RespuestaDelChatbot,
     ChatbotConversationUpdate,
     ChatbotMessageUpdate,
     SupportTicketMessageUpdate,
@@ -218,6 +222,105 @@ def create_conversation(
     obj = crud_chatbot_conversation.create(db, obj_in=data, tenant_id=tenant_id)
     db.commit()
     return obj
+
+
+# **Va ANTES de `/chatbot/{conversation_id}`.** Si se declarara despues, esa
+# ruta se comeria `consulta` intentando leerlo como UUID y responderia 422 — el
+# error de orden de lineas que este repositorio ya sufrio con
+# `/equipment/sin-operador` y con `/audits/compromisos`.
+@router.post(
+    "/chatbot/consulta",
+    response_model=RespuestaDelChatbot,
+    summary="Preguntarle al asistente (RF-59 a RF-63)",
+    description=(
+        "**La API es la fachada: el navegador nunca habla con el AI Service.**\n\n"
+        "Autoriza la peticion —sesion verificada, permiso `chatbot.use`, y que la "
+        "conversacion sea de esta empresa— y reenvia la consulta al servicio de "
+        "IA con el **token original** de quien pregunta. No hay un secreto "
+        "compartido entre los dos servicios: asi el AI Service consulta la base "
+        "con el alcance de esa persona y RLS sigue siendo la barrera.\n\n"
+        "**La empresa sale del token y de ningun otro lado.** El cuerpo no "
+        "acepta `tenant_id` ni `user_id`.\n\n"
+        "Con `Accept: text/event-stream` retransmite los eventos del AI Service "
+        "—`herramienta`, `texto`, `final`, `error`— tal cual y en orden. El "
+        "`texto` es la generacion en curso, **no** la respuesta final: el turno "
+        "lo persiste el AI Service al emitir `final`, y esta ruta **no guarda "
+        "nada** para no dejar cada pregunta escrita dos veces.\n\n"
+        "Sin `AI_SERVICE_URL` responde **503** diciendo que falta, en vez de "
+        "caerse."
+    ),
+    tags=["business-logic"],
+)
+def consultar_al_chatbot(
+    data: ConsultaDelChatbot,
+    peticion: Request,
+    # La sesion verificada: sin esto se reenviaria un token que nadie miro.
+    # El permiso `chatbot.use` lo exige la guarda montada en el router (la raiz
+    # `support` lo deriva), no hace falta repetirlo aca.
+    usuario: CurrentUser = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_tenant_id),
+    token: str | None = Depends(token_crudo),
+    db: Session = Depends(get_tenant_db),
+):
+    """Autoriza y reenvia. Nada mas, y eso es el punto.
+
+    ## Por que la conversacion se valida **aca** y tambien alla
+
+    El AI Service vuelve a comprobarlo con el mismo token. No es redundancia
+    desperdiciada: **los dos servicios no se confian entre si por estar en la
+    misma red privada**. La fachada protege el punto de entrada; si manana el AI
+    Service se expone por error, su propia validacion sigue en pie.
+
+    Y el 404 no distingue "no existe" de "es de otra empresa": distinguirlos
+    convierte el endpoint en un oraculo para enumerar conversaciones ajenas.
+
+    ## La conexion de base se devuelve antes de generar
+
+    El pool son 5 conexiones mas 10 de desborde. Una generacion puede tardar
+    decenas de segundos, asi que retener una conexion por cada chat en curso
+    vaciaria el pool con quince personas preguntando a la vez — y el sintoma
+    seria que **toda** la aplicacion deja de responder, no solo el chat.
+    """
+    if data.conversation_id is not None:
+        # Con la sesion de la empresa: si RLS no la ve, no existe para ella.
+        obtener_o_404(
+            crud_chatbot_conversation,
+            db,
+            data.conversation_id,
+            recurso="ChatbotConversation",
+        )
+    db.close()
+
+    acepta = peticion.headers.get("accept", "")
+    streaming = svc_ai.SSE in acepta
+
+    encabezados = svc_ai.cabeceras(
+        token=token,
+        tenant_id=tenant_id,
+        acepta=svc_ai.SSE if streaming else "application/json",
+        request_id=peticion.headers.get("x-request-id"),
+    )
+    cuerpo = svc_ai.cuerpo(
+        pregunta=data.pregunta,
+        conversation_id=data.conversation_id,
+        fecha=data.fecha,
+    )
+
+    if not streaming:
+        return svc_ai.consultar(datos=cuerpo, encabezados=encabezados)
+
+    return StreamingResponse(
+        svc_ai.consultar_en_streaming(datos=cuerpo, encabezados=encabezados),
+        media_type=svc_ai.SSE,
+        headers={
+            "Cache-Control": "no-cache",
+            # **Sin esto Caddy entrega el stream de una sola vez al final.** Un
+            # proxy que acumula convierte el streaming en una espera larga con
+            # todo el texto junto, que es justo lo que el streaming evita.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 
 
 @router.get(
