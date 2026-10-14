@@ -1,0 +1,245 @@
+openapi: 3.1.0
+
+info:
+  title: Ambienta AI Service
+  version: "0.1.0"
+  description: |
+    Lo que el AI Service expone. Lo que consume está en el `openapi.json` del backend
+    (`docs/integracion-agente/`), que es la fuente de verdad y no se duplica acá.
+
+    Reglas que atraviesan todo el contrato:
+
+    1. La empresa sale del claim `tenant_id` del JWT de Clerk verificado. Ningún endpoint la
+       acepta por parámetro ni por cuerpo.
+    2. El AI Service reenvía ese mismo token al backend. No tiene credenciales propias para
+       leer datos de una empresa.
+    3. La conversación se guarda en el backend (`/api/v1/support/chatbot`). El AI Service no
+       tiene almacenamiento de conversaciones.
+    4. Sin `CLERK_JWKS_URL`, modo desarrollo: se acepta `X-Tenant-Id`, no hay usuario y nada
+       se guarda.
+
+servers:
+  - url: http://ai-service:8100
+    description: Dentro de la red del compose de Ambienta
+
+security:
+  - clerk: []
+
+paths:
+
+  /consulta:
+    post:
+      operationId: consultar
+      summary: Responder una consulta en lenguaje natural
+      description: |
+        Con `Accept: text/event-stream` responde en streaming (eventos `herramienta`, `texto`,
+        `final`, `error`). Con `Accept: application/json` espera y devuelve la respuesta
+        completa.
+
+        `se_abstuvo` es un campo propio y no se deduce del texto: el frontend muestra distinto
+        una respuesta fundamentada y un "no tengo información suficiente".
+      parameters:
+        - $ref: "#/components/parameters/TenantDesarrollo"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PeticionConsulta" }
+      responses:
+        "200":
+          description: La respuesta con sus citas
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RespuestaConsulta" }
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Secuencia de eventos SSE. `event: final` lleva un `RespuestaConsulta` en
+                  `data`. `event: error` lleva un `Error`.
+        "401": { $ref: "#/components/responses/SinAutenticar" }
+        "403": { $ref: "#/components/responses/SinPermiso" }
+        "404":
+          description: La conversación no existe o no es de esta empresa. No se distinguen.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/PeticionInvalida" }
+        "503":
+          description: |
+            El backend o el modelo no responden. El frontend muestra un aviso, no un error
+            genérico.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /salud:
+    get:
+      operationId: salud
+      summary: El proceso vive
+      security: []
+      responses:
+        "200": { description: Vivo }
+
+  /listo:
+    get:
+      operationId: listo
+      summary: Puede atender consultas
+      description: Comprueba la base de conocimiento y el backend.
+      security: []
+      responses:
+        "200":
+          description: Listo
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Estado" }
+        "503":
+          description: Falta alguna dependencia
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Estado" }
+
+components:
+
+  securitySchemes:
+    clerk:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT emitido por Clerk con plantilla (`getToken({ template: 'default' })`), que trae el
+        claim `tenant_id`. Sin ese claim: 403.
+
+  parameters:
+    TenantDesarrollo:
+      name: X-Tenant-Id
+      in: header
+      required: false
+      description: |
+        Solo en modo desarrollo (sin `CLERK_JWKS_URL`). Con Clerk configurado se ignora por
+        completo.
+      schema: { type: string, format: uuid }
+
+  schemas:
+
+    PeticionConsulta:
+      type: object
+      required: [pregunta]
+      additionalProperties: false
+      properties:
+        pregunta:
+          type: string
+          minLength: 2
+          maxLength: 2000
+        conversation_id:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Id de la conversación en el backend. Si falta, el AI Service abre una y la
+            devuelve en la respuesta.
+        fecha:
+          type: [string, "null"]
+          format: date
+          description: |
+            Responder según la normativa vigente ese día. Se omite para responder en presente.
+
+    RespuestaConsulta:
+      type: object
+      required: [conversation_id, respuesta, se_abstuvo, citas, guardado]
+      properties:
+        conversation_id:
+          type: [string, "null"]
+          format: uuid
+          description: Nulo en modo desarrollo.
+        mensaje_id:
+          type: [integer, "null"]
+          description: Id del mensaje del asistente en el backend. Nulo si no se guardó.
+        respuesta: { type: string }
+        se_abstuvo: { type: boolean }
+        motivo_abstencion:
+          type: [string, "null"]
+          enum: [sin_evidencia, rechazada, techo, guardrail, null]
+        citas:
+          type: array
+          items: { $ref: "#/components/schemas/Cita" }
+        cited_norm_ids:
+          type: array
+          items: { type: string, format: uuid }
+        guardado:
+          type: boolean
+          description: Falso en modo desarrollo o si falló el guardado en el backend.
+        diagnostico: { $ref: "#/components/schemas/Diagnostico" }
+
+    Cita:
+      type: object
+      description: |
+        Es también el objeto que se guarda en `citations` del mensaje en el backend, que es
+        JSONB de forma libre. Los tres primeros campos coinciden con el ejemplo del handoff.
+      required: [norma, articulo, texto, norm_id, article_id, ruta]
+      properties:
+        norma: { type: string, examples: ["Ley 19.300"] }
+        articulo: { type: string, examples: ["11"] }
+        texto:
+          type: string
+          description: Extracto del que sale la afirmación.
+        norm_id: { type: string, format: uuid }
+        article_id: { type: string, format: uuid }
+        norm_version_id: { type: string, format: uuid }
+        ruta:
+          type: string
+          examples: ["Ley 19.300 › Título II › Párrafo 2º › Artículo 11"]
+        official_url: { type: [string, "null"], format: uri }
+        origen:
+          type: string
+          enum: [catalogo, normativa_propia, documento]
+
+    Diagnostico:
+      type: object
+      description: Va siempre. Es lo que permite entender después por qué se respondió eso.
+      properties:
+        request_id: { type: string }
+        modo_busqueda: { type: string, enum: [exacta, combinada, historica, ninguna] }
+        herramientas: { type: array, items: { type: string } }
+        fragmentos_evaluados: { type: integer }
+        mejor_similitud: { type: [number, "null"] }
+        modelo: { type: string }
+        tokens:
+          type: object
+          properties:
+            input: { type: integer }
+            output: { type: integer }
+        latencia_ms: { type: integer }
+
+    Estado:
+      type: object
+      properties:
+        base: { type: string, enum: [ok, caida] }
+        backend: { type: string, enum: [ok, caido] }
+        catalogo_sincronizado_en: { type: [string, "null"], format: date-time }
+
+    Error:
+      type: object
+      required: [detail]
+      description: Misma forma que los errores del backend.
+      properties:
+        detail: { type: string }
+        codigo:
+          type: string
+          examples: [modelo_no_disponible, backend_no_disponible, sin_empresa, falta_permiso]
+
+  responses:
+    SinAutenticar:
+      description: Falta el token, es inválido o venció. En desarrollo, falta X-Tenant-Id.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SinPermiso:
+      description: Token válido sin `tenant_id`, o sin el permiso `chatbot.use`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PeticionInvalida:
+      description: El cuerpo no cumple el contrato.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }

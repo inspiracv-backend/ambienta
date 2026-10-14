@@ -1,0 +1,16 @@
+{
+  "_nota": "Fijados con la primera medición (20/09/2026, embeddings locales, UMBRAL_EVIDENCIA=0.25, semilla_demo). Solo suben. Con el proveedor de producción y el dorado real se vuelven a medir y se reemplazan.",
+  "recuperacion": {
+    "recall@5": 0.8,
+    "mrr": 0.73,
+    "abstencion_correcta": 0.9,
+    "falsos_positivos": 0
+  },
+  "respuestas": {
+    "abstencion_correcta": 0.9,
+    "falsos_positivos": 0
+  },
+  "_nota_respuestas": "citas_validas se fija con la primera corrida con el modelo de producción. Con el modelo demo (sin redacción) dio 0,77: cita el mejor fragmento recuperado, y hereda los tres fallos de sinónimos de la recuperación local.",
+  "_medicion_openai": "21/09/2026, text-embedding-3-small + gpt-4o-mini, UMBRAL_EVIDENCIA=0.40: recuperación recall@5 1.0, mrr 0.889, abstención 1.0, falsos positivos 0; respuestas abstención 1.0, falsos positivos 0, citas válidas 0.967. CI sigue midiendo con embeddings locales (sin costo); estos son los números a sostener cuando se corra con el proveedor.",
+  "_medicion_catalogo_real": "21/09/2026, semilla_catalogo_real.jsonl contra el backend real con el reordenador: recuperación recall@5 1.0, mrr 0.94, abstención 1.0, falsos positivos 0; respuestas abstención 1.0, falsos positivos 0, cita_esperada 1.0. Sin reordenador: recall@5 0.77, mrr 0.63, 2 falsos positivos."
+}
