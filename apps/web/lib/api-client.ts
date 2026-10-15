@@ -32,8 +32,16 @@ export class ApiError extends Error {
  */
 export function codigoDeError(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
-  const codigo = (error.body as { codigo?: unknown } | null)?.codigo;
-  return typeof codigo === 'string' ? codigo : null;
+  const cuerpo = error.body as { codigo?: unknown; detail?: unknown } | null;
+  if (typeof cuerpo?.codigo === 'string') return cuerpo.codigo;
+  // **Y tambien dentro de `detail`.** Los rechazos que construye un router van
+  // como `HTTPException(detail={codigo, mensaje})`, asi que el codigo queda un
+  // nivel mas adentro. Mirando solo la raiz, el 503 de la fachada del AI
+  // Service —`{"detail": {"codigo": "ai_service_sin_configurar"}}`— se leia
+  // como "sin codigo", indistinguible de una caida cualquiera: la pantalla no
+  // podia decir "todavia no esta configurado" en vez de "fallo".
+  const anidado = (cuerpo?.detail as { codigo?: unknown } | null)?.codigo;
+  return typeof anidado === 'string' ? anidado : null;
 }
 
 export function mensajeDeError(error: unknown): string {

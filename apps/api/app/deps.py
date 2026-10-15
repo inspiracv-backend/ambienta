@@ -86,6 +86,31 @@ def get_admin_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def token_crudo(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> str | None:
+    """El JWT **tal como llego**, sin verificar ni reconstruir.
+
+    Existe para un solo caso: la fachada del chatbot, que reenvia el token de
+    quien pregunta al AI Service para que ese servicio consulte la base **con
+    el alcance de esa persona** y no con uno propio.
+
+    Dos cosas que conviene entender antes de usarla en otro lugar:
+
+    - **No reemplaza a `get_current_user`.** Esto no valida nada: devuelve una
+      cadena. La ruta que la use tiene que exigir ademas la sesion verificada,
+      o estaria reenviando un token que nadie miro.
+    - **Devuelve `None` en modo desarrollo**, donde no hay token. Quien la use
+      tiene que tener un camino para ese caso — en la fachada, `X-Tenant-Id`
+      derivado de la sesion.
+
+    Que no haya un secreto compartido entre la API y el AI Service es
+    deliberado: con uno, ese servicio podria consultar cualquier empresa y la
+    unica barrera seria que el codigo no se equivoque.
+    """
+    return credentials.credentials if credentials else None
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     x_tenant_id: str | None = Header(default=None),

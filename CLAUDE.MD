@@ -1908,6 +1908,124 @@ en paralelo. **Gastaron 4,4 millones de tokens en seis minutos y devolvieron
 cero** por un limite de gasto. Casi todo lo que se les pedia no necesitaba
 criterio, necesitaba `grep`.
 
+**La API es la fachada del AI Service, y eso sostiene dos cosas** (14-oct,
+RF-59 a RF-63). `POST /support/chatbot/consulta` autoriza y reenvia; el
+navegador nunca habla con el servicio de IA.
+
+- **No hay un secreto compartido entre los dos servicios.** Se reenvia el JWT
+  original de quien pregunta, asi que el AI Service consulta la base con **su**
+  alcance y RLS sigue siendo la barrera. Con un secreto propio, ese servicio
+  podria leer cualquier empresa y la unica barrera seria que el codigo no se
+  equivoque. Hay una prueba que exige que las cabeceras sean exactamente tres.
+- **La empresa sale del token y de ningun otro lado.** El cuerpo no declara
+  `tenant_id` ni `user_id`; mandarlos no hace nada. Una prueba los manda a
+  proposito.
+- **La fachada no guarda nada.** La conversacion la persiste el AI Service
+  llamando a `/support/chatbot` con el mismo token: si la fachada tambien
+  guardara, cada turno quedaria escrito dos veces — y un duplicado no se ve
+  como un error, se ve como un historial raro tres semanas despues.
+- **El streaming reenvia los bytes, no una reconstruccion.** Rearmar los eventos
+  a partir de lo parseado pierde alguno —`herramienta`, que el frontend usa para
+  mostrar "estoy buscando"— y cambia el orden, que es lo unico que un stream
+  promete. Va con `X-Accel-Buffering: no`, o **Caddy entrega el stream completo
+  al final** y el streaming deja de servir para lo que existe.
+- **La conexion de base se devuelve antes de generar** (`db.close()`). El pool
+  son 5 mas 10: retener una conexion por chat en curso lo vacia con quince
+  personas preguntando, y el sintoma seria que **toda** la aplicacion deja de
+  responder, no solo el chat.
+- **Y la ruta va declarada antes de `/chatbot/{conversation_id}`**, o esa ruta se
+  come `consulta` leyendolo como UUID y responde 422. Tercera vez que aparece
+  este orden de lineas en el repo.
+
+Sin `AI_SERVICE_URL` responde **503 diciendo que falta**, y no cae a
+`localhost:8100`: en produccion eso es una conexion a nada que tarda en fallar.
+
+**La fachada tambien expone el estado de los agentes, y esa ruta lleva su guarda
+escrita a mano** (15-oct, §7 del informe de integracion).
+`GET /api/v1/system/agentes-ia` reenvia la ultima corrida de cada trabajo de
+ingesta y monitoreo.
+
+- **La raiz `system` esta exenta del permiso derivado de la ruta**, asi que sin
+  `Depends(exigir_admin_global)` el endpoint no pediria nada. Es el mismo hueco
+  por el que `/system/audit-log` quedo sin pedir permiso.
+- **Su guarda no se puede probar con la suite normal.** `exigir_admin_global`
+  empieza con `if not clerk_configured: return user`, y el resto de la suite
+  corre sin Clerk: atravesaria la ruta sin mirar nada y la guarda quedaria
+  escrita, en verde y sin ejecutarse nunca. Por eso
+  `tests/test_fachada_de_plataforma.py` repite el arnes de
+  `test_admin_global_no_edita.py` en vez de sumarse a la suite.
+- **Dentro de ese arnes, `get_settings.cache_clear()` desarma la simulacion.**
+  El arnes escribe `clerk_jwks_url` sobre el objeto cacheado; limpiar el cache
+  lo reconstruye desde el entorno —donde esa variable no esta— y la guarda
+  vuelve a modo desarrollo: `403` esperado, `200` recibido, y la prueba acusando
+  a la guarda de un problema que causo la prueba. Para configurar otra cosa
+  —`ai_service_url`— se **muta el mismo objeto**, no se recarga.
+- **El timeout de lectura es corto (20s), al reves que en una consulta.** Aca no
+  hay un modelo generando: esperar tres minutos por un estado es un panel
+  colgado.
+- **La identidad de plataforma no necesitaba contrato nuevo.** El informe
+  proponia emitir un tenant tecnico o aceptar plataforma sin `tenant_id`.
+  Ninguna de las dos hace falta: `users.tenant_id` es `NOT NULL` y
+  `crear-admin-global` crea la empresa `platform`, asi que un `platform_admin`
+  siempre tiene empresa y el claim viaja igual.
+
+**Un 503 que declara "falta esta variable" no es un 5xx cualquiera, y el barrido
+de humo ahora los distingue.** `test_humo_de_routers.py` le exige `< 500` a toda
+lectura sin parametros, y la fachada del AI Service la rompia **respondiendo lo
+correcto**: sin `AI_SERVICE_URL` en el entorno de pruebas declara que falta. Se
+acepta **solo** el 503 cuyo `detail.codigo` termina en `_sin_configurar`, y
+**solo** en las rutas de `CAPACIDADES_OPCIONALES`, cada una con su motivo. Un
+500, o un 503 de servicio caido (`..._no_responde`), siguen cayendose. La regla
+vive en `_revisar()` y no dentro de la prueba porque **su guarda no la dispara
+ninguna ruta de hoy**: al mutarla, el barrido seguia en verde — recien sacandola
+a una funcion se la pudo llamar con una respuesta inventada.
+
+**La pantalla del chatbot ya pregunta al asistente de verdad** (15-oct). Dejo
+de responder con palabras clave contra `mockChatbotQA` —que se borro, porque un
+mock que sigue ahi dice que la pantalla todavia lo usa— y llama a
+`/support/chatbot/consulta` por la fachada. `ChatbotPanel` recibe **quien
+contesta** (`responder`) en vez de una base de preguntas: la pantalla
+privilegiada sigue en datos de ejemplo porque lo que se pregunta ahi son
+metricas de plataforma, y la base del AI Service es normativa y datos de una
+empresa.
+
+Tres cosas que salieron de **mirarlo en el navegador**, no de las pruebas:
+
+- **Toda llamada tiene que pasar `tenantId`, y la primera version no lo hacia.**
+  Sin Clerk no hay token y `X-Tenant-Id` es lo unico que dice de que empresa se
+  pregunta: la API respondia **401** y la pantalla mostraba "no se pudo". Las
+  pruebas no lo vieron porque simulan `api`, que no mira cabeceras. Va en las
+  opciones (`api.post(ruta, cuerpo, { tenantId })`), **nunca en el cuerpo**.
+- **Una conversacion que la API no encuentra envenena el chat entero.** La
+  fachada valida que sea de esta empresa; si se retiro, cada pregunta siguiente
+  viaja con el mismo id muerto y falla igual — roto hasta recargar, y nada en
+  pantalla diciendo por que. Ante un 404 **se suelta el hilo** y la siguiente
+  abre uno nuevo.
+- **El 404 de la API dice `ChatbotConversation not found`.** Eso es para un log,
+  no para una persona.
+
+Y una que ya estaba y nadie veia: **`codigoDeError` solo miraba la raiz del
+cuerpo.** Los rechazos que arma un router van como
+`HTTPException(detail={codigo, mensaje})`, asi que el codigo queda un nivel mas
+adentro; el 503 de la fachada se leia como "sin codigo" y la pantalla no podia
+distinguir "todavia no esta configurado" de "fallo". Ahora mira los dos
+lugares.
+
+**Las abstenciones y las fallas no se deducen del texto.** `se_abstuvo` lo
+declara el servicio y una falla va con `role="alert"` y otra cara: un
+"no tengo informacion suficiente" presentado como respuesta fundamentada, o un
+error con cara de respuesta, son la misma clase de mentira.
+
+**Restaurar una mutacion con `git checkout --` borra lo que no esta
+commiteado.** Paso el 15-oct: el guion de mutacion aplicaba el cambio, corria la
+prueba y "restauraba" con `git checkout`, que devuelve el archivo a **HEAD** —
+se llevo las dos mitades del cambio del dia. Las dos mutaciones siguientes
+informaron **"CAE (bien)" sin medir nada**, porque el codigo que decian romper
+ya no existia: el resultado exacto que una prueba de mutacion existe para no
+producir. Un guion de mutacion guarda el contenido en memoria antes de tocar el
+archivo, lo escribe de vuelta, y al final vuelve a correr la suite en verde para
+demostrar que restauro.
+
 **El portal de `DocumentoImprimible` se monta en dos pasadas, y toda asercion
 sobre su contenido tiene que esperar.** `useEffect` pone `montado` y recien ahi
 hay portal —`document` no existe en el render del servidor— asi que

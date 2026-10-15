@@ -67,6 +67,40 @@ SALTAR = {
 }
 
 
+#: Rutas que pueden responder **503 declarado** —"esta capacidad no esta
+#: configurada en este entorno"— sin que eso sea un fallo, cada una con su
+#: motivo. Es una lista aparte de `SALTAR` a proposito: estas **si se llaman y
+#: si se ejecutan**, que es lo que este archivo mide. Lo unico que se acepta es
+#: que el entorno de pruebas no tenga la variable.
+CAPACIDADES_OPCIONALES = {
+    "/api/v1/system/agentes-ia": (
+        "la fachada del AI Service: sin `AI_SERVICE_URL` declara que falta en "
+        "vez de caerse, igual que el almacenamiento y el correo. El entorno de "
+        "pruebas no levanta el AI Service, y apuntarlo a un host muerto haria "
+        "que el barrido esperara el timeout de conexion en cada corrida"
+    ),
+}
+
+
+def _declara_falta_de_configuracion(respuesta) -> bool:
+    """Un 503 con un `codigo` que termina en `_sin_configurar`.
+
+    **La forma importa.** Un endpoint que revienta da 500, y uno que se cae
+    contra un servicio caido da 503 con `..._no_responde`: ninguno de los dos
+    entra por aca. Solo pasa la respuesta que el codigo construyo a proposito
+    para decir que falta una variable.
+    """
+    if respuesta.status_code != 503:
+        return False
+    try:
+        detalle = respuesta.json().get("detail")
+    except ValueError:  # pragma: no cover - un 503 sin JSON no es declarado
+        return False
+    return isinstance(detalle, dict) and str(
+        detalle.get("codigo", "")
+    ).endswith("_sin_configurar")
+
+
 def _rutas_de_lectura() -> list[str]:
     """Los `GET` que no piden parametros de ruta ni de consulta obligatorios.
 
@@ -121,6 +155,34 @@ def cliente(request):
         yield c
 
 
+def _revisar(respuesta, ruta: str) -> None:
+    """La regla del barrido, **fuera de la prueba para poder medirla**.
+
+    La guarda de abajo solo se dispara con una ruta que todavia no existe —una
+    que empiece a declarar falta de configuracion sin estar en la lista—, asi
+    que contra la API real no se ejecuta nunca: al mutarla, el barrido seguia
+    en verde. Aca se la puede llamar con una respuesta inventada.
+    """
+    if _declara_falta_de_configuracion(respuesta):
+        # El endpoint **se ejecuto**: llego hasta mirar su configuracion y dijo
+        # que falta. Eso es una respuesta, no codigo sin correr. Pero la puerta
+        # se cierra aca mismo: si manana otra ruta empieza a contestar esto, hay
+        # que escribir por que.
+        assert ruta in CAPACIDADES_OPCIONALES, (
+            f"GET {ruta} responde 503 diciendo que le falta configuracion, y no "
+            f"esta declarada en CAPACIDADES_OPCIONALES. O se configura en el "
+            f"entorno de pruebas, o se agrega ahi con su motivo: "
+            f"{getattr(respuesta, 'text', '')[:400]}"
+        )
+        return
+
+    assert respuesta.status_code < 500, (
+        f"GET {ruta} respondio {respuesta.status_code}. Un 5xx en una lectura "
+        f"sin parametros es un endpoint que nunca se ejecuto: "
+        f"{getattr(respuesta, 'text', '')[:400]}"
+    )
+
+
 def test_hay_rutas_que_recorrer() -> None:
     """Si el descubrimiento se rompe, el barrido pasaria en verde sin hacer nada.
 
@@ -136,15 +198,83 @@ def test_la_operacion_no_revienta(cliente, ruta: str) -> None:
     """**Menos de 500.** Un 4xx es una respuesta; un 500 es codigo sin ejecutar.
 
     403 y 401 se aceptan: en modo sin Clerk algunas guardas siguen exigiendo
-    identidad, y eso es una decision, no un fallo.
+    identidad, y eso es una decision, no un fallo. El unico 5xx que pasa es el
+    503 que **declara** que falta una variable, y solo en las rutas de
+    `CAPACIDADES_OPCIONALES`.
     """
-    respuesta = cliente.get(ruta)
+    _revisar(cliente.get(ruta), ruta)
 
-    assert respuesta.status_code < 500, (
-        f"GET {ruta} respondio {respuesta.status_code}. Un 5xx en una lectura "
-        f"sin parametros es un endpoint que nunca se ejecuto: "
-        f"{respuesta.text[:400]}"
-    )
+
+class TestElDesvioDeCapacidadSinConfigurar:
+    """La excepcion al "menos de 500", medida.
+
+    Es la unica forma de que un 5xx pase el barrido, asi que lo que importa es
+    **que no se ensanche sola**: un 500 de verdad, o un 503 de un servicio
+    caido, tienen que seguir cayendose.
+    """
+
+    class _Falsa:
+        def __init__(self, status_code, cuerpo=None):
+            self.status_code = status_code
+            self._cuerpo = cuerpo
+
+        def json(self):
+            if self._cuerpo is None:
+                raise ValueError("sin cuerpo")
+            return self._cuerpo
+
+    def test_un_500_nunca_entra(self) -> None:
+        assert not _declara_falta_de_configuracion(self._Falsa(500))
+
+    def test_un_503_de_servicio_caido_tampoco(self) -> None:
+        """`_no_responde` es el AI Service abajo: eso **si** hay que verlo."""
+        assert not _declara_falta_de_configuracion(
+            self._Falsa(503, {"detail": {"codigo": "ai_service_no_responde"}})
+        )
+
+    def test_un_503_sin_cuerpo_json_tampoco(self) -> None:
+        assert not _declara_falta_de_configuracion(self._Falsa(503))
+
+    def test_un_503_con_detalle_de_texto_tampoco(self) -> None:
+        """Un `detail` string es el 503 generico de FastAPI, no una declaracion."""
+        assert not _declara_falta_de_configuracion(
+            self._Falsa(503, {"detail": "Service Unavailable"})
+        )
+
+    def test_solo_el_que_lo_declara(self) -> None:
+        assert _declara_falta_de_configuracion(
+            self._Falsa(503, {"detail": {"codigo": "ai_service_sin_configurar"}})
+        )
+
+    def test_una_ruta_no_declarada_no_puede_usar_el_desvio(self) -> None:
+        """La tripwire, disparada.
+
+        Hoy ninguna ruta real entra por aca; esta prueba es la unica que
+        demuestra que la puerta esta cerrada.
+        """
+        with pytest.raises(AssertionError, match="CAPACIDADES_OPCIONALES"):
+            _revisar(
+                self._Falsa(503, {"detail": {"codigo": "lo_que_sea_sin_configurar"}}),
+                "/api/v1/inventada",
+            )
+
+    def test_la_ruta_declarada_si_pasa(self) -> None:
+        _revisar(
+            self._Falsa(503, {"detail": {"codigo": "ai_service_sin_configurar"}}),
+            "/api/v1/system/agentes-ia",
+        )
+
+    def test_un_500_sigue_cayendose(self) -> None:
+        with pytest.raises(AssertionError, match="nunca se ejecuto"):
+            _revisar(self._Falsa(500), "/api/v1/system/agentes-ia")
+
+    def test_ninguna_exencion_quedo_colgada(self) -> None:
+        """Una ruta que se renombro deja su permiso escrito y sin dueno."""
+        huerfanas = sorted(set(CAPACIDADES_OPCIONALES) - set(RUTAS))
+        assert huerfanas == [], (
+            "CAPACIDADES_OPCIONALES nombra rutas que el barrido ya no recorre; "
+            f"sacalas: {huerfanas}"
+        )
 
 
 def test_una_ruta_inventada_da_404_y_no_500(cliente) -> None:

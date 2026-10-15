@@ -35,6 +35,21 @@ class Settings(BaseSettings):
     #: que sabe donde escribe.
     ruta_archivo_auditoria: str = "/var/lib/ambienta/auditoria"
 
+    # ── El AI Service (RF-59 a RF-63) ────────────────────────────────────
+    #
+    # La URL **interna** del servicio de IA, que la API usa como fachada:
+    # `http://ai-service:8100` dentro de la red del compose.
+    #
+    # **Vacia por defecto a proposito.** Sin ella la ruta del chatbot responde
+    # 503 con un mensaje que dice que falta, igual que el almacenamiento y el
+    # correo. Lo que NO se hace es caer a `localhost:8100`: en produccion eso es
+    # una conexion a nada que tarda en fallar, y el sintoma —"el chat no
+    # responde"— no se parece a "falta una variable".
+    #
+    # **No se publica a internet.** El AI Service consulta la base con el token
+    # de quien pregunta; un puerto abierto es una puerta que nadie vigila.
+    ai_service_url: str = ""
+
     #: Donde caen los respaldos de la base antes de subirse al bucket (RNF-19).
     #:
     #: Tiene que ser un **volumen**, no disco del contenedor: el respaldo cuyo

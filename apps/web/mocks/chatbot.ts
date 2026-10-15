@@ -5,31 +5,15 @@ export interface ChatbotQA {
 }
 
 /**
- * Base de conocimiento mock (RF-55) para el chatbot tenant-aware: solo datos
- * del tenant + normativa pública. Integración real: reemplazar por LangGraph
- * + embeddings via apps/ai-service cuando exista spec de API aprobada.
+ * **La base de ejemplo del chatbot de empresa se fue.** Esa pantalla ya
+ * pregunta al asistente de verdad a traves de `/support/chatbot/consulta`
+ * (RF-59 a RF-63); dejar aqui su lista de palabras clave diria que todavia
+ * responde con ellas — y alguien lo creeria antes que al codigo.
+ *
+ * Queda la privilegiada: lo que se pregunta ahi son metricas de la plataforma
+ * y la base de conocimiento del AI Service es normativa y datos de una
+ * empresa. Pendiente de su lado.
  */
-export const mockChatbotQA: ChatbotQA[] = [
-  {
-    keywords: ['sidrep', 'próximo vencimiento', 'proximo vencimiento'],
-    respuesta: 'La declaración SIDREP Q3 2026 de Planta Rancagua está por vencer. Revisa el detalle en Obligaciones.',
-  },
-  {
-    keywords: ['ley rep', 'rep'],
-    respuesta: 'La Ley 20.920 (Ley REP) establece metas de recolección y valorización para productores. Tu tenant tiene un 67% de cumplimiento en esta norma.',
-    citaNormId: 'norm-1',
-  },
-  {
-    keywords: ['rca', 'rancagua'],
-    respuesta: 'La RCA de Planta Rancagua N° 145/2019 exige mantener un plan de manejo de residuos peligrosos vigente.',
-    citaNormId: 'norm-2',
-  },
-  {
-    keywords: ['iso 14001', 'iso'],
-    respuesta: 'La ISO 14001:2026 (Sistema de Gestión Ambiental) tiene un 67% de cumplimiento en tu tenant. El artículo pendiente es la cláusula 9.1 (seguimiento y medición).',
-    citaNormId: 'norm-3',
-  },
-];
 
 /** Base de conocimiento mock para el chatbot privilegiado (RF-53), solo Superadmin. */
 export const mockPrivilegedQA: ChatbotQA[] = [
