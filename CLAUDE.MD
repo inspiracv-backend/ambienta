@@ -1980,6 +1980,42 @@ vive en `_revisar()` y no dentro de la prueba porque **su guarda no la dispara
 ninguna ruta de hoy**: al mutarla, el barrido seguia en verde — recien sacandola
 a una funcion se la pudo llamar con una respuesta inventada.
 
+**La pantalla del chatbot ya pregunta al asistente de verdad** (15-oct). Dejo
+de responder con palabras clave contra `mockChatbotQA` —que se borro, porque un
+mock que sigue ahi dice que la pantalla todavia lo usa— y llama a
+`/support/chatbot/consulta` por la fachada. `ChatbotPanel` recibe **quien
+contesta** (`responder`) en vez de una base de preguntas: la pantalla
+privilegiada sigue en datos de ejemplo porque lo que se pregunta ahi son
+metricas de plataforma, y la base del AI Service es normativa y datos de una
+empresa.
+
+Tres cosas que salieron de **mirarlo en el navegador**, no de las pruebas:
+
+- **Toda llamada tiene que pasar `tenantId`, y la primera version no lo hacia.**
+  Sin Clerk no hay token y `X-Tenant-Id` es lo unico que dice de que empresa se
+  pregunta: la API respondia **401** y la pantalla mostraba "no se pudo". Las
+  pruebas no lo vieron porque simulan `api`, que no mira cabeceras. Va en las
+  opciones (`api.post(ruta, cuerpo, { tenantId })`), **nunca en el cuerpo**.
+- **Una conversacion que la API no encuentra envenena el chat entero.** La
+  fachada valida que sea de esta empresa; si se retiro, cada pregunta siguiente
+  viaja con el mismo id muerto y falla igual — roto hasta recargar, y nada en
+  pantalla diciendo por que. Ante un 404 **se suelta el hilo** y la siguiente
+  abre uno nuevo.
+- **El 404 de la API dice `ChatbotConversation not found`.** Eso es para un log,
+  no para una persona.
+
+Y una que ya estaba y nadie veia: **`codigoDeError` solo miraba la raiz del
+cuerpo.** Los rechazos que arma un router van como
+`HTTPException(detail={codigo, mensaje})`, asi que el codigo queda un nivel mas
+adentro; el 503 de la fachada se leia como "sin codigo" y la pantalla no podia
+distinguir "todavia no esta configurado" de "fallo". Ahora mira los dos
+lugares.
+
+**Las abstenciones y las fallas no se deducen del texto.** `se_abstuvo` lo
+declara el servicio y una falla va con `role="alert"` y otra cara: un
+"no tengo informacion suficiente" presentado como respuesta fundamentada, o un
+error con cara de respuesta, son la misma clase de mentira.
+
 **Restaurar una mutacion con `git checkout --` borra lo que no esta
 commiteado.** Paso el 15-oct: el guion de mutacion aplicaba el cambio, corria la
 prueba y "restauraba" con `git checkout`, que devuelve el archivo a **HEAD** —
