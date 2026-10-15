@@ -1,0 +1,68 @@
+# Todo el circuito en local, sin el backend real y sin claves:
+#
+#   docker compose up --build
+#
+# Levanta la base con pgvector, aplica migraciones, arranca el backend simulado, sincroniza el
+# catálogo y deja el AI Service en http://localhost:8100. Con claves de OpenAI, cambiar
+# PROVEEDOR_LLM / PROVEEDOR_EMBEDDINGS (y DIMENSION_EMBEDDINGS=1536) en el entorno.
+#
+# Para agregarlo al compose de Ambienta, ver compose.ambienta.yml.
+
+x-ia: &ia
+  build: .
+  image: ambienta-ia:local
+  environment: &entorno
+    BACKEND_URL: http://backend:8000/api/v1
+    DATABASE_URL_ADMIN: postgresql://postgres:ambienta@ia-db:5432/ambienta_ia
+    DATABASE_URL_CONSULTA: postgresql://ia_consulta:consulta-local@ia-db:5432/ambienta_ia
+    DATABASE_URL_SINCRONIZADOR: postgresql://ia_sincronizador:sincronizador-local@ia-db:5432/ambienta_ia
+    CLAVE_IA_CONSULTA: consulta-local
+    CLAVE_IA_SINCRONIZADOR: sincronizador-local
+    SERVICIO_TENANT_ID: a0000000-0000-0000-0000-000000000001
+    PROVEEDOR_LLM: ${PROVEEDOR_LLM:-falso}
+    MODELO_LLM: ${MODELO_LLM:-gpt-4o-mini}
+    PROVEEDOR_EMBEDDINGS: ${PROVEEDOR_EMBEDDINGS:-local}
+    DIMENSION_EMBEDDINGS: ${DIMENSION_EMBEDDINGS:-256}
+    UMBRAL_EVIDENCIA: ${UMBRAL_EVIDENCIA:-0.25}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+services:
+  ia-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_PASSWORD: ambienta
+      POSTGRES_DB: ambienta_ia
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      retries: 20
+
+  backend:
+    <<: *ia
+    command: ["uvicorn", "ambienta_ia.demo.backend_simulado:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["${PUERTO_BACKEND:-8000}:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs')"]
+      interval: 3s
+      retries: 20
+
+  migrar:
+    <<: *ia
+    command: ["python", "-m", "ambienta_ia.conocimiento.migrar"]
+    depends_on:
+      ia-db: { condition: service_healthy }
+    restart: "no"
+
+  sincronizar:
+    <<: *ia
+    command: ["python", "-m", "ambienta_ia.sincronizar"]
+    depends_on:
+      migrar: { condition: service_completed_successfully }
+      backend: { condition: service_healthy }
+    restart: "no"
+
+  ai-service:
+    <<: *ia
+    ports: ["${PUERTO_IA:-8100}:8100"]
+    depends_on:
+      sincronizar: { condition: service_completed_successfully }

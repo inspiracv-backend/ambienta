@@ -1,0 +1,18 @@
+// Semilla sobre el catálogo REAL de la BCN (24 normas, como lo sincroniza el backend de Ambienta). Los artículos esperados se verificaron leyendo su texto el 21/09/2026. No reemplaza al dataset dorado con criterio legal.
+{"id": "r-ley19300-010", "pregunta": "¿Qué proyectos o actividades tienen que someterse al sistema de evaluación de impacto ambiental?", "norma": null, "articulos_esperados": ["10", "3"], "autor": "semilla-real"}
+{"id": "r-ley19300-011", "pregunta": "¿Cuándo un proyecto requiere un estudio de impacto ambiental y no una declaración?", "norma": null, "articulos_esperados": ["11", "4"], "autor": "semilla-real (art. 11 de la Ley 19.300 y art. 4 del DS 40, Vía de Evaluación)"}
+{"id": "r-ley19300-011bis", "pregunta": "¿Se puede fraccionar un proyecto para eludir el ingreso al sistema de evaluación?", "norma": "Ley 19300", "articulos_esperados": ["11 bis"], "autor": "semilla-real"}
+{"id": "r-ley19300-012", "pregunta": "¿Qué materias debe considerar un estudio de impacto ambiental?", "norma": null, "articulos_esperados": ["12", "18"], "autor": "semilla-real"}
+{"id": "r-ley19300-012bis", "pregunta": "¿Qué debe contener una declaración de impacto ambiental?", "norma": null, "articulos_esperados": ["12 bis", "19"], "autor": "semilla-real (el art. 19 del DS 40 es \"Contenido mínimo de las Declaraciones\": también responde)"}
+{"id": "r-ley19300-008", "pregunta": "¿Se puede ejecutar un proyecto del artículo 10 sin evaluación ambiental previa?", "norma": "Ley 19300", "articulos_esperados": ["8"], "autor": "semilla-real"}
+{"id": "r-ley19300-018", "pregunta": "¿Quiénes presentan una declaración de impacto ambiental en lugar de un estudio?", "norma": "Ley 19300", "articulos_esperados": ["18", "9"], "autor": "semilla-real"}
+{"id": "r-ds40-012", "pregunta": "¿Qué tiene que indicar el titular cuando su proyecto modifica otro que ya tiene resolución de calificación ambiental?", "norma": "DS 40", "articulos_esperados": ["12"], "autor": "semilla-real"}
+{"id": "r-ds1-001", "pregunta": "¿Qué es el Registro de Emisiones y Transferencias de Contaminantes?", "norma": "DS 1", "articulos_esperados": ["1"], "autor": "semilla-real"}
+{"id": "r-ds1-018", "pregunta": "¿Quiénes están obligados a reportar a través de la Ventanilla Única del RETC?", "norma": "DS 1", "articulos_esperados": ["18"], "autor": "semilla-real"}
+{"id": "r-ds1-025", "pregunta": "¿Hasta cuándo tiene que declarar sus residuos un establecimiento que genera más de 12 toneladas al año?", "norma": "DS 1", "articulos_esperados": ["25"], "autor": "semilla-real"}
+{"id": "r-num-011bis", "pregunta": "¿Qué dice el artículo 11 bis de la Ley 19.300?", "norma": "Ley 19300", "articulos_esperados": ["11 bis"], "autor": "semilla-real"}
+{"id": "r-num-ds40-003", "pregunta": "artículo 3 del DS 40", "norma": "DS 40", "articulos_esperados": ["3"], "autor": "semilla-real"}
+{"id": "r-fuera-renta", "pregunta": "¿Cuál es la tasa del impuesto a la renta de primera categoría?", "debe_abstenerse": true, "autor": "semilla-real"}
+{"id": "r-fuera-laboral", "pregunta": "¿Cuántos días de vacaciones le corresponden a un trabajador por año?", "debe_abstenerse": true, "autor": "semilla-real"}
+{"id": "r-fuera-transito", "pregunta": "¿Cuál es la velocidad máxima permitida en autopistas urbanas?", "debe_abstenerse": true, "autor": "semilla-real"}
+{"id": "r-fuera-sociedades", "pregunta": "¿Qué requisitos tiene la constitución de una sociedad por acciones?", "debe_abstenerse": true, "autor": "semilla-real"}

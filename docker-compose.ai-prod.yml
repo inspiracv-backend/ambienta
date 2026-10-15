@@ -1,0 +1,69 @@
+# Overlay opcional de producción para el AI Service.
+# Uso: docker compose -f docker-compose.prod.yml -f docker-compose.ai-prod.yml up -d --build
+x-ai-build: &ai-build
+  context: ./apps/ai-service
+  dockerfile: Dockerfile
+
+x-ai-runtime-environment: &ai-runtime-environment
+  ENVIRONMENT: production
+  BACKEND_URL: http://api:8000/api/v1
+  DATABASE_URL_CONSULTA: ${AI_DATABASE_URL_CONSULTA:?falta AI_DATABASE_URL_CONSULTA}
+  DIMENSION_EMBEDDINGS: ${AI_DIMENSION_EMBEDDINGS:-1536}
+  CLERK_JWKS_URL: ${CLERK_JWKS_URL:?falta CLERK_JWKS_URL}
+  CLERK_ISSUER: ${CLERK_ISSUER:?falta CLERK_ISSUER}
+  PROVEEDOR_LLM: ${AI_PROVEEDOR_LLM:-openai}
+  MODELO_LLM: ${AI_MODELO_LLM:-gpt-4o-mini}
+  PROVEEDOR_EMBEDDINGS: ${AI_PROVEEDOR_EMBEDDINGS:-openai}
+  MODELO_EMBEDDINGS: ${AI_MODELO_EMBEDDINGS:-text-embedding-3-small}
+  UMBRAL_EVIDENCIA: ${AI_UMBRAL_EVIDENCIA:-0.40}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+services:
+  ai-migrar:
+    build: *ai-build
+    command: ["python", "-m", "ambienta_ia.conocimiento.migrar"]
+    environment:
+      <<: *ai-runtime-environment
+      DATABASE_URL_ADMIN: ${AI_DATABASE_URL_ADMIN:?falta AI_DATABASE_URL_ADMIN}
+      DATABASE_URL_SINCRONIZADOR: ${AI_DATABASE_URL_SINCRONIZADOR:?falta AI_DATABASE_URL_SINCRONIZADOR}
+      CLAVE_IA_CONSULTA: ${AI_DB_CONSULTA_PASSWORD:?falta AI_DB_CONSULTA_PASSWORD}
+      CLAVE_IA_SINCRONIZADOR: ${AI_DB_SINCRONIZADOR_PASSWORD:?falta AI_DB_SINCRONIZADOR_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [interna]
+
+  ai-service:
+    build: *ai-build
+    environment: *ai-runtime-environment
+    depends_on:
+      ai-migrar:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    expose: ["8100"]
+    networks: [interna, salida]
+    restart: always
+
+  ai-worker:
+    build: *ai-build
+    command: ["python", "-m", "ambienta_ia.operacion"]
+    environment:
+      <<: *ai-runtime-environment
+      DATABASE_URL_SINCRONIZADOR: ${AI_DATABASE_URL_SINCRONIZADOR:?falta AI_DATABASE_URL_SINCRONIZADOR}
+      SERVICIO_TOKEN: ${AI_SERVICIO_TOKEN:?falta AI_SERVICIO_TOKEN}
+      AI_CUENTAS_ARCHIVO: /run/secrets/tenant-accounts.json
+      MONITOREO_TOKEN_PLATAFORMA: ${AI_MONITOREO_TOKEN_PLATAFORMA:-}
+      AI_MONITOREO_INTERVALO_SEGUNDOS: ${AI_MONITOREO_INTERVALO_SEGUNDOS:-86400}
+      AI_INGESTA_INTERVALO_SEGUNDOS: ${AI_INGESTA_INTERVALO_SEGUNDOS:-1800}
+    volumes:
+      - ${AI_TENANT_ACCOUNTS_FILE:?falta AI_TENANT_ACCOUNTS_FILE}:/run/secrets/tenant-accounts.json:ro
+    depends_on:
+      ai-migrar:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    networks: [interna, salida]
+    restart: always

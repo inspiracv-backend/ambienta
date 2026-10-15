@@ -1,0 +1,21 @@
+// Semilla sobre los datos del backend simulado. NO es el dataset dorado: ese lo escribe el equipo legal sobre las normas reales (SPEC-08).
+{"id": "ley19300-011-num", "pregunta": "¿Qué dice el artículo 11 de la Ley 19.300?", "norma": "Ley 19.300", "articulos_esperados": ["11"], "autor": "semilla"}
+{"id": "ley19300-010bis-num", "pregunta": "¿Qué establece el artículo 10 bis de la ley 19300?", "norma": "Ley 19.300", "articulos_esperados": ["10 bis"], "autor": "semilla"}
+{"id": "ley19300-012-num", "pregunta": "art. 12 ley 19.300", "norma": "Ley 19.300", "articulos_esperados": ["12"], "autor": "semilla"}
+{"id": "ds40-015-num", "pregunta": "¿Qué debe contener la DIA según el artículo 15 del DS 40?", "norma": "DS 40", "articulos_esperados": ["15"], "autor": "semilla"}
+{"id": "ds1-018-num", "pregunta": "¿Qué dice el artículo 18 del D.S. N° 1?", "norma": "DS 1", "articulos_esperados": ["18"], "autor": "semilla"}
+{"id": "ley19300-011-concepto", "pregunta": "¿Cuándo un proyecto requiere un estudio de impacto ambiental en vez de una declaración?", "norma": "Ley 19.300", "articulos_esperados": ["11"], "autor": "semilla"}
+{"id": "ley19300-010-concepto", "pregunta": "¿Qué tipos de proyectos tienen que someterse al sistema de evaluación de impacto ambiental?", "articulos_esperados": ["10", "3"], "autor": "semilla"}
+{"id": "ley19300-012-concepto", "pregunta": "¿Qué contenido mínimo tiene un estudio de impacto ambiental?", "norma": "Ley 19.300", "articulos_esperados": ["12"], "autor": "semilla"}
+{"id": "ley19300-051-concepto", "pregunta": "¿Quién responde por el daño ambiental causado con culpa o dolo?", "norma": "Ley 19.300", "articulos_esperados": ["51"], "autor": "semilla"}
+{"id": "ds1-018-concepto", "pregunta": "¿Hasta cuándo hay que declarar las emisiones y transferencias de contaminantes?", "norma": "DS 1", "articulos_esperados": ["18"], "autor": "semilla"}
+{"id": "ds1-019-concepto", "pregunta": "¿Por cuánto tiempo hay que conservar los antecedentes de la declaración de emisiones?", "norma": "DS 1", "articulos_esperados": ["19"], "autor": "semilla"}
+{"id": "ds40-003-concepto", "pregunta": "¿Desde cuántos megawatts una central generadora entra al sistema de evaluación?", "norma": "DS 40", "articulos_esperados": ["3"], "autor": "semilla"}
+{"id": "ley19300-008-concepto", "pregunta": "¿Se puede ejecutar un proyecto del artículo 10 sin evaluación previa?", "norma": "Ley 19.300", "articulos_esperados": ["8"], "autor": "semilla"}
+{"id": "ley19300-011-2009", "pregunta": "¿Qué decía el artículo 11 de la Ley 19.300?", "norma": "Ley 19.300", "articulos_esperados": ["11"], "fecha": "2009-06-30", "autor": "semilla"}
+{"id": "ley19300-001-2009", "pregunta": "artículo 1 de la ley 19.300", "norma": "Ley 19.300", "articulos_esperados": ["1"], "fecha": "2009-06-30", "autor": "semilla"}
+{"id": "ds1-antes-de-existir", "pregunta": "¿Qué decía el artículo 18 del DS 1?", "norma": "DS 1", "articulos_esperados": [], "fecha": "2005-01-01", "debe_abstenerse": true, "autor": "semilla"}
+{"id": "fuera-renta", "pregunta": "¿Cuál es la tasa del impuesto a la renta de primera categoría?", "debe_abstenerse": true, "autor": "semilla"}
+{"id": "fuera-laboral", "pregunta": "¿Cuántos días de vacaciones le corresponden a un trabajador por año?", "debe_abstenerse": true, "autor": "semilla"}
+{"id": "fuera-transito", "pregunta": "¿Cuál es la velocidad máxima permitida en autopistas urbanas?", "debe_abstenerse": true, "autor": "semilla"}
+{"id": "fuera-sociedades", "pregunta": "¿Qué requisitos tiene la constitución de una sociedad por acciones?", "debe_abstenerse": true, "autor": "semilla"}

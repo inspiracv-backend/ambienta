@@ -1,0 +1,40 @@
+# Overlay opcional para desarrollo: el AI Service usa la misma base PostgreSQL
+# del backend. No altera el compose base al no incluirse en sus comandos normales.
+x-ai-build: &ai-build
+  context: ./apps/ai-service
+  dockerfile: Dockerfile
+
+x-ai-dev-env: &ai-dev-env
+  BACKEND_URL: http://api:8000/api/v1
+  DATABASE_URL_ADMIN: postgresql://ambienta:ambienta_dev@postgres:5432/ambienta
+  DATABASE_URL_CONSULTA: postgresql://ia_consulta:consulta-local@postgres:5432/ambienta
+  DATABASE_URL_SINCRONIZADOR: postgresql://ia_sincronizador:sincronizador-local@postgres:5432/ambienta
+  CLAVE_IA_CONSULTA: consulta-local
+  CLAVE_IA_SINCRONIZADOR: sincronizador-local
+  DIMENSION_EMBEDDINGS: '256'
+  PROVEEDOR_LLM: falso
+  PROVEEDOR_EMBEDDINGS: local
+  UMBRAL_EVIDENCIA: '0.25'
+  CLERK_JWKS_URL: ''
+  CLERK_ISSUER: ''
+
+services:
+  ai-migrar:
+    build: *ai-build
+    command: ["python", "-m", "ambienta_ia.conocimiento.migrar"]
+    environment: *ai-dev-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  ai-service:
+    build: *ai-build
+    environment: *ai-dev-env
+    depends_on:
+      ai-migrar:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    expose: ["8100"]
+    ports: ["127.0.0.1:8100:8100"]

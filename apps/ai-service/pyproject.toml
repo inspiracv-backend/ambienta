@@ -1,0 +1,64 @@
+[project]
+name = "ambienta-ia"
+version = "0.1.0"
+description = "AI Service de Ambienta: consulta normativa con citas verificables"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "psycopg[binary,pool]>=3.2",
+    "pgvector>=0.3",
+    "pyjwt[crypto]>=2.9",
+    "langgraph>=0.2.40",
+    "langchain-core>=0.3",
+    "pymupdf>=1.24",
+    "pillow>=10",
+]
+
+[project.optional-dependencies]
+openai = ["langchain-openai>=0.2", "openai>=1.40"]
+anthropic = ["langchain-anthropic>=0.2"]
+# Lo que define la arquitectura de Ambienta (docs/arquitectura/ADD-ambienta-backend-separado.md):
+# modelos propios con Ollama, Qwen3 para el chat.
+ollama = ["langchain-ollama>=0.3"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.6",
+    "cryptography>=43",
+]
+
+[project.scripts]
+ambienta-ia-sincronizar = "ambienta_ia.sincronizar.__main__:main"
+ambienta-ia-evaluar = "ambienta_ia.evaluar.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ambienta_ia"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "integracion: necesita PostgreSQL con pgvector (TEST_DATABASE_URL)",
+    "modelo: llama a un modelo real y gasta tokens",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ambienta_ia"]
