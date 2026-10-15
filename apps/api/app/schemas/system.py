@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .base import OrmBase
 
@@ -80,3 +80,37 @@ class IntegrationAccountUpdate(BaseModel):
     status: str | None = None
     scopes: list[str] | None = None
     secret_reference: str | None = None
+
+
+# ── El estado de los agentes de IA (RF-61, RF-62) ───────────────────────────
+
+
+class CorridaDeAgente(BaseModel):
+    """Una ejecucion de un trabajo de fondo del AI Service.
+
+    `model_config` con `extra="allow"` por el mismo motivo que la respuesta del
+    chatbot: **el contrato lo versiona el AI Service**, y un modelo cerrado se
+    come en silencio cada campo que ellos agreguen.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    nombre: str
+    estado: str = Field(description="`ejecutando`, `ok` o `error`.")
+    iniciado_en: datetime | None = None
+    finalizado_en: datetime | None = None
+    elementos: int = Field(description="Cuantos elementos proceso la corrida.")
+    detalle: str | None = None
+
+
+class EstadoDeLosAgentesIA(BaseModel):
+    """Lo que el panel de plataforma necesita para saber si la IA esta al dia.
+
+    **Un trabajo que fallo en silencio es el peor estado posible** en este
+    producto: la ingesta no indexa, el chatbot responde "no tengo informacion
+    suficiente" y nada dice que la causa es un cron caido de hace dos semanas.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    agentes: list[CorridaDeAgente]

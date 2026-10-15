@@ -222,6 +222,42 @@ def consultar(*, datos: dict, encabezados: dict[str, str]) -> dict:
         ) from exc
 
 
+def estado_de_los_agentes(*, encabezados: dict[str, str]) -> dict:
+    """La ultima corrida de cada trabajo de ingesta y monitoreo.
+
+    Lectura pura y corta: a diferencia de una consulta, aca no hay un modelo
+    generando, asi que el timeout de lectura largo no corresponde — una espera
+    de tres minutos por un estado es un panel colgado.
+
+    El contrato declara que **no devuelve tokens ni datos de empresas**: es
+    estado de trabajos. Aun asi la ruta que lo expone exige identidad de
+    plataforma, porque *que* trabajos existen y cuando corrieron ya dice algo
+    de como esta armado el sistema.
+    """
+    try:
+        respuesta = httpx.get(
+            f"{_url()}/agentes/estado",
+            headers=encabezados,
+            timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0),
+        )
+    except httpx.HTTPError as exc:
+        raise _sin_red(exc) from exc
+
+    if respuesta.status_code != status.HTTP_200_OK:
+        raise _traducir(respuesta)
+
+    try:
+        return respuesta.json()
+    except ValueError as exc:  # pragma: no cover - el contrato dice JSON
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "codigo": CODIGO_NO_RESPONDE,
+                "mensaje": "El servicio de IA devolvio un estado ilegible.",
+            },
+        ) from exc
+
+
 def consultar_en_streaming(*, datos: dict, encabezados: dict[str, str]) -> Iterator[bytes]:
     """Los eventos del AI Service, retransmitidos tal cual y en orden.
 
